@@ -1017,10 +1017,7 @@ async function changeStatus(firestoreId, val) {
           const newCdb   = stockField === 'stockCdb'   ? newFieldVal : (typeof prodData.stockCdb   === 'number' ? prodData.stockCdb   : 0);
           const newExsal = stockField === 'stockExsal' ? newFieldVal : (typeof prodData.stockExsal === 'number' ? prodData.stockExsal : 0);
           const newStock = newCdb + newExsal;
-          stockBatch.update(prodRef, {
-            [stockField]: newFieldVal,
-            stock: newStock
-          });
+          stockBatch.update(prodRef, { [stockField]: newFieldVal });
           // Actualizar stockMap local con el total nuevo
           stockMap[item.id] = Math.max(0, newStock);
         }
@@ -1060,10 +1057,7 @@ async function adminCancelOrder(firestoreId, code) {
         const newFieldVal = (typeof prodData[stockField] === 'number' ? prodData[stockField] : 0) + (item.qty || 0);
         const newCdb   = stockField === 'stockCdb'   ? newFieldVal : (typeof prodData.stockCdb   === 'number' ? prodData.stockCdb   : 0);
         const newExsal = stockField === 'stockExsal' ? newFieldVal : (typeof prodData.stockExsal === 'number' ? prodData.stockExsal : 0);
-        batch.update(prodRef, {
-          [stockField]: newFieldVal,
-          stock: newCdb + newExsal
-        });
+        batch.update(prodRef, { [stockField]: newFieldVal });
       }
     }
     await batch.commit();
@@ -1475,10 +1469,7 @@ async function customerCancelOrder(firestoreId, code, btn) {
         const newFieldVal = (typeof prodData[stockField] === 'number' ? prodData[stockField] : 0) + (item.qty || 0);
         const newCdb   = stockField === 'stockCdb'   ? newFieldVal : (typeof prodData.stockCdb   === 'number' ? prodData.stockCdb   : 0);
         const newExsal = stockField === 'stockExsal' ? newFieldVal : (typeof prodData.stockExsal === 'number' ? prodData.stockExsal : 0);
-        batch.update(prodRef, {
-          [stockField]: newFieldVal,
-          stock: newCdb + newExsal
-        });
+        batch.update(prodRef, { [stockField]: newFieldVal });
       }
     }
     await batch.commit();
@@ -1722,39 +1713,12 @@ function showToast(msg) {
 //  fixStockTotal()
 // ═══════════════════════════════════════════════════
 async function fixStockTotal() {
-  if (!isAdmin) { console.warn('⛔ Solo admins pueden ejecutar fixStockTotal()'); return; }
-  console.log('🔧 Iniciando corrección de stock...');
-  try {
-    const snap = await db.collection('productos').get();
-    let fixed = 0, skipped = 0;
-    const batch = db.batch();
-    snap.forEach(doc => {
-      const d = doc.data();
-      const hasSucursalStock = typeof d.stockCdb === 'number' || typeof d.stockExsal === 'number';
-      if (!hasSucursalStock) { skipped++; return; }
-      const cdb   = typeof d.stockCdb   === 'number' ? d.stockCdb   : 0;
-      const exsal = typeof d.stockExsal === 'number' ? d.stockExsal : 0;
-      const correctTotal = cdb + exsal;
-      if (d.stock !== correctTotal) {
-        console.log(`  ✏️ ${d.name}: stock=${d.stock} → ${correctTotal} (CDB=${cdb} + EXSAL=${exsal})`);
-        batch.update(doc.ref, { stock: correctTotal });
-        fixed++;
-      } else {
-        skipped++;
-      }
-    });
-    if (fixed === 0) {
-      console.log('✅ Todos los stocks ya están correctos. Nada que corregir.');
-      alert('✅ Todos los stocks ya están correctos. Nada que corregir.');
-      return;
-    }
-    await batch.commit();
-    console.log(`✅ Corrección completada: ${fixed} producto(s) actualizado(s), ${skipped} sin cambios.`);
-    alert(`✅ Corrección completada:\n${fixed} producto(s) actualizado(s)\n${skipped} sin cambios.\n\nRecarga la página para ver los cambios.`);
-  } catch (err) {
-    console.error('❌ Error al corregir stock:', err);
-    alert('❌ Error: ' + err.message);
-  }
+  // Ya no es necesaria: el stock se calcula en tiempo real como stockCdb + stockExsal.
+  // El campo "stock" ya no se escribe en Firestore desde ninguna pagina.
+  console.log('fixStockTotal() ya no es necesaria. El stock se calcula en tiempo real desde stockCdb + stockExsal.');
+  alert('Esta funcion ya no es necesaria.
+
+El stock ahora se calcula automaticamente como stockCdb + stockExsal, sin un campo stock separado en Firestore.');
 }
 
 // ═══════════════════════════════════════════════════
