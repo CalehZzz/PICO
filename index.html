@@ -720,6 +720,8 @@ auth.onAuthStateChanged(user => {
     // Admin = autenticado con email + contraseña
     isAdmin = user.providerData.some(p => p.providerId === 'password');
     updateNavAuth();
+    // Cargar productos si aún no se han cargado
+    if (!products.length) loadProducts();
     if (isAdmin) {
       startAdminListener();
       // Si llegó desde un QR (URL con ?pedido=ID)
@@ -735,6 +737,8 @@ auth.onAuthStateChanged(user => {
     isAdmin     = false;
     if (adminUnsubscribe) { adminUnsubscribe(); adminUnsubscribe = null; }
     updateNavAuth();
+    // Cargar productos también cuando no hay sesión iniciada
+    if (!products.length) loadProducts();
   }
 });
 
@@ -843,7 +847,7 @@ function renderAdminPanel() {
   const pending   = orders.filter(o => o.status === 'pending').length;
   const sold      = orders.filter(o => o.status === 'sold').length;
   const cancelled = orders.filter(o => o.status === 'cancelled').length;
-  const total     = orders.reduce((s, o) => s + (o.total || 0), 0);
+  const total     = orders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + (o.total || 0), 0);
   document.getElementById('adminStats').innerHTML = `
     <div class="astat"><div class="av">${orders.length}</div><div class="al">Total pedidos</div></div>
     <div class="astat"><div class="av" style="color:var(--amber)">${pending}</div><div class="al">Pendientes</div></div>
@@ -910,17 +914,24 @@ async function changeStatus(firestoreId, val) {
 
     // Al confirmar entrega, descontar stock REAL en Firebase
     if (val === 'sold') {
-      const order = orders.find(o => o.firestoreId === firestoreId);
-      if (order && order.items && !order.stockDeducted) {
-        const batch = db.batch();
-        for (const item of order.items) {
+      // Leer el pedido fresco desde Firestore para garantizar datos actualizados
+      const freshSnap = await db.collection('pedidos').doc(firestoreId).get();
+      const freshData = freshSnap.data() || {};
+      if (freshData.items && !freshData.stockDeducted) {
+        const stockBatch = db.batch();
+        for (const item of freshData.items) {
           const prodRef = db.collection('productos').doc(item.id);
-          batch.update(prodRef, {
+          stockBatch.update(prodRef, {
             stock: firebase.firestore.FieldValue.increment(-(item.qty || 0))
           });
         }
-        batch.update(db.collection('pedidos').doc(firestoreId), { stockDeducted: true });
-        await batch.commit();
+        stockBatch.update(db.collection('pedidos').doc(firestoreId), { stockDeducted: true });
+        await stockBatch.commit();
+        // Actualizar stockMap local también
+        for (const item of freshData.items) {
+          stockMap[item.id] = Math.max(0, (stockMap[item.id] || 0) - (item.qty || 0));
+        }
+        renderProducts();
       }
     }
     showToast(val === 'sold' ? '✅ Entregado — stock descontado en Firebase' : '🔄 Marcado como pendiente');
@@ -932,20 +943,33 @@ async function changeStatus(firestoreId, val) {
 async function adminCancelOrder(firestoreId, code) {
   if (!confirm(`¿Cancelar el pedido ${code}? Esta acción no se puede deshacer.`)) return;
   try {
-    await db.collection('pedidos').doc(firestoreId).update({
+    const order = orders.find(o => o.firestoreId === firestoreId);
+    const batch = db.batch();
+    // Marcar pedido como cancelado
+    batch.update(db.collection('pedidos').doc(firestoreId), {
       status: 'cancelled',
       cancelledAt: firebase.firestore.FieldValue.serverTimestamp(),
-      cancelledBy: 'admin'
+      cancelledBy: 'admin',
+      stockDeducted: false
     });
+    // Restaurar stock en Firebase solo si ya fue descontado
+    if (order && order.items && order.stockDeducted) {
+      for (const item of order.items) {
+        const prodRef = db.collection('productos').doc(item.id);
+        batch.update(prodRef, {
+          stock: firebase.firestore.FieldValue.increment(item.qty || 0)
+        });
+      }
+    }
+    await batch.commit();
     // Restaurar stock visual local
-    const order = orders.find(o => o.firestoreId === firestoreId);
     if (order && order.items) {
       for (const item of order.items) {
         stockMap[item.id] = (stockMap[item.id] || 0) + (item.qty || 0);
       }
       renderProducts();
     }
-    showToast('✅ Pedido cancelado correctamente');
+    showToast('✅ Pedido cancelado — stock restaurado en Firebase');
   } catch (err) {
     showToast('❌ Error al cancelar: ' + err.message);
   }
@@ -1274,20 +1298,34 @@ async function customerCancelOrder(firestoreId, code, btn) {
   btn.disabled = true;
   btn.textContent = 'Cancelando...';
   try {
-    await db.collection('pedidos').doc(firestoreId).update({
+    const snap = await db.collection('pedidos').doc(firestoreId).get();
+    const orderData = snap.data() || {};
+    const items = orderData.items || [];
+    const batch = db.batch();
+    // Marcar pedido como cancelado
+    batch.update(db.collection('pedidos').doc(firestoreId), {
       status: 'cancelled',
       cancelledAt: firebase.firestore.FieldValue.serverTimestamp(),
-      cancelledBy: currentUser?.uid || 'customer'
+      cancelledBy: currentUser?.uid || 'customer',
+      stockDeducted: false
     });
-    // Restaurar stock visual
-    const snap = await db.collection('pedidos').doc(firestoreId).get();
-    const items = snap.data()?.items || [];
+    // Restaurar stock en Firebase solo si ya fue descontado
+    if (orderData.stockDeducted) {
+      for (const item of items) {
+        const prodRef = db.collection('productos').doc(item.id);
+        batch.update(prodRef, {
+          stock: firebase.firestore.FieldValue.increment(item.qty || 0)
+        });
+      }
+    }
+    await batch.commit();
+    // Restaurar stock visual local
     for (const item of items) {
       stockMap[item.id] = (stockMap[item.id] || 0) + (item.qty || 0);
     }
     renderProducts();
     renderMyOrders();
-    showToast('✅ Pedido cancelado');
+    showToast('✅ Pedido cancelado — stock restaurado');
   } catch (err) {
     showToast('❌ Error al cancelar: ' + err.message);
     btn.disabled = false;
