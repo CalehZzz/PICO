@@ -487,6 +487,7 @@ tr:hover td{background:var(--b50)}
               <th>Total</th>
               <th>Fecha pedido</th>
               <th>Entrega</th>
+              <th>Sucursal</th>
               <th>Estado</th>
               <th>Acciones</th>
             </tr>
@@ -688,7 +689,11 @@ async function loadProducts() {
     snap.forEach(doc => {
       const d = doc.data();
       const { cat, e } = detectCatEmoji(d.name, d.desc);
-      const s = typeof d.stock === 'number' ? d.stock : 0;
+      // stock visible = stockcdb + stockexsal si existen, sino usar stock directo
+      const hasSucursalStock = typeof d.stockcdb === 'number' || typeof d.stockexsal === 'number';
+      const s = hasSucursalStock
+        ? ((typeof d.stockcdb === 'number' ? d.stockcdb : 0) + (typeof d.stockexsal === 'number' ? d.stockexsal : 0))
+        : (typeof d.stock === 'number' ? d.stock : 0);
       products.push({
         id:    doc.id,
         name:  d.name  || 'Producto',
@@ -882,7 +887,7 @@ function renderAdminPanel() {
 function renderAdminTable(data) {
   const tb = document.getElementById('adminTableBody');
   if (!data.length) {
-    tb.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--g300)">Sin pedidos registrados</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:32px;color:var(--g300)">Sin pedidos registrados</td></tr>`;
     return;
   }
   tb.innerHTML = data.map(o => {
@@ -906,6 +911,17 @@ function renderAdminTable(data) {
       <td style="font-size:.75rem;white-space:nowrap;color:var(--g500)">${o.deliveredAt ? fmtDate(o.deliveredAt) : '<span style="color:var(--g300)">—</span>'}</td>
       <td>
         ${isCancelled
+          ? `<span style="font-size:.72rem;color:var(--g300)">—</span>`
+          : `<select class="stsel" onchange="changeSucursal('${o.firestoreId}', this.value)"
+              style="background:var(--b50);color:var(--b600)">
+              <option value="" ${!o.sucursal ? 'selected' : ''}>Elegir...</option>
+              <option value="cdb"   ${o.sucursal === 'cdb'   ? 'selected' : ''}>🏫 CDB</option>
+              <option value="exsal" ${o.sucursal === 'exsal' ? 'selected' : ''}>🏢 EXSAL</option>
+            </select>`
+        }
+      </td>
+      <td>
+        ${isCancelled
           ? `<span class="sbadge sc">❌ Cancelado</span>`
           : `<select class="stsel" onchange="changeStatus('${o.firestoreId}', this.value)"
               style="background:${statusColor};color:${statusText}">
@@ -927,6 +943,18 @@ function renderAdminTable(data) {
   }).join('');
 }
 
+async function changeSucursal(firestoreId, val) {
+  try {
+    await db.collection('pedidos').doc(firestoreId).update({ sucursal: val || null });
+    // Actualizar en memoria local
+    const o = orders.find(x => x.firestoreId === firestoreId);
+    if (o) o.sucursal = val || null;
+    showToast(val ? `🏫 Sucursal asignada: ${val.toUpperCase()}` : '↩️ Sucursal eliminada');
+  } catch (err) {
+    showToast('❌ Error: ' + err.message);
+  }
+}
+
 async function changeStatus(firestoreId, val) {
   try {
     const update = { status: val };
@@ -934,29 +962,47 @@ async function changeStatus(firestoreId, val) {
     if (val === 'pending') update.deliveredAt = null;
     await db.collection('pedidos').doc(firestoreId).update(update);
 
-    // Al confirmar entrega, descontar stock REAL en Firebase
+    // Al confirmar entrega, descontar stockcdb o stockexsal según sucursal
     if (val === 'sold') {
-      // Leer el pedido fresco desde Firestore para garantizar datos actualizados
       const freshSnap = await db.collection('pedidos').doc(firestoreId).get();
       const freshData = freshSnap.data() || {};
       if (freshData.items && !freshData.stockDeducted) {
+        const sucursal = freshData.sucursal; // 'cdb' | 'exsal' | null
+        if (!sucursal) {
+          showToast('⚠️ Asigna una sucursal antes de marcar como entregado');
+          // Revertir el cambio de estado
+          await db.collection('pedidos').doc(firestoreId).update({ status: 'pending', deliveredAt: null });
+          return;
+        }
+        const stockField = sucursal === 'cdb' ? 'stockcdb' : 'stockexsal';
         const stockBatch = db.batch();
         for (const item of freshData.items) {
           const prodRef = db.collection('productos').doc(item.id);
+          // Leer stock actual para calcular el nuevo total
+          const prodSnap = await prodRef.get();
+          const prodData = prodSnap.data() || {};
+          const currentCdb   = typeof prodData.stockcdb   === 'number' ? prodData.stockcdb   : (prodData.stock || 0);
+          const currentExsal = typeof prodData.stockexsal === 'number' ? prodData.stockexsal : 0;
+          const newFieldVal  = Math.max(0, (prodData[stockField] !== undefined ? prodData[stockField] : 0) - (item.qty || 0));
+          // stock total = stockcdb + stockexsal (recalculado)
+          const newCdb   = stockField === 'stockcdb'   ? newFieldVal : (typeof prodData.stockcdb   === 'number' ? prodData.stockcdb   : 0);
+          const newExsal = stockField === 'stockexsal' ? newFieldVal : (typeof prodData.stockexsal === 'number' ? prodData.stockexsal : 0);
+          const newStock = newCdb + newExsal;
           stockBatch.update(prodRef, {
-            stock: firebase.firestore.FieldValue.increment(-(item.qty || 0))
+            [stockField]: newFieldVal,
+            stock: newStock
           });
+          // Actualizar stockMap local con el total nuevo
+          stockMap[item.id] = Math.max(0, newStock);
         }
         stockBatch.update(db.collection('pedidos').doc(firestoreId), { stockDeducted: true });
         await stockBatch.commit();
-        // Actualizar stockMap local también
-        for (const item of freshData.items) {
-          stockMap[item.id] = Math.max(0, (stockMap[item.id] || 0) - (item.qty || 0));
-        }
         renderProducts();
+        showToast(`✅ Entregado — stock ${sucursal.toUpperCase()} descontado en Firebase`);
+        return;
       }
     }
-    showToast(val === 'sold' ? '✅ Entregado — stock descontado en Firebase' : '🔄 Marcado como pendiente');
+    showToast(val === 'sold' ? '✅ Marcado como entregado' : '🔄 Marcado como pendiente');
   } catch (err) {
     showToast('❌ Error: ' + err.message);
   }
@@ -976,10 +1022,18 @@ async function adminCancelOrder(firestoreId, code) {
     });
     // Restaurar stock en Firebase solo si ya fue descontado
     if (order && order.items && order.stockDeducted) {
+      const sucursal   = order.sucursal;
+      const stockField = sucursal === 'exsal' ? 'stockexsal' : 'stockcdb';
       for (const item of order.items) {
-        const prodRef = db.collection('productos').doc(item.id);
+        const prodRef  = db.collection('productos').doc(item.id);
+        const prodSnap = await prodRef.get();
+        const prodData = prodSnap.data() || {};
+        const newFieldVal = (typeof prodData[stockField] === 'number' ? prodData[stockField] : 0) + (item.qty || 0);
+        const newCdb   = stockField === 'stockcdb'   ? newFieldVal : (typeof prodData.stockcdb   === 'number' ? prodData.stockcdb   : 0);
+        const newExsal = stockField === 'stockexsal' ? newFieldVal : (typeof prodData.stockexsal === 'number' ? prodData.stockexsal : 0);
         batch.update(prodRef, {
-          stock: firebase.firestore.FieldValue.increment(item.qty || 0)
+          [stockField]: newFieldVal,
+          stock: newCdb + newExsal
         });
       }
     }
@@ -1333,10 +1387,18 @@ async function customerCancelOrder(firestoreId, code, btn) {
     });
     // Restaurar stock en Firebase solo si ya fue descontado
     if (orderData.stockDeducted) {
+      const sucursal   = orderData.sucursal;
+      const stockField = sucursal === 'exsal' ? 'stockexsal' : 'stockcdb';
       for (const item of items) {
-        const prodRef = db.collection('productos').doc(item.id);
+        const prodRef  = db.collection('productos').doc(item.id);
+        const prodSnap = await prodRef.get();
+        const prodData = prodSnap.data() || {};
+        const newFieldVal = (typeof prodData[stockField] === 'number' ? prodData[stockField] : 0) + (item.qty || 0);
+        const newCdb   = stockField === 'stockcdb'   ? newFieldVal : (typeof prodData.stockcdb   === 'number' ? prodData.stockcdb   : 0);
+        const newExsal = stockField === 'stockexsal' ? newFieldVal : (typeof prodData.stockexsal === 'number' ? prodData.stockexsal : 0);
         batch.update(prodRef, {
-          stock: firebase.firestore.FieldValue.increment(item.qty || 0)
+          [stockField]: newFieldVal,
+          stock: newCdb + newExsal
         });
       }
     }
