@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PICO — Pedidos</title>
+<title>ElectroLab — Pedidos</title>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -254,6 +254,7 @@ nav{position:sticky;top:0;z-index:200;background:rgba(255,255,255,.82);backdrop-
 .sbadge{padding:4px 12px;border-radius:999px;font-size:.72rem;font-weight:700}
 .sp{background:#fef3c7;color:#d97706}
 .ss{background:#d1fae5;color:#059669}
+.sc{background:#fee2e2;color:#dc2626}
 .ometa{font-size:.78rem;color:var(--g400);display:flex;flex-wrap:wrap;gap:10px}
 .ochips{margin-top:9px;padding-top:9px;border-top:1px solid var(--b50);display:flex;flex-wrap:wrap;gap:5px}
 .ochip{background:var(--b50);color:var(--b600);border-radius:999px;padding:3px 10px;font-size:.7rem;font-weight:500}
@@ -302,16 +303,46 @@ tr:hover td{background:var(--b50)}
   z-index:999;transition:transform .28s cubic-bezier(.4,0,.2,1);white-space:nowrap}
 .toast.show{transform:translateX(-50%) translateY(0)}
 
+/* ─── CANCEL BTN ─── */
+.btn-cancel-order{padding:5px 11px;border-radius:7px;border:1.5px solid #fca5a5;
+  background:#fff;color:#dc2626;font-family:var(--font);font-size:.73rem;font-weight:600;
+  cursor:pointer;transition:all .15s;white-space:nowrap}
+.btn-cancel-order:hover{background:#fee2e2}
+.btn-cancel-order:disabled{opacity:.4;cursor:not-allowed}
+
+/* ─── ORDER DETAIL MODAL ─── */
+.odetail-list{display:flex;flex-direction:column;gap:6px;margin:8px 0 12px}
+.odetail-item{display:flex;justify-content:space-between;align-items:center;
+  padding:8px 11px;background:var(--b50);border-radius:8px;border:1px solid var(--b100)}
+.odetail-item-name{font-size:.82rem;font-weight:500;color:var(--g700)}
+.odetail-item-sub{font-size:.75rem;color:var(--g400)}
+.odetail-item-price{font-size:.82rem;font-weight:600;color:var(--b600)}
+.odetail-subtotal{display:flex;justify-content:space-between;align-items:center;
+  padding:10px 11px;border-top:1.5px dashed var(--b200);margin-top:4px}
+.odetail-subtotal span:first-child{font-size:.85rem;font-weight:600;color:var(--g700)}
+.odetail-subtotal span:last-child{font-size:1rem;font-weight:700;color:var(--b600)}
+
 /* ─── RESPONSIVE ─── */
 @media(max-width:580px){
   .pgrid{grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:11px}
   .catalog-wrap{padding:18px 14px 40px}
   .frow{grid-template-columns:1fr}
   table{font-size:.72rem}
-  th,td{padding:8px 10px}
+  th,td{padding:8px 8px}
   .auth-box{width:calc(100vw - 24px);right:12px}
   .admin-pg{padding:16px 12px}
   .nav-right .nbtn-ghost{display:none}
+  .nav-right{gap:4px}
+  .brand-name{font-size:.92rem}
+  .cart-btn{padding:7px 10px;font-size:.78rem}
+  /* Admin table scrollable on mobile */
+  .atable-wrap{overflow-x:auto}
+}
+@media(max-width:420px){
+  nav{padding:0 12px}
+  .brand-name{display:none}
+  .cart-btn span:not(.cbadge){display:none}
+  .cart-btn{padding:7px 10px}
 }
 </style>
 </head>
@@ -457,6 +488,7 @@ tr:hover td{background:var(--b50)}
               <th>Fecha pedido</th>
               <th>Entrega</th>
               <th>Estado</th>
+              <th>Acciones</th>
             </tr>
           </thead>
           <tbody id="adminTableBody"></tbody>
@@ -552,6 +584,20 @@ tr:hover td{background:var(--b50)}
     <div class="mfoot">
       <button class="btn-sec" onclick="closeModal('checkoutModal')">Cancelar</button>
       <button class="btn-pri" id="placeOrderBtn" onclick="placeOrder()">Realizar Pedido ✓</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ ORDER DETAIL MODAL ═══ -->
+<div class="moverlay" id="orderDetailModal">
+  <div class="modal">
+    <div class="mhd">
+      <h2 id="orderDetailTitle">📦 Detalle del Pedido</h2>
+      <button class="xbtn" onclick="closeModal('orderDetailModal')">✕</button>
+    </div>
+    <div class="mbody" id="orderDetailBody"></div>
+    <div class="mfoot">
+      <button class="btn-sec" onclick="closeModal('orderDetailModal')">Cerrar</button>
     </div>
   </div>
 </div>
@@ -794,13 +840,15 @@ function startAdminListener() {
 
 function renderAdminPanel() {
   if (!isAdmin) return;
-  const pending  = orders.filter(o => o.status === 'pending').length;
-  const sold     = orders.filter(o => o.status === 'sold').length;
-  const total    = orders.reduce((s, o) => s + (o.total || 0), 0);
+  const pending   = orders.filter(o => o.status === 'pending').length;
+  const sold      = orders.filter(o => o.status === 'sold').length;
+  const cancelled = orders.filter(o => o.status === 'cancelled').length;
+  const total     = orders.reduce((s, o) => s + (o.total || 0), 0);
   document.getElementById('adminStats').innerHTML = `
     <div class="astat"><div class="av">${orders.length}</div><div class="al">Total pedidos</div></div>
     <div class="astat"><div class="av" style="color:var(--amber)">${pending}</div><div class="al">Pendientes</div></div>
     <div class="astat"><div class="av" style="color:var(--green)">${sold}</div><div class="al">Entregados</div></div>
+    <div class="astat"><div class="av" style="color:var(--red)">${cancelled}</div><div class="al">Cancelados</div></div>
     <div class="astat"><div class="av">$${total.toFixed(2)}</div><div class="al">Total facturado</div></div>`;
   renderAdminTable(orders);
 }
@@ -808,30 +856,49 @@ function renderAdminPanel() {
 function renderAdminTable(data) {
   const tb = document.getElementById('adminTableBody');
   if (!data.length) {
-    tb.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--g300)">Sin pedidos registrados</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--g300)">Sin pedidos registrados</td></tr>`;
     return;
   }
-  tb.innerHTML = data.map(o => `
-    <tr data-fid="${o.firestoreId}">
+  tb.innerHTML = data.map(o => {
+    const isCancelled = o.status === 'cancelled';
+    const isPending   = o.status === 'pending';
+    const statusColor = isCancelled ? '#fee2e2' : (isPending ? '#fef3c7' : '#d1fae5');
+    const statusText  = isCancelled ? '#dc2626'  : (isPending ? '#d97706' : '#059669');
+    return `
+    <tr data-fid="${o.firestoreId}" ${isCancelled ? 'style="opacity:.6"' : ''}>
       <td><b style="color:var(--b600)">${o.code || '—'}</b></td>
       <td>${o.name || '—'}</td>
       <td>${o.grade || '—'}</td>
       <td><span style="background:var(--b100);color:var(--b600);border-radius:999px;padding:2px 9px;font-size:.72rem;font-weight:600">${o.section || '—'}</span></td>
-      <td style="max-width:170px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-        ${(o.items || []).map(i => `${i.name} ×${i.qty}`).join(', ')}
+      <td>
+        <button onclick="showOrderDetail('${o.firestoreId}')" style="background:var(--b50);color:var(--b600);border:1.5px solid var(--b200);border-radius:7px;padding:3px 9px;font-size:.72rem;font-weight:600;cursor:pointer;white-space:nowrap">
+          🔍 Ver (${(o.items||[]).length})
+        </button>
       </td>
       <td style="font-weight:700;color:var(--b600)">$${(o.total || 0).toFixed(2)}</td>
       <td style="font-size:.75rem;white-space:nowrap;color:var(--g500)">${fmtDate(o.createdAt)}</td>
       <td style="font-size:.75rem;white-space:nowrap;color:var(--g500)">${o.deliveredAt ? fmtDate(o.deliveredAt) : '<span style="color:var(--g300)">—</span>'}</td>
       <td>
-        <select class="stsel" onchange="changeStatus('${o.firestoreId}', this.value)"
-          style="background:${o.status === 'pending' ? '#fef3c7' : '#d1fae5'};
-                 color:${o.status === 'pending' ? '#d97706' : '#059669'}">
-          <option value="pending" ${o.status === 'pending' ? 'selected' : ''}>⏳ Pendiente</option>
-          <option value="sold"    ${o.status === 'sold'    ? 'selected' : ''}>✅ Entregado</option>
-        </select>
+        ${isCancelled
+          ? `<span class="sbadge sc">❌ Cancelado</span>`
+          : `<select class="stsel" onchange="changeStatus('${o.firestoreId}', this.value)"
+              style="background:${statusColor};color:${statusText}">
+              <option value="pending" ${isPending ? 'selected' : ''}>⏳ Pendiente</option>
+              <option value="sold"    ${o.status === 'sold' ? 'selected' : ''}>✅ Entregado</option>
+            </select>`
+        }
       </td>
-    </tr>`).join('');
+      <td>
+        ${isCancelled
+          ? `<span style="font-size:.72rem;color:var(--g300)">—</span>`
+          : `<button class="btn-cancel-order" onclick="adminCancelOrder('${o.firestoreId}', '${o.code}')"
+              ${o.status === 'sold' ? 'disabled title="Pedido ya entregado"' : ''}>
+              ✕ Cancelar
+            </button>`
+        }
+      </td>
+    </tr>`;
+  }).join('');
 }
 
 async function changeStatus(firestoreId, val) {
@@ -840,10 +907,73 @@ async function changeStatus(firestoreId, val) {
     if (val === 'sold')    update.deliveredAt = firebase.firestore.FieldValue.serverTimestamp();
     if (val === 'pending') update.deliveredAt = null;
     await db.collection('pedidos').doc(firestoreId).update(update);
-    showToast(val === 'sold' ? '✅ Marcado como entregado' : '🔄 Marcado como pendiente');
+
+    // Al confirmar entrega, descontar stock REAL en Firebase
+    if (val === 'sold') {
+      const order = orders.find(o => o.firestoreId === firestoreId);
+      if (order && order.items && !order.stockDeducted) {
+        const batch = db.batch();
+        for (const item of order.items) {
+          const prodRef = db.collection('productos').doc(item.id);
+          batch.update(prodRef, {
+            stock: firebase.firestore.FieldValue.increment(-(item.qty || 0))
+          });
+        }
+        batch.update(db.collection('pedidos').doc(firestoreId), { stockDeducted: true });
+        await batch.commit();
+      }
+    }
+    showToast(val === 'sold' ? '✅ Entregado — stock descontado en Firebase' : '🔄 Marcado como pendiente');
   } catch (err) {
     showToast('❌ Error: ' + err.message);
   }
+}
+
+async function adminCancelOrder(firestoreId, code) {
+  if (!confirm(`¿Cancelar el pedido ${code}? Esta acción no se puede deshacer.`)) return;
+  try {
+    await db.collection('pedidos').doc(firestoreId).update({
+      status: 'cancelled',
+      cancelledAt: firebase.firestore.FieldValue.serverTimestamp(),
+      cancelledBy: 'admin'
+    });
+    // Restaurar stock visual local
+    const order = orders.find(o => o.firestoreId === firestoreId);
+    if (order && order.items) {
+      for (const item of order.items) {
+        stockMap[item.id] = (stockMap[item.id] || 0) + (item.qty || 0);
+      }
+      renderProducts();
+    }
+    showToast('✅ Pedido cancelado correctamente');
+  } catch (err) {
+    showToast('❌ Error al cancelar: ' + err.message);
+  }
+}
+
+function showOrderDetail(firestoreId) {
+  const o = orders.find(x => x.firestoreId === firestoreId);
+  if (!o) return;
+  document.getElementById('orderDetailTitle').textContent = `📦 Pedido ${o.code || ''}`;
+  const items = (o.items || []).map(i => `
+    <div class="odetail-item">
+      <div>
+        <div class="odetail-item-name">${i.name}</div>
+        <div class="odetail-item-sub">$${(i.price||0).toFixed(2)} × ${i.qty}</div>
+      </div>
+      <div class="odetail-item-price">$${((i.price||0) * i.qty).toFixed(2)}</div>
+    </div>`).join('');
+  document.getElementById('orderDetailBody').innerHTML = `
+    <div style="font-size:.78rem;color:var(--g400);margin-bottom:10px">
+      <b style="color:var(--g700)">${o.name}</b> · ${o.grade} – ${o.section}<br>
+      ${fmtDate(o.createdAt)}
+    </div>
+    <div class="odetail-list">${items}</div>
+    <div class="odetail-subtotal">
+      <span>Subtotal</span>
+      <span>$${(o.total||0).toFixed(2)}</span>
+    </div>`;
+  openModal('orderDetailModal');
 }
 
 function filterAdminTable(q) {
@@ -966,9 +1096,12 @@ function openCheckout() {
 
   const items = Object.keys(cart).map(id => {
     const p = products.find(x => x.id === id);
-    return `<div class="orow">
-      <span>${p.e} ${p.name} ×${cart[id]}</span>
-      <span>$${(p.price * cart[id]).toFixed(2)}</span>
+    return `<div class="odetail-item">
+      <div>
+        <div class="odetail-item-name">${p.e} ${p.name}</div>
+        <div class="odetail-item-sub">$${p.price.toFixed(2)} × ${cart[id]}</div>
+      </div>
+      <div class="odetail-item-price">$${(p.price * cart[id]).toFixed(2)}</div>
     </div>`;
   }).join('');
   const total = Object.keys(cart).reduce((s, id) => {
@@ -978,8 +1111,11 @@ function openCheckout() {
 
   document.getElementById('checkoutSummary').innerHTML = `
     <div class="osumtitle">Resumen del pedido</div>
-    ${items}
-    <div class="ototal"><span>Subtotal</span><span>$${total.toFixed(2)}</span></div>`;
+    <div class="odetail-list" style="gap:4px">${items}
+      <div class="odetail-subtotal">
+        <span>Subtotal</span><span>$${total.toFixed(2)}</span>
+      </div>
+    </div>`;
 
   document.getElementById('studentName').value = currentUser.name || '';
   const saved = getSavedProfile();
@@ -1084,12 +1220,16 @@ async function renderMyOrders() {
       el.innerHTML = '<p style="color:var(--g300);font-size:.85rem">No tienes pedidos aún.</p>';
       return;
     }
-    el.innerHTML = myOrders.map(o => `
-      <div class="ocard">
+    el.innerHTML = myOrders.map(o => {
+      const isCancelled = o.status === 'cancelled';
+      const isPending   = o.status === 'pending';
+      const canCancel   = isPending;
+      return `
+      <div class="ocard" ${isCancelled ? 'style="opacity:.65;border-color:#fca5a5"' : ''}>
         <div class="ocard-hd">
           <span class="ocode">${o.code}</span>
-          <span class="sbadge ${o.status === 'pending' ? 'sp' : 'ss'}">
-            ${o.status === 'pending' ? '⏳ Pendiente' : '✅ Entregado'}
+          <span class="sbadge ${isCancelled ? 'sc' : (isPending ? 'sp' : 'ss')}">
+            ${isCancelled ? '❌ Cancelado' : (isPending ? '⏳ Pendiente' : '✅ Entregado')}
           </span>
         </div>
         <div class="ometa">
@@ -1099,19 +1239,61 @@ async function renderMyOrders() {
           <span>💰 $${(o.total || 0).toFixed(2)}</span>
           ${o.deliveredAt ? `<span>📦 ${fmtDate(o.deliveredAt)}</span>` : ''}
         </div>
-        <div class="ochips">${(o.items || []).map(i =>
-          `<span class="ochip">${i.name} ×${i.qty}</span>`).join('')}
+        <div style="margin-top:9px;padding-top:9px;border-top:1px solid var(--b50)">
+          <div class="odetail-list" style="gap:4px">
+            ${(o.items || []).map(i => `
+              <div class="odetail-item">
+                <div>
+                  <div class="odetail-item-name">${i.name}</div>
+                  <div class="odetail-item-sub">$${(i.price||0).toFixed(2)} × ${i.qty}</div>
+                </div>
+                <div class="odetail-item-price">$${((i.price||0)*i.qty).toFixed(2)}</div>
+              </div>`).join('')}
+            <div class="odetail-subtotal">
+              <span>Subtotal</span>
+              <span>$${(o.total||0).toFixed(2)}</span>
+            </div>
+          </div>
         </div>
-      </div>`).join('');
+        ${canCancel ? `
+        <div style="margin-top:12px;text-align:right">
+          <button class="btn-cancel-order" onclick="customerCancelOrder('${o.firestoreId}','${o.code}',this)">
+            ✕ Cancelar pedido
+          </button>
+        </div>` : ''}
+      </div>`;
+    }).join('');
   } catch (err) {
     el.innerHTML = '<p style="color:var(--red);font-size:.85rem">Error al cargar los pedidos.</p>';
     console.error('renderMyOrders:', err);
   }
 }
 
-// ═══════════════════════════════════════════════════
-//  TRACK ORDER (búsqueda por código)
-// ═══════════════════════════════════════════════════
+async function customerCancelOrder(firestoreId, code, btn) {
+  if (!confirm(`¿Estás seguro de cancelar el pedido ${code}?\nEsta acción no se puede deshacer.`)) return;
+  btn.disabled = true;
+  btn.textContent = 'Cancelando...';
+  try {
+    await db.collection('pedidos').doc(firestoreId).update({
+      status: 'cancelled',
+      cancelledAt: firebase.firestore.FieldValue.serverTimestamp(),
+      cancelledBy: currentUser?.uid || 'customer'
+    });
+    // Restaurar stock visual
+    const snap = await db.collection('pedidos').doc(firestoreId).get();
+    const items = snap.data()?.items || [];
+    for (const item of items) {
+      stockMap[item.id] = (stockMap[item.id] || 0) + (item.qty || 0);
+    }
+    renderProducts();
+    renderMyOrders();
+    showToast('✅ Pedido cancelado');
+  } catch (err) {
+    showToast('❌ Error al cancelar: ' + err.message);
+    btn.disabled = false;
+    btn.textContent = '✕ Cancelar pedido';
+  }
+}
 async function trackOrder() {
   const code = document.getElementById('trackInput').value.trim().toUpperCase();
   const el   = document.getElementById('trackResult');
@@ -1124,12 +1306,15 @@ async function trackOrder() {
       return;
     }
     const o = { firestoreId: snap.docs[0].id, ...snap.docs[0].data() };
+    const isCancelled = o.status === 'cancelled';
+    const isPending   = o.status === 'pending';
+    const canCancel   = isPending && currentUser && currentUser.uid === o.userId;
     el.innerHTML = `
-      <div class="ocard" style="border-color:var(--b300);box-shadow:var(--sh2)">
+      <div class="ocard" style="border-color:var(--b300);box-shadow:var(--sh2)" ${isCancelled ? 'style="opacity:.65"' : ''}>
         <div class="ocard-hd">
           <span class="ocode">${o.code}</span>
-          <span class="sbadge ${o.status === 'pending' ? 'sp' : 'ss'}">
-            ${o.status === 'pending' ? '⏳ Pendiente' : '✅ Entregado'}
+          <span class="sbadge ${isCancelled ? 'sc' : (isPending ? 'sp' : 'ss')}">
+            ${isCancelled ? '❌ Cancelado' : (isPending ? '⏳ Pendiente' : '✅ Entregado')}
           </span>
         </div>
         <div class="ometa">
@@ -1139,9 +1324,28 @@ async function trackOrder() {
           <span>💰 $${(o.total || 0).toFixed(2)}</span>
           ${o.deliveredAt ? `<span>📦 ${fmtDate(o.deliveredAt)}</span>` : ''}
         </div>
-        <div class="ochips">${(o.items || []).map(i =>
-          `<span class="ochip">${i.name} ×${i.qty}</span>`).join('')}
+        <div style="margin-top:9px;padding-top:9px;border-top:1px solid var(--b50)">
+          <div class="odetail-list" style="gap:4px">
+            ${(o.items || []).map(i => `
+              <div class="odetail-item">
+                <div>
+                  <div class="odetail-item-name">${i.name}</div>
+                  <div class="odetail-item-sub">$${(i.price||0).toFixed(2)} × ${i.qty}</div>
+                </div>
+                <div class="odetail-item-price">$${((i.price||0)*i.qty).toFixed(2)}</div>
+              </div>`).join('')}
+            <div class="odetail-subtotal">
+              <span>Subtotal</span>
+              <span>$${(o.total||0).toFixed(2)}</span>
+            </div>
+          </div>
         </div>
+        ${canCancel ? `
+        <div style="margin-top:12px;text-align:right">
+          <button class="btn-cancel-order" onclick="customerCancelOrder('${o.firestoreId}','${o.code}',this)">
+            ✕ Cancelar pedido
+          </button>
+        </div>` : ''}
       </div>`;
   } catch (err) {
     el.innerHTML = '<p style="color:var(--red);font-size:.85rem">Error al buscar el pedido.</p>';
