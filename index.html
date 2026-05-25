@@ -682,6 +682,7 @@ async function loadProducts() {
   loadEl.style.display = '';
   gridEl.style.display = 'none';
   try {
+    // Cargar productos (lectura pública — ajusta reglas de Firestore a allow read: if true para /productos)
     const snap = await db.collection('productos').get();
     products = [];
     snap.forEach(doc => {
@@ -697,6 +698,27 @@ async function loadProducts() {
       });
       stockMap[doc.id] = s;
     });
+
+    // Descontar del stockMap local los pedidos pendientes (aún no entregados ni con stock descontado)
+    // Esto hace que el stock visible siempre coincida con el real disponible
+    try {
+      const pendingSnap = await db.collection('pedidos')
+        .where('status', '==', 'pending')
+        .get();
+      pendingSnap.forEach(doc => {
+        const o = doc.data();
+        if (!o.stockDeducted && o.items) {
+          for (const item of o.items) {
+            if (stockMap[item.id] !== undefined) {
+              stockMap[item.id] = Math.max(0, stockMap[item.id] - (item.qty || 0));
+            }
+          }
+        }
+      });
+    } catch (e) {
+      // Si no hay sesión, no se pueden leer pedidos — no pasa nada, se muestra stock de Firebase
+    }
+
     loadEl.style.display  = 'none';
     gridEl.style.display  = '';
     renderProducts();
@@ -720,8 +742,8 @@ auth.onAuthStateChanged(user => {
     // Admin = autenticado con email + contraseña
     isAdmin = user.providerData.some(p => p.providerId === 'password');
     updateNavAuth();
-    // Cargar productos si aún no se han cargado
-    if (!products.length) loadProducts();
+    // Recargar siempre al iniciar sesión para que el stockMap incluya pedidos pendientes
+    loadProducts();
     if (isAdmin) {
       startAdminListener();
       // Si llegó desde un QR (URL con ?pedido=ID)
@@ -737,8 +759,8 @@ auth.onAuthStateChanged(user => {
     isAdmin     = false;
     if (adminUnsubscribe) { adminUnsubscribe(); adminUnsubscribe = null; }
     updateNavAuth();
-    // Cargar productos también cuando no hay sesión iniciada
-    if (!products.length) loadProducts();
+    // Sin sesión: cargar productos (solo stock de Firebase, sin ajuste de pedidos)
+    loadProducts();
   }
 });
 
@@ -1554,7 +1576,8 @@ function showToast(msg) {
 // ═══════════════════════════════════════════════════
 //  INIT
 // ═══════════════════════════════════════════════════
-loadProducts();
+// loadProducts() se llama desde onAuthStateChanged para garantizar
+// que el stockMap se ajuste según el estado de sesión.
 updateNavAuth();
 updateCartUI();
 </script>
