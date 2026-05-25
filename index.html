@@ -528,6 +528,12 @@ tr:hover td{background:var(--b50)}
           </select>
         </div>
       </div>
+      <label class="flabel">Sucursal</label>
+      <select id="profileSucursal" class="fselect">
+        <option value="">Seleccionar...</option>
+        <option value="cdb">🏫 CDB</option>
+        <option value="exsal">🏢 EXSAL</option>
+      </select>
       <button class="btn-auth" onclick="saveProfile()">Guardar cambios</button>
     </div>
   </div>
@@ -581,6 +587,12 @@ tr:hover td{background:var(--b50)}
           </select>
         </div>
       </div>
+      <label class="flabel">Sucursal *</label>
+      <select id="studentSucursal" class="fselect">
+        <option value="">Seleccionar...</option>
+        <option value="cdb">🏫 CDB</option>
+        <option value="exsal">🏢 EXSAL</option>
+      </select>
     </div>
     <div class="mfoot">
       <button class="btn-sec" onclick="closeModal('checkoutModal')">Cancelar</button>
@@ -689,10 +701,10 @@ async function loadProducts() {
     snap.forEach(doc => {
       const d = doc.data();
       const { cat, e } = detectCatEmoji(d.name, d.desc);
-      // stock visible = stockcdb + stockexsal si existen, sino usar stock directo
-      const hasSucursalStock = typeof d.stockcdb === 'number' || typeof d.stockexsal === 'number';
+      // stock visible = stockCdb + stockExsal si existen, sino usar stock directo
+      const hasSucursalStock = typeof d.stockCdb === 'number' || typeof d.stockExsal === 'number';
       const s = hasSucursalStock
-        ? ((typeof d.stockcdb === 'number' ? d.stockcdb : 0) + (typeof d.stockexsal === 'number' ? d.stockexsal : 0))
+        ? ((typeof d.stockCdb === 'number' ? d.stockCdb : 0) + (typeof d.stockExsal === 'number' ? d.stockExsal : 0))
         : (typeof d.stock === 'number' ? d.stock : 0);
       products.push({
         id:    doc.id,
@@ -962,7 +974,7 @@ async function changeStatus(firestoreId, val) {
     if (val === 'pending') update.deliveredAt = null;
     await db.collection('pedidos').doc(firestoreId).update(update);
 
-    // Al confirmar entrega, descontar stockcdb o stockexsal según sucursal
+    // Al confirmar entrega, descontar stockCdb o stockExsal según sucursal
     if (val === 'sold') {
       const freshSnap = await db.collection('pedidos').doc(firestoreId).get();
       const freshData = freshSnap.data() || {};
@@ -974,19 +986,19 @@ async function changeStatus(firestoreId, val) {
           await db.collection('pedidos').doc(firestoreId).update({ status: 'pending', deliveredAt: null });
           return;
         }
-        const stockField = sucursal === 'cdb' ? 'stockcdb' : 'stockexsal';
+        const stockField = sucursal === 'cdb' ? 'stockCdb' : 'stockExsal';
         const stockBatch = db.batch();
         for (const item of freshData.items) {
           const prodRef = db.collection('productos').doc(item.id);
           // Leer stock actual para calcular el nuevo total
           const prodSnap = await prodRef.get();
           const prodData = prodSnap.data() || {};
-          const currentCdb   = typeof prodData.stockcdb   === 'number' ? prodData.stockcdb   : (prodData.stock || 0);
-          const currentExsal = typeof prodData.stockexsal === 'number' ? prodData.stockexsal : 0;
+          const currentCdb   = typeof prodData.stockCdb   === 'number' ? prodData.stockCdb   : (prodData.stock || 0);
+          const currentExsal = typeof prodData.stockExsal === 'number' ? prodData.stockExsal : 0;
           const newFieldVal  = Math.max(0, (prodData[stockField] !== undefined ? prodData[stockField] : 0) - (item.qty || 0));
-          // stock total = stockcdb + stockexsal (recalculado)
-          const newCdb   = stockField === 'stockcdb'   ? newFieldVal : (typeof prodData.stockcdb   === 'number' ? prodData.stockcdb   : 0);
-          const newExsal = stockField === 'stockexsal' ? newFieldVal : (typeof prodData.stockexsal === 'number' ? prodData.stockexsal : 0);
+          // stock total = stockCdb + stockExsal (recalculado)
+          const newCdb   = stockField === 'stockCdb'   ? newFieldVal : (typeof prodData.stockCdb   === 'number' ? prodData.stockCdb   : 0);
+          const newExsal = stockField === 'stockExsal' ? newFieldVal : (typeof prodData.stockExsal === 'number' ? prodData.stockExsal : 0);
           const newStock = newCdb + newExsal;
           stockBatch.update(prodRef, {
             [stockField]: newFieldVal,
@@ -1023,14 +1035,14 @@ async function adminCancelOrder(firestoreId, code) {
     // Restaurar stock en Firebase solo si ya fue descontado
     if (order && order.items && order.stockDeducted) {
       const sucursal   = order.sucursal;
-      const stockField = sucursal === 'exsal' ? 'stockexsal' : 'stockcdb';
+      const stockField = sucursal === 'exsal' ? 'stockExsal' : 'stockCdb';
       for (const item of order.items) {
         const prodRef  = db.collection('productos').doc(item.id);
         const prodSnap = await prodRef.get();
         const prodData = prodSnap.data() || {};
         const newFieldVal = (typeof prodData[stockField] === 'number' ? prodData[stockField] : 0) + (item.qty || 0);
-        const newCdb   = stockField === 'stockcdb'   ? newFieldVal : (typeof prodData.stockcdb   === 'number' ? prodData.stockcdb   : 0);
-        const newExsal = stockField === 'stockexsal' ? newFieldVal : (typeof prodData.stockexsal === 'number' ? prodData.stockexsal : 0);
+        const newCdb   = stockField === 'stockCdb'   ? newFieldVal : (typeof prodData.stockCdb   === 'number' ? prodData.stockCdb   : 0);
+        const newExsal = stockField === 'stockExsal' ? newFieldVal : (typeof prodData.stockExsal === 'number' ? prodData.stockExsal : 0);
         batch.update(prodRef, {
           [stockField]: newFieldVal,
           stock: newCdb + newExsal
@@ -1388,14 +1400,14 @@ async function customerCancelOrder(firestoreId, code, btn) {
     // Restaurar stock en Firebase solo si ya fue descontado
     if (orderData.stockDeducted) {
       const sucursal   = orderData.sucursal;
-      const stockField = sucursal === 'exsal' ? 'stockexsal' : 'stockcdb';
+      const stockField = sucursal === 'exsal' ? 'stockExsal' : 'stockCdb';
       for (const item of items) {
         const prodRef  = db.collection('productos').doc(item.id);
         const prodSnap = await prodRef.get();
         const prodData = prodSnap.data() || {};
         const newFieldVal = (typeof prodData[stockField] === 'number' ? prodData[stockField] : 0) + (item.qty || 0);
-        const newCdb   = stockField === 'stockcdb'   ? newFieldVal : (typeof prodData.stockcdb   === 'number' ? prodData.stockcdb   : 0);
-        const newExsal = stockField === 'stockexsal' ? newFieldVal : (typeof prodData.stockexsal === 'number' ? prodData.stockexsal : 0);
+        const newCdb   = stockField === 'stockCdb'   ? newFieldVal : (typeof prodData.stockCdb   === 'number' ? prodData.stockCdb   : 0);
+        const newExsal = stockField === 'stockExsal' ? newFieldVal : (typeof prodData.stockExsal === 'number' ? prodData.stockExsal : 0);
         batch.update(prodRef, {
           [stockField]: newFieldVal,
           stock: newCdb + newExsal
@@ -1571,22 +1583,25 @@ function renderProfile() {
     ? `<img src="${currentUser.photoURL}" class="profile-photo-lg" alt="">`
     : `<div class="profile-avatar-lg">${initials}</div>`;
   const saved = getSavedProfile();
+  const sucursalLabel = saved.sucursal === 'cdb' ? '🏫 CDB' : saved.sucursal === 'exsal' ? '🏢 EXSAL' : '';
   document.getElementById('profileInfo').innerHTML = `
     ${avatarHtml}
     <div class="profile-name">${currentUser.name}</div>
     <div class="profile-email">${currentUser.email}</div>
     ${saved.grade
-      ? `<div class="profile-saved-tag">✅ ${saved.grade} – Sección ${saved.section}</div>`
+      ? `<div class="profile-saved-tag">✅ ${saved.grade} – Sección ${saved.section}${sucursalLabel ? ' · ' + sucursalLabel : ''}</div>`
       : '<div style="height:14px"></div>'}`;
-  document.getElementById('profileGrade').value   = saved.grade   || '';
-  document.getElementById('profileSection').value = saved.section || '';
+  document.getElementById('profileGrade').value    = saved.grade    || '';
+  document.getElementById('profileSection').value  = saved.section  || '';
+  document.getElementById('profileSucursal').value = saved.sucursal || '';
 }
 
 function saveProfile() {
-  const grade   = document.getElementById('profileGrade').value;
-  const section = document.getElementById('profileSection').value;
+  const grade    = document.getElementById('profileGrade').value;
+  const section  = document.getElementById('profileSection').value;
+  const sucursal = document.getElementById('profileSucursal').value;
   if (!grade || !section) { showToast('⚠️ Selecciona grado y sección'); return; }
-  localStorage.setItem('el_profile_' + currentUser.uid, JSON.stringify({ grade, section }));
+  localStorage.setItem('el_profile_' + currentUser.uid, JSON.stringify({ grade, section, sucursal }));
   renderProfile();
   showToast('✅ Perfil actualizado');
 }
