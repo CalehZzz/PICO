@@ -535,6 +535,7 @@ tr:hover td{background:var(--b50)}
         <option value="exsal">🏢 EXSAL</option>
       </select>
       <button class="btn-auth" onclick="saveProfile()">Guardar cambios</button>
+      <button onclick="doLogout()" style="width:100%;margin-top:10px;padding:11px;border-radius:9px;border:1.5px solid #fca5a5;background:#fff;color:#dc2626;font-family:var(--font);font-size:.87rem;font-weight:700;cursor:pointer;transition:all .16s" onmouseover="this.style.background='#fee2e2'" onmouseout="this.style.background='#fff'">👋 Cerrar Sesión</button>
     </div>
   </div>
 </div>
@@ -587,12 +588,7 @@ tr:hover td{background:var(--b50)}
           </select>
         </div>
       </div>
-      <label class="flabel">Sucursal *</label>
-      <select id="studentSucursal" class="fselect">
-        <option value="">Seleccionar...</option>
-        <option value="cdb">🏫 CDB</option>
-        <option value="exsal">🏢 EXSAL</option>
-      </select>
+      <div id="checkoutSucursalInfo" style="background:var(--b50);border:1.5px solid var(--b200);border-radius:9px;padding:10px 14px;margin-bottom:14px;font-size:.82rem;color:var(--g700)"></div>
     </div>
     <div class="mfoot">
       <button class="btn-sec" onclick="closeModal('checkoutModal')">Cancelar</button>
@@ -611,6 +607,27 @@ tr:hover td{background:var(--b50)}
     <div class="mbody" id="orderDetailBody"></div>
     <div class="mfoot">
       <button class="btn-sec" onclick="closeModal('orderDetailModal')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ QR VIEWER MODAL ═══ -->
+<div class="moverlay" id="qrViewerModal">
+  <div class="modal">
+    <div class="mhd">
+      <h2>🔲 Código QR del Pedido</h2>
+      <button class="xbtn" onclick="closeModal('qrViewerModal')">✕</button>
+    </div>
+    <div class="mbody" style="text-align:center">
+      <div class="scode-box">
+        <div class="scode-lbl">Código de seguimiento</div>
+        <div class="scode" id="qrViewerCode">--</div>
+        <div id="qr-viewer-container" style="display:flex;justify-content:center;margin-top:18px;"></div>
+      </div>
+      <p style="font-size:.78rem;color:var(--g400);margin-top:10px">Preséntate en el laboratorio con este código o escanea el QR.</p>
+    </div>
+    <div class="mfoot">
+      <button class="btn-pri" onclick="closeModal('qrViewerModal')">Cerrar</button>
     </div>
   </div>
 </div>
@@ -1233,6 +1250,23 @@ function openCheckout() {
   const saved = getSavedProfile();
   if (saved.grade)   document.getElementById('studentGrade').value   = saved.grade;
   if (saved.section) document.getElementById('studentSection').value = saved.section;
+
+  // Sucursal obligatoria desde perfil
+  const sucursalInfoEl = document.getElementById('checkoutSucursalInfo');
+  if (!saved.sucursal) {
+    sucursalInfoEl.innerHTML = `⚠️ <b>Sucursal no configurada.</b> Debes guardar tu sucursal en tu <a href="#" onclick="closeModal('checkoutModal');showPage('profile')" style="color:var(--b600);font-weight:600">perfil</a> antes de continuar.`;
+    sucursalInfoEl.style.background = '#fee2e2';
+    sucursalInfoEl.style.borderColor = '#fca5a5';
+    sucursalInfoEl.style.color = '#dc2626';
+    document.getElementById('placeOrderBtn').disabled = true;
+  } else {
+    const label = saved.sucursal === 'cdb' ? '🏫 CDB' : '🏢 EXSAL';
+    sucursalInfoEl.innerHTML = `🏫 <b>Sucursal:</b> ${label} <span style="font-size:.75rem;color:var(--g400)">(puedes cambiarlo en tu perfil)</span>`;
+    sucursalInfoEl.style.background = '';
+    sucursalInfoEl.style.borderColor = '';
+    sucursalInfoEl.style.color = '';
+    document.getElementById('placeOrderBtn').disabled = false;
+  }
   openModal('checkoutModal');
 }
 
@@ -1241,6 +1275,16 @@ async function placeOrder() {
   const grade   = document.getElementById('studentGrade').value;
   const section = document.getElementById('studentSection').value;
   if (!name || !grade || !section) { showToast('⚠️ Completa todos los campos'); return; }
+
+  // Sucursal desde perfil (obligatoria)
+  const savedProfile = getSavedProfile();
+  const sucursal = savedProfile.sucursal || null;
+  if (!sucursal) {
+    showToast('⚠️ Configura tu sucursal en tu perfil');
+    closeModal('checkoutModal');
+    showPage('profile');
+    return;
+  }
 
   // Validar stock local
   for (const id of Object.keys(cart)) {
@@ -1265,6 +1309,7 @@ async function placeOrder() {
   try {
     const docRef = await db.collection('pedidos').add({
       code, name, grade, section, items, total,
+      sucursal:    sucursal,
       status:      'pending',
       createdAt:   firebase.firestore.FieldValue.serverTimestamp(),
       deliveredAt: null,
@@ -1312,6 +1357,22 @@ function onSuccessClose() {
   closeModal('successModal');
   document.getElementById('qr-pedido').innerHTML = '';
   showPage('myOrders');
+}
+
+function showOrderQR(firestoreId, code) {
+  document.getElementById('qrViewerCode').textContent = code;
+  const container = document.getElementById('qr-viewer-container');
+  container.innerHTML = '';
+  const urlQR = `https://calehzzz.github.io/PICO/?pedido=${firestoreId}`;
+  new QRCode(container, {
+    text:         urlQR,
+    width:        160,
+    height:       160,
+    colorDark:    '#0f172a',
+    colorLight:   '#ffffff',
+    correctLevel: QRCode.CorrectLevel.H
+  });
+  openModal('qrViewerModal');
 }
 
 // ═══════════════════════════════════════════════════
@@ -1373,6 +1434,12 @@ async function renderMyOrders() {
             ✕ Cancelar pedido
           </button>
         </div>` : ''}
+        <div style="margin-top:10px;text-align:right">
+          <button onclick="showOrderQR('${o.firestoreId}','${o.code}')"
+            style="padding:5px 12px;border-radius:7px;border:1.5px solid var(--b200);background:var(--b50);color:var(--b600);font-family:var(--font);font-size:.73rem;font-weight:600;cursor:pointer">
+            🔲 Ver QR
+          </button>
+        </div>
       </div>`;
     }).join('');
   } catch (err) {
@@ -1648,6 +1715,46 @@ function showToast(msg) {
   t.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+// ═══════════════════════════════════════════════════
+//  FIX STOCK — ejecutar UNA VEZ desde consola de Chrome:
+//  fixStockTotal()
+// ═══════════════════════════════════════════════════
+async function fixStockTotal() {
+  if (!isAdmin) { console.warn('⛔ Solo admins pueden ejecutar fixStockTotal()'); return; }
+  console.log('🔧 Iniciando corrección de stock...');
+  try {
+    const snap = await db.collection('productos').get();
+    let fixed = 0, skipped = 0;
+    const batch = db.batch();
+    snap.forEach(doc => {
+      const d = doc.data();
+      const hasSucursalStock = typeof d.stockCdb === 'number' || typeof d.stockExsal === 'number';
+      if (!hasSucursalStock) { skipped++; return; }
+      const cdb   = typeof d.stockCdb   === 'number' ? d.stockCdb   : 0;
+      const exsal = typeof d.stockExsal === 'number' ? d.stockExsal : 0;
+      const correctTotal = cdb + exsal;
+      if (d.stock !== correctTotal) {
+        console.log(`  ✏️ ${d.name}: stock=${d.stock} → ${correctTotal} (CDB=${cdb} + EXSAL=${exsal})`);
+        batch.update(doc.ref, { stock: correctTotal });
+        fixed++;
+      } else {
+        skipped++;
+      }
+    });
+    if (fixed === 0) {
+      console.log('✅ Todos los stocks ya están correctos. Nada que corregir.');
+      alert('✅ Todos los stocks ya están correctos. Nada que corregir.');
+      return;
+    }
+    await batch.commit();
+    console.log(`✅ Corrección completada: ${fixed} producto(s) actualizado(s), ${skipped} sin cambios.`);
+    alert(`✅ Corrección completada:\n${fixed} producto(s) actualizado(s)\n${skipped} sin cambios.\n\nRecarga la página para ver los cambios.`);
+  } catch (err) {
+    console.error('❌ Error al corregir stock:', err);
+    alert('❌ Error: ' + err.message);
+  }
 }
 
 // ═══════════════════════════════════════════════════
