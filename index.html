@@ -1005,23 +1005,28 @@ async function changeStatus(firestoreId, val) {
         }
         const stockField = sucursal === 'cdb' ? 'stockCdb' : 'stockExsal';
         const stockBatch = db.batch();
+        let costTotal = 0;
+        let priceTotal = 0;
         for (const item of freshData.items) {
           const prodRef = db.collection('productos').doc(item.id);
-          // Leer stock actual para calcular el nuevo total
           const prodSnap = await prodRef.get();
           const prodData = prodSnap.data() || {};
-          const currentCdb   = typeof prodData.stockCdb   === 'number' ? prodData.stockCdb   : (prodData.stock || 0);
-          const currentExsal = typeof prodData.stockExsal === 'number' ? prodData.stockExsal : 0;
-          const newFieldVal  = Math.max(0, (prodData[stockField] !== undefined ? prodData[stockField] : 0) - (item.qty || 0));
-          // stock total = stockCdb + stockExsal (recalculado)
+          const qty = item.qty || 1;
+          // Congelar costo y precio en el momento exacto de entrega
+          costTotal  += (typeof prodData.cost  === 'number' ? prodData.cost  : 0) * qty;
+          priceTotal += (typeof prodData.price === 'number' ? prodData.price : (item.price || 0)) * qty;
+          const newFieldVal = Math.max(0, (prodData[stockField] !== undefined ? prodData[stockField] : 0) - qty);
           const newCdb   = stockField === 'stockCdb'   ? newFieldVal : (typeof prodData.stockCdb   === 'number' ? prodData.stockCdb   : 0);
           const newExsal = stockField === 'stockExsal' ? newFieldVal : (typeof prodData.stockExsal === 'number' ? prodData.stockExsal : 0);
-          const newStock = newCdb + newExsal;
           stockBatch.update(prodRef, { [stockField]: newFieldVal });
-          // Actualizar stockMap local con el total nuevo
-          stockMap[item.id] = Math.max(0, newStock);
+          stockMap[item.id] = Math.max(0, newCdb + newExsal);
         }
-        stockBatch.update(db.collection('pedidos').doc(firestoreId), { stockDeducted: true });
+        // Guardar costTotal y total congelados — no cambiarán aunque cambie el precio del producto
+        stockBatch.update(db.collection('pedidos').doc(firestoreId), {
+          stockDeducted: true,
+          costTotal: +costTotal.toFixed(2),
+          total: +priceTotal.toFixed(2)
+        });
         await stockBatch.commit();
         renderProducts();
         showToast(`✅ Entregado — stock ${sucursal.toUpperCase()} descontado en Firebase`);
