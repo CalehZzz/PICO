@@ -201,7 +201,7 @@ nav{position:sticky;top:0;z-index:200;background:rgba(255,255,255,.82);backdrop-
 .modal{background:var(--white);border-radius:var(--rlg);box-shadow:var(--sh4);
   width:100%;max-width:460px;max-height:calc(100dvh - 36px);overflow-y:auto;
   transform:scale(.95) translateY(8px);
-  transition:transform .22s cubic-bezier(.4,0,.2,1);overflow:hidden}
+  transition:transform .22s cubic-bezier(.4,0,.2,1)}
 .moverlay.open .modal{transform:scale(1) translateY(0)}
 .mhd{padding:22px 24px 0;display:flex;align-items:flex-start;justify-content:space-between}
 .mhd h2{font-size:1.1rem;font-weight:700;color:var(--g900);letter-spacing:-.01em}
@@ -794,6 +794,8 @@ async function loadProducts() {
     loadEl.style.display  = 'none';
     gridEl.style.display  = '';
     renderProducts();
+    // Re-renderizar carrito ahora que products ya está cargado (fix: al init loadCart corre antes que Firestore)
+    updateCartUI();
   } catch (err) {
     loadEl.innerHTML = '<div class="ni">⚠️</div><p>Error al cargar productos. Recarga la página.</p>';
     console.error('loadProducts:', err);
