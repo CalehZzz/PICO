@@ -1301,7 +1301,7 @@ async function placeOrder() {
   const code  = genCode();
   const items = Object.keys(cart).map(id => {
     const p = products.find(x => x.id === id);
-    return { id, name: p.name, qty: cart[id], price: p.price };
+    return { id, name: p.name, qty: cart[id], price: p.price, cost: p.cost };
   });
   const total = items.reduce((s, i) => s + i.qty * i.price, 0);
 
