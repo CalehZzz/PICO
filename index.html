@@ -195,11 +195,12 @@ nav{position:sticky;top:0;z-index:200;background:rgba(255,255,255,.82);backdrop-
 /* ─── MODAL ─── */
 .moverlay{position:fixed;inset:0;background:rgba(15,23,42,.38);z-index:400;
   display:flex;align-items:center;justify-content:center;padding:18px;
-  overflow-y:auto;
+  overflow:hidden;
   opacity:0;pointer-events:none;transition:opacity .22s;backdrop-filter:blur(4px)}
 .moverlay.open{opacity:1;pointer-events:all}
 .modal{background:var(--white);border-radius:var(--rlg);box-shadow:var(--sh4);
   width:100%;max-width:460px;max-height:calc(100dvh - 36px);overflow-y:auto;
+  overscroll-behavior:contain;
   transform:scale(.95) translateY(8px);
   transition:transform .22s cubic-bezier(.4,0,.2,1)}
 .moverlay.open .modal{transform:scale(1) translateY(0)}
