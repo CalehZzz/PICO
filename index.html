@@ -124,7 +124,7 @@ nav{position:sticky;top:0;z-index:200;background:rgba(255,255,255,.82);backdrop-
 .coverlay{position:fixed;inset:0;background:rgba(15,23,42,.32);z-index:300;
   opacity:0;pointer-events:none;transition:opacity .22s;backdrop-filter:blur(3px)}
 .coverlay.open{opacity:1;pointer-events:all}
-.cpanel{position:fixed;top:0;right:-420px;width:min(400px,100vw);height:100%;background:var(--white);
+.cpanel{position:fixed;top:0;right:-420px;width:min(400px,100vw);height:100%;height:100dvh;background:var(--white);
   z-index:301;box-shadow:-6px 0 50px rgba(59,130,246,.15);
   transition:right .28s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column;border-left:1px solid var(--b100)}
 .cpanel.open{right:0}
@@ -144,7 +144,7 @@ nav{position:sticky;top:0;z-index:200;background:rgba(255,255,255,.82);backdrop-
 .cqval{font-size:.82rem;font-weight:700;color:var(--g900);min-width:18px;text-align:center}
 .rmbtn{background:none;border:none;cursor:pointer;color:var(--g300);font-size:.9rem;padding:3px;transition:color .14s;margin-left:2px}
 .rmbtn:hover{color:var(--red)}
-.cfoot{padding:18px 20px;border-top:1px solid var(--b100)}
+.cfoot{padding:18px 20px;padding-bottom:max(18px,env(safe-area-inset-bottom));border-top:1px solid var(--b100)}
 .ctotal-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
 .ctotal-lbl{font-size:.88rem;color:var(--g500)}
 .ctotal-val{font-size:1.25rem;font-weight:700;color:var(--b600);letter-spacing:-.02em}
@@ -195,10 +195,12 @@ nav{position:sticky;top:0;z-index:200;background:rgba(255,255,255,.82);backdrop-
 /* ─── MODAL ─── */
 .moverlay{position:fixed;inset:0;background:rgba(15,23,42,.38);z-index:400;
   display:flex;align-items:center;justify-content:center;padding:18px;
+  overflow-y:auto;
   opacity:0;pointer-events:none;transition:opacity .22s;backdrop-filter:blur(4px)}
 .moverlay.open{opacity:1;pointer-events:all}
 .modal{background:var(--white);border-radius:var(--rlg);box-shadow:var(--sh4);
-  width:100%;max-width:460px;transform:scale(.95) translateY(8px);
+  width:100%;max-width:460px;max-height:calc(100dvh - 36px);overflow-y:auto;
+  transform:scale(.95) translateY(8px);
   transition:transform .22s cubic-bezier(.4,0,.2,1);overflow:hidden}
 .moverlay.open .modal{transform:scale(1) translateY(0)}
 .mhd{padding:22px 24px 0;display:flex;align-items:flex-start;justify-content:space-between}
@@ -438,6 +440,8 @@ tr:hover td{background:var(--b50)}
       <p>Cargando productos...</p>
     </div>
     <div class="pgrid" id="productsGrid" style="display:none"></div>
+    <div id="products-sentinel" style="height:1px"></div>
+    <div id="products-loading-more" class="hidden" style="text-align:center;padding:20px;color:var(--g400);font-size:.83rem">⟳ Cargando más productos...</div>
     <div id="noResults" class="nores hidden">
       <div class="ni">🔎</div>
       <p>Sin resultados para tu búsqueda</p>
@@ -691,6 +695,16 @@ let adminUnsubscribe = null;
 let currentCat       = 'Todos';
 let currentSearch    = '';
 
+// Paginación / lazy render
+const PAGE_SIZE            = 12;
+let visibleCount           = PAGE_SIZE;
+let currentFiltered        = [];
+let scrollObserver         = null;
+
+// Cache de productos en sessionStorage (evita releer Firestore en cada refresh)
+const PROD_CACHE_KEY = 'pico_prods_v1';
+const PROD_CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+
 // ═══════════════════════════════════════════════════
 //  CATEGORY / EMOJI DETECTION  (sin tocar Firestore)
 // ═══════════════════════════════════════════════════
@@ -715,26 +729,46 @@ async function loadProducts() {
   loadEl.style.display = '';
   gridEl.style.display = 'none';
   try {
-    // Cargar productos (lectura pública — ajusta reglas de Firestore a allow read: if true para /productos)
-    const snap = await db.collection('productos').get();
+    // ── Intentar usar cache de sessionStorage ──────────────────────────────
+    let rawProducts = null;
+    try {
+      const cached = sessionStorage.getItem(PROD_CACHE_KEY);
+      if (cached) {
+        const { ts, data } = JSON.parse(cached);
+        if (Date.now() - ts < PROD_CACHE_TTL) rawProducts = data;
+      }
+    } catch (_) {}
+
+    if (!rawProducts) {
+      // Cargar productos desde Firestore y guardar en cache
+      const snap = await db.collection('productos').get();
+      rawProducts = [];
+      snap.forEach(doc => {
+        const d = doc.data();
+        rawProducts.push({ id: doc.id, ...d });
+      });
+      try {
+        sessionStorage.setItem(PROD_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: rawProducts }));
+      } catch (_) {}
+    }
+
+    // Procesar productos (detectar cat/emoji, calcular stock)
     products = [];
-    snap.forEach(doc => {
-      const d = doc.data();
+    rawProducts.forEach(d => {
       const { cat, e } = detectCatEmoji(d.name, d.desc);
-      // stock visible = stockCdb + stockExsal si existen, sino usar stock directo
       const hasSucursalStock = typeof d.stockCdb === 'number' || typeof d.stockExsal === 'number';
       const s = hasSucursalStock
         ? ((typeof d.stockCdb === 'number' ? d.stockCdb : 0) + (typeof d.stockExsal === 'number' ? d.stockExsal : 0))
         : (typeof d.stock === 'number' ? d.stock : 0);
       products.push({
-        id:    doc.id,
+        id:    d.id,
         name:  d.name  || 'Producto',
         price: typeof d.price === 'number' ? d.price : 0,
         cost:  typeof d.cost  === 'number' ? d.cost  : 0,
         desc:  d.desc  || '',
         stock: s, cat, e
       });
-      stockMap[doc.id] = s;
+      stockMap[d.id] = s;
     });
 
     // Descontar del stockMap local los pedidos pendientes (aún no entregados ni con stock descontado)
@@ -885,6 +919,7 @@ async function doLogout() {
   if (adminUnsubscribe) { adminUnsubscribe(); adminUnsubscribe = null; }
   orders = [];
   cart   = {};
+  try { localStorage.removeItem('pico_cart'); } catch(_) {}
   updateCartUI();
   showPage('catalog');
   showToast('👋 Sesión cerrada');
@@ -1159,12 +1194,23 @@ function highlightOrder(firestoreId) {
 }
 
 // ═══════════════════════════════════════════════════
-//  CART
+//  CART  (con persistencia en localStorage)
 // ═══════════════════════════════════════════════════
+function saveCart() {
+  try { localStorage.setItem('pico_cart', JSON.stringify(cart)); } catch(_) {}
+}
+function loadCart() {
+  try {
+    const s = localStorage.getItem('pico_cart');
+    if (s) cart = JSON.parse(s);
+  } catch(_) {}
+}
+
 function addToCart(id) {
   const s = stockMap[id] || 0;
   if (s < 1) { showToast('⚠️ Sin stock disponible'); return; }
   cart[id] = 1;
+  saveCart();
   updateCartUI();
   updateAddZone(id);
   showToast('✅ Agregado al carrito');
@@ -1174,29 +1220,29 @@ function cartInc(id) {
   const max = stockMap[id] || 0;
   if ((cart[id] || 0) >= max) { showToast('⚠️ Stock máximo alcanzado'); return; }
   cart[id] = (cart[id] || 0) + 1;
-  updateCartUI(); updateAddZone(id);
+  saveCart(); updateCartUI(); updateAddZone(id);
 }
 
 function cartDec(id) {
   cart[id] = (cart[id] || 0) - 1;
   if (cart[id] <= 0) delete cart[id];
-  updateCartUI(); updateAddZone(id);
+  saveCart(); updateCartUI(); updateAddZone(id);
 }
 
 function cartSetVal(id, val) {
   const n = parseInt(val);
   if (isNaN(n) || n <= 0) { delete cart[id]; }
   else { cart[id] = Math.min(n, stockMap[id] || 0); }
-  updateCartUI(); updateAddZone(id);
+  saveCart(); updateCartUI(); updateAddZone(id);
 }
 
 function changeQty(id, d) {
   cart[id] = (cart[id] || 0) + d;
   if (cart[id] <= 0) delete cart[id];
-  updateCartUI(); updateAddZone(id);
+  saveCart(); updateCartUI(); updateAddZone(id);
 }
 
-function removeFromCart(id) { delete cart[id]; updateCartUI(); updateAddZone(id); }
+function removeFromCart(id) { delete cart[id]; saveCart(); updateCartUI(); updateAddZone(id); }
 
 function updateCartUI() {
   const total = Object.keys(cart).reduce((s, id) => {
@@ -1356,6 +1402,7 @@ async function placeOrder() {
     }
 
     cart = {};
+    try { localStorage.removeItem('pico_cart'); } catch(_) {}
     updateCartUI();
     renderProducts();
     closeModal('checkoutModal');
@@ -1587,31 +1634,43 @@ async function trackOrder() {
 }
 
 // ═══════════════════════════════════════════════════
-//  PRODUCTS RENDER
+//  PRODUCTS RENDER  (lazy — IntersectionObserver)
 // ═══════════════════════════════════════════════════
 function stockClass(s) { return s === 0 ? 'stock-none' : s <= 5 ? 'stock-low' : 'stock-ok'; }
 function stockLabel(s) { return s === 0 ? 'Sin stock'  : s <= 5 ? `Pocas (${s})` : `${s} disp.`; }
 
 function renderProducts() {
-  const grid  = document.getElementById('productsGrid');
-  const noRes = document.getElementById('noResults');
-  const filtered = products.filter(p => {
+  // Cada vez que cambia el filtro/búsqueda, reiniciar el contador
+  visibleCount = PAGE_SIZE;
+  currentFiltered = products.filter(p => {
     const mc = currentCat === 'Todos' || p.cat === currentCat;
     const ms = p.name.toLowerCase().includes(currentSearch) ||
                p.cat.toLowerCase().includes(currentSearch)  ||
                (p.desc || '').toLowerCase().includes(currentSearch);
     return mc && ms;
   });
-  if (!filtered.length) {
+  _renderVisibleSlice();
+  _setupScrollObserver();
+}
+
+function _renderVisibleSlice() {
+  const grid  = document.getElementById('productsGrid');
+  const noRes = document.getElementById('noResults');
+  const more  = document.getElementById('products-loading-more');
+
+  if (!currentFiltered.length) {
     grid.innerHTML = '';
     noRes.classList.remove('hidden');
+    more.classList.add('hidden');
     return;
   }
   noRes.classList.add('hidden');
-  grid.innerHTML = filtered.map((p, i) => {
+
+  const slice = currentFiltered.slice(0, visibleCount);
+  grid.innerHTML = slice.map((p, i) => {
     const s       = stockMap[p.id] !== undefined ? stockMap[p.id] : p.stock;
     const noStock = s === 0;
-    return `<div class="pcard" style="animation-delay:${i * .03}s">
+    return `<div class="pcard" style="animation-delay:${Math.min(i, 11) * .03}s">
       <div class="pimg">
         <span class="ptag">${p.cat}</span>
         <span class="pstock ${stockClass(s)}">${stockLabel(s)}</span>
@@ -1629,6 +1688,28 @@ function renderProducts() {
       </div>
     </div>`;
   }).join('');
+
+  // Mostrar/ocultar indicador de "más productos"
+  more.classList.toggle('hidden', visibleCount >= currentFiltered.length);
+}
+
+function _setupScrollObserver() {
+  if (scrollObserver) { scrollObserver.disconnect(); scrollObserver = null; }
+  const sentinel = document.getElementById('products-sentinel');
+  if (!sentinel || visibleCount >= currentFiltered.length) return;
+
+  scrollObserver = new IntersectionObserver(entries => {
+    if (entries[0].isIntersecting) {
+      visibleCount += PAGE_SIZE;
+      _renderVisibleSlice();
+      // Si aún quedan más, re-observar (el sentinel sigue al final del grid)
+      if (visibleCount >= currentFiltered.length) {
+        scrollObserver.disconnect();
+        scrollObserver = null;
+      }
+    }
+  }, { rootMargin: '200px' });   // empezar a cargar 200px antes de llegar al fondo
+  scrollObserver.observe(sentinel);
 }
 
 function renderAddZoneHTML(id, noStock) {
@@ -1765,6 +1846,7 @@ async function fixStockTotal() {
 // ═══════════════════════════════════════════════════
 // loadProducts() se llama desde onAuthStateChanged para garantizar
 // que el stockMap se ajuste según el estado de sesión.
+loadCart();
 updateNavAuth();
 updateCartUI();
 </script>
