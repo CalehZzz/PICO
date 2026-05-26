@@ -727,6 +727,7 @@ async function loadProducts() {
         id:    doc.id,
         name:  d.name  || 'Producto',
         price: typeof d.price === 'number' ? d.price : 0,
+        cost:  typeof d.cost  === 'number' ? d.cost  : 0,
         desc:  d.desc  || '',
         stock: s, cat, e
       });
@@ -901,7 +902,7 @@ function startAdminListener() {
 function renderAdminPanel() {
   if (!isAdmin) return;
   const pending   = orders.filter(o => o.status === 'pending').length;
-  const sold      = orders.filter(o => o.status === 'sold').length;
+  const sold      = orders.filter(o => o.status === 'delivered' || o.status === 'sold').length;
   const cancelled = orders.filter(o => o.status === 'cancelled').length;
   const total     = orders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + (o.total || 0), 0);
   document.getElementById('adminStats').innerHTML = `
@@ -955,7 +956,7 @@ function renderAdminTable(data) {
           : `<select class="stsel" onchange="changeStatus('${o.firestoreId}', this.value)"
               style="background:${statusColor};color:${statusText}">
               <option value="pending" ${isPending ? 'selected' : ''}>⏳ Pendiente</option>
-              <option value="sold"    ${o.status === 'sold' ? 'selected' : ''}>✅ Entregado</option>
+              <option value="delivered" ${o.status === 'delivered' ? 'selected' : ''}>✅ Entregado</option>
             </select>`
         }
       </td>
@@ -963,7 +964,7 @@ function renderAdminTable(data) {
         ${isCancelled
           ? `<span style="font-size:.72rem;color:var(--g300)">—</span>`
           : `<button class="btn-cancel-order" onclick="adminCancelOrder('${o.firestoreId}', '${o.code}')"
-              ${o.status === 'sold' ? 'disabled title="Pedido ya entregado"' : ''}>
+              ${(o.status === 'delivered' || o.status === 'sold') ? 'disabled title="Pedido ya entregado"' : ''}>
               ✕ Cancelar
             </button>`
         }
@@ -987,12 +988,12 @@ async function changeSucursal(firestoreId, val) {
 async function changeStatus(firestoreId, val) {
   try {
     const update = { status: val };
-    if (val === 'sold')    update.deliveredAt = firebase.firestore.FieldValue.serverTimestamp();
-    if (val === 'pending') update.deliveredAt = null;
+    if (val === 'delivered') update.deliveredAt = firebase.firestore.FieldValue.serverTimestamp();
+    if (val === 'pending')   update.deliveredAt = null;
     await db.collection('pedidos').doc(firestoreId).update(update);
 
     // Al confirmar entrega, descontar stockCdb o stockExsal según sucursal
-    if (val === 'sold') {
+    if (val === 'delivered') {
       const freshSnap = await db.collection('pedidos').doc(firestoreId).get();
       const freshData = freshSnap.data() || {};
       if (freshData.items && !freshData.stockDeducted) {
@@ -1022,18 +1023,45 @@ async function changeStatus(firestoreId, val) {
           stockMap[item.id] = Math.max(0, newCdb + newExsal);
         }
         // Guardar costTotal y total congelados — no cambiarán aunque cambie el precio del producto
+        // Actualizar pedido con costTotal congelado y marcar stock descontado
         stockBatch.update(db.collection('pedidos').doc(firestoreId), {
+          status: 'delivered',
           stockDeducted: true,
           costTotal: +costTotal.toFixed(2),
-          total: +priceTotal.toFixed(2)
+          total: +priceTotal.toFixed(2),
+          deliveredAt: firebase.firestore.FieldValue.serverTimestamp()
         });
+
+        // Crear registros en "ventas" para que el inventario actualice estadísticas
+        const user = firebase.auth().currentUser;
+        const sellerEmail = user ? user.email : 'admin';
+        for (const item of freshData.items) {
+          const prodSnap2 = await db.collection('productos').doc(item.id).get();
+          const pd2 = prodSnap2.data() || {};
+          const qty2 = item.qty || 1;
+          const uc2 = typeof item.cost  === 'number' ? item.cost  : (typeof pd2.cost  === 'number' ? pd2.cost  : 0);
+          const up2 = typeof item.price === 'number' ? item.price : (typeof pd2.price === 'number' ? pd2.price : 0);
+          stockBatch.set(db.collection('ventas').doc(), {
+            orderNumber: 'PED-' + Date.now().toString().slice(-6) + '-' + Math.random().toString(36).slice(-3),
+            productName: item.name,
+            qty: qty2,
+            costTotal: +(uc2 * qty2).toFixed(2),
+            total: +(up2 * qty2).toFixed(2),
+            seller: sellerEmail,
+            sucursal: sucursal,
+            date: new Date().toLocaleDateString('es'),
+            timestamp: Date.now(),
+            fromOrder: firestoreId
+          });
+        }
+
         await stockBatch.commit();
         renderProducts();
         showToast(`✅ Entregado — stock ${sucursal.toUpperCase()} descontado en Firebase`);
         return;
       }
     }
-    showToast(val === 'sold' ? '✅ Marcado como entregado' : '🔄 Marcado como pendiente');
+    showToast(val === 'delivered' ? '✅ Marcado como entregado' : '🔄 Marcado como pendiente');
   } catch (err) {
     showToast('❌ Error: ' + err.message);
   }
@@ -1393,9 +1421,10 @@ async function renderMyOrders() {
       return;
     }
     el.innerHTML = myOrders.map(o => {
-      const isCancelled = o.status === 'cancelled';
-      const isPending   = o.status === 'pending';
-      const canCancel   = isPending;
+      const isCancelled  = o.status === 'cancelled';
+      const isPending    = o.status === 'pending';
+      const isDelivered  = o.status === 'delivered' || o.status === 'sold';
+      const canCancel    = isPending;
       return `
       <div class="ocard" ${isCancelled ? 'style="opacity:.65;border-color:#fca5a5"' : ''}>
         <div class="ocard-hd">
@@ -1505,6 +1534,7 @@ async function trackOrder() {
     const o = { firestoreId: snap.docs[0].id, ...snap.docs[0].data() };
     const isCancelled = o.status === 'cancelled';
     const isPending   = o.status === 'pending';
+    const isDelivered = o.status === 'delivered' || o.status === 'sold';
     const canCancel   = isPending && currentUser && currentUser.uid === o.userId;
     el.innerHTML = `
       <div class="ocard" style="border-color:var(--b300);box-shadow:var(--sh2)" ${isCancelled ? 'style="opacity:.65"' : ''}>
