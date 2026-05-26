@@ -359,6 +359,9 @@ tr:hover td{background:var(--b50)}
     <span id="adminNavBtn" class="hidden">
       <button class="nbtn nbtn-ghost" onclick="showPage('adminPanel')" style="color:var(--b600);font-weight:700">📊 Admin</button>
     </span>
+    <span id="inventoryNavBtn" class="hidden">
+      <button class="nbtn nbtn-ghost" onclick="window.open('https://calehzzz.github.io/PICOInventory/','_blank')" style="color:var(--b600);font-weight:700">📦 Inventario</button>
+    </span>
     <span id="profileNavBtn" class="hidden">
       <button class="nbtn nbtn-ghost" onclick="showPage('profile')">👤 Perfil</button>
     </span>
@@ -823,10 +826,13 @@ function updateNavAuth() {
       </div>`;
     profBtn.classList.remove('hidden');
     isAdmin ? adminBtn.classList.remove('hidden') : adminBtn.classList.add('hidden');
+    const invBtn = document.getElementById('inventoryNavBtn');
+    isAdmin ? invBtn.classList.remove('hidden') : invBtn.classList.add('hidden');
   } else {
     area.innerHTML = `<button class="nbtn nbtn-outline" onclick="toggleAuth()">Iniciar Sesión</button>`;
     profBtn.classList.add('hidden');
     adminBtn.classList.add('hidden');
+    document.getElementById('inventoryNavBtn').classList.add('hidden');
   }
 }
 
