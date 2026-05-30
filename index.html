@@ -963,7 +963,9 @@ async function doLogout() {
   if (adminUnsubscribe) { adminUnsubscribe(); adminUnsubscribe = null; }
   orders = [];
   cart   = {};
+  selectedDiscount = null; // Bug 5 fix: limpiar descuento antes de actualizar UI
   try { localStorage.removeItem('pico_cart'); } catch(_) {}
+  renderCartDiscountSelector(); // Bug 5 fix: ocultar el selector de descuento inmediatamente
   updateCartUI();
   showPage('catalog');
   showToast('👋 Sesión cerrada');
@@ -1089,8 +1091,15 @@ async function getUserDiscountIds(uid) {
 // Renderizar la sección de asignación de descuentos en el panel admin
 function renderAdminDiscountSection() {
   const container = document.getElementById('adminDiscountSection');
-  if (!container || allDescuentos.length === 0) {
-    if (container) container.innerHTML = '<p style="font-size:.82rem;color:var(--g400);padding:12px 0">No hay descuentos creados aún. Créalos desde el inventario.</p>';
+  if (!container) return;
+
+  // Bug 2 fix: si ya hay una búsqueda activa (el campo de email existe y tiene contenido,
+  // o ya hay resultados mostrándose), no re-renderizar y perder el trabajo del admin.
+  const existingEmail = document.getElementById('discountUserEmail');
+  if (existingEmail) return; // ya está montado el formulario, no pisar
+
+  if (allDescuentos.length === 0) {
+    container.innerHTML = '<p style="font-size:.82rem;color:var(--g400);padding:12px 0">No hay descuentos creados aún. Créalos desde el inventario.</p>';
     return;
   }
   container.innerHTML = `
@@ -1186,7 +1195,7 @@ function renderAdminPanel() {
   const pending   = orders.filter(o => o.status === 'pending').length;
   const sold      = orders.filter(o => o.status === 'delivered' || o.status === 'sold').length;
   const cancelled = orders.filter(o => o.status === 'cancelled').length;
-  const total     = orders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + (o.total || 0), 0);
+  const total     = orders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + (typeof o.totalConDescuento === 'number' ? o.totalConDescuento : (o.total || 0)), 0);
   document.getElementById('adminStats').innerHTML = `
     <div class="astat"><div class="av">${orders.length}</div><div class="al">Total pedidos</div></div>
     <div class="astat"><div class="av" style="color:var(--amber)">${pending}</div><div class="al">Pendientes</div></div>
@@ -1219,7 +1228,7 @@ function renderAdminTable(data) {
           🔍 Ver (${(o.items||[]).length})
         </button>
       </td>
-      <td style="font-weight:700;color:var(--b600)">$${(o.total || 0).toFixed(2)}</td>
+      <td style="font-weight:700;color:var(--b600)">$${(typeof o.totalConDescuento === 'number' ? o.totalConDescuento : (o.total || 0)).toFixed(2)}</td>
       <td style="font-size:.75rem;white-space:nowrap;color:var(--g500)">${fmtDate(o.createdAt)}</td>
       <td style="font-size:.75rem;white-space:nowrap;color:var(--g500)">${o.deliveredAt ? fmtDate(o.deliveredAt) : '<span style="color:var(--g300)">—</span>'}</td>
       <td>
@@ -1291,52 +1300,60 @@ async function changeStatus(firestoreId, val) {
         const stockBatch = db.batch();
         let costTotal = 0;
         let priceTotal = 0;
+        // Bug 3 fix: usar precios congelados en el item (no los actuales de Firestore)
+        // discFactor para aplicar descuento proporcional en los registros de ventas
+        const discFactor = freshData.discountPct ? ((100 - freshData.discountPct) / 100) : 1;
+        const user = firebase.auth().currentUser;
+        const sellerEmail = user ? user.email : 'admin';
+
         for (const item of freshData.items) {
           const prodRef = db.collection('productos').doc(item.id);
           const prodSnap = await prodRef.get();
           const prodData = prodSnap.data() || {};
           const qty = item.qty || 1;
-          // Congelar costo y precio en el momento exacto de entrega
-          costTotal  += (typeof prodData.cost  === 'number' ? prodData.cost  : 0) * qty;
-          priceTotal += (typeof prodData.price === 'number' ? prodData.price : (item.price || 0)) * qty;
+
+          // Priorizar costo/precio congelado en el item al momento del pedido
+          const unitCost  = typeof item.cost  === 'number' ? item.cost  : (typeof prodData.cost  === 'number' ? prodData.cost  : 0);
+          const unitPrice = typeof item.price === 'number' ? item.price : (typeof prodData.price === 'number' ? prodData.price : 0);
+          costTotal  += unitCost  * qty;
+          priceTotal += unitPrice * qty;
+
+          // Descontar stock de la sucursal
           const newFieldVal = Math.max(0, (prodData[stockField] !== undefined ? prodData[stockField] : 0) - qty);
           const newCdb   = stockField === 'stockCdb'   ? newFieldVal : (typeof prodData.stockCdb   === 'number' ? prodData.stockCdb   : 0);
           const newExsal = stockField === 'stockExsal' ? newFieldVal : (typeof prodData.stockExsal === 'number' ? prodData.stockExsal : 0);
           stockBatch.update(prodRef, { [stockField]: newFieldVal });
           stockMap[item.id] = Math.max(0, newCdb + newExsal);
+
+          // Crear registro en "ventas" con descuento proporcional aplicado
+          const itemTotal = +(unitPrice * qty * discFactor).toFixed(2);
+          stockBatch.set(db.collection('ventas').doc(), {
+            orderNumber: 'PED-' + Date.now().toString().slice(-6) + '-' + Math.random().toString(36).slice(-3),
+            productName: item.name,
+            qty,
+            costTotal: +(unitCost * qty).toFixed(2),
+            total: itemTotal,
+            seller: sellerEmail,
+            sucursal,
+            date: new Date().toLocaleDateString('es'),
+            timestamp: Date.now(),
+            fromOrder: firestoreId,
+            ...(freshData.discountPct ? { discountName: freshData.discountName, discountPct: freshData.discountPct } : {})
+          });
         }
-        // Guardar costTotal y total congelados — no cambiarán aunque cambie el precio del producto
-        // Actualizar pedido con costTotal congelado y marcar stock descontado
+
+        // Total efectivo: respetar totalConDescuento guardado; si no existe, calcular desde precios del pedido
+        const totalEfectivo = typeof freshData.totalConDescuento === 'number'
+          ? freshData.totalConDescuento
+          : +(priceTotal * discFactor).toFixed(2);
+
         stockBatch.update(db.collection('pedidos').doc(firestoreId), {
           status: 'delivered',
           stockDeducted: true,
           costTotal: +costTotal.toFixed(2),
-          total: +priceTotal.toFixed(2),
+          totalConDescuento: +totalEfectivo.toFixed(2),
           deliveredAt: firebase.firestore.FieldValue.serverTimestamp()
         });
-
-        // Crear registros en "ventas" para que el inventario actualice estadísticas
-        const user = firebase.auth().currentUser;
-        const sellerEmail = user ? user.email : 'admin';
-        for (const item of freshData.items) {
-          const prodSnap2 = await db.collection('productos').doc(item.id).get();
-          const pd2 = prodSnap2.data() || {};
-          const qty2 = item.qty || 1;
-          const uc2 = typeof item.cost  === 'number' ? item.cost  : (typeof pd2.cost  === 'number' ? pd2.cost  : 0);
-          const up2 = typeof item.price === 'number' ? item.price : (typeof pd2.price === 'number' ? pd2.price : 0);
-          stockBatch.set(db.collection('ventas').doc(), {
-            orderNumber: 'PED-' + Date.now().toString().slice(-6) + '-' + Math.random().toString(36).slice(-3),
-            productName: item.name,
-            qty: qty2,
-            costTotal: +(uc2 * qty2).toFixed(2),
-            total: +(up2 * qty2).toFixed(2),
-            seller: sellerEmail,
-            sucursal: sucursal,
-            date: new Date().toLocaleDateString('es'),
-            timestamp: Date.now(),
-            fromOrder: firestoreId
-          });
-        }
 
         await stockBatch.commit();
         renderProducts();
@@ -1672,6 +1689,7 @@ async function placeOrder() {
     }
 
     cart = {};
+    selectedDiscount = null; // Bug 1 fix: resetear descuento seleccionado al completar pedido
     try { localStorage.removeItem('pico_cart'); } catch(_) {}
     updateCartUI();
     renderProducts();
@@ -1760,7 +1778,7 @@ async function renderMyOrders() {
           <span>👤 ${o.name}</span>
           <span>🎓 ${o.grade} – ${o.section}</span>
           <span>📅 ${fmtDate(o.createdAt)}</span>
-          <span>💰 $${(o.total || 0).toFixed(2)}</span>
+          <span>💰 $${(typeof o.totalConDescuento === 'number' ? o.totalConDescuento : (o.total || 0)).toFixed(2)}</span>
           ${o.deliveredAt ? `<span>📦 ${fmtDate(o.deliveredAt)}</span>` : ''}
         </div>
         <div style="margin-top:9px;padding-top:9px;border-top:1px solid var(--b50)">
@@ -1774,8 +1792,8 @@ async function renderMyOrders() {
                 <div class="odetail-item-price">$${((i.price||0)*i.qty).toFixed(2)}</div>
               </div>`).join('')}
             <div class="odetail-subtotal">
-              <span>Subtotal</span>
-              <span>$${(o.total||0).toFixed(2)}</span>
+              <span>Total</span>
+              <span>$${(typeof o.totalConDescuento === 'number' ? o.totalConDescuento : (o.total||0)).toFixed(2)}</span>
             </div>
           </div>
         </div>
@@ -1871,7 +1889,7 @@ async function trackOrder() {
           <span>👤 ${o.name}</span>
           <span>🎓 ${o.grade} – ${o.section}</span>
           <span>📅 ${fmtDate(o.createdAt)}</span>
-          <span>💰 $${(o.total || 0).toFixed(2)}</span>
+          <span>💰 $${(typeof o.totalConDescuento === 'number' ? o.totalConDescuento : (o.total || 0)).toFixed(2)}</span>
           ${o.deliveredAt ? `<span>📦 ${fmtDate(o.deliveredAt)}</span>` : ''}
         </div>
         <div style="margin-top:9px;padding-top:9px;border-top:1px solid var(--b50)">
@@ -1885,8 +1903,8 @@ async function trackOrder() {
                 <div class="odetail-item-price">$${((i.price||0)*i.qty).toFixed(2)}</div>
               </div>`).join('')}
             <div class="odetail-subtotal">
-              <span>Subtotal</span>
-              <span>$${(o.total||0).toFixed(2)}</span>
+              <span>Total</span>
+              <span>$${(typeof o.totalConDescuento === 'number' ? o.totalConDescuento : (o.total||0)).toFixed(2)}</span>
             </div>
           </div>
         </div>
