@@ -346,6 +346,18 @@ tr:hover td{background:var(--b50)}
   .cart-btn span:not(.cbadge){display:none}
   .cart-btn{padding:7px 10px}
 }
+
+/* ── DISCOUNT SELECTOR IN CART ── */
+#cartDiscountContainer{padding:10px 16px 2px;border-top:1px solid var(--b100)}
+.cart-discount-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.cart-discount-label{font-size:.82rem;font-weight:700;color:var(--g700);white-space:nowrap}
+#cartDiscountContainer select{background:var(--b50);border:1.5px solid var(--b200);border-radius:8px;padding:7px 10px;font-size:.82rem;font-family:var(--font);color:var(--g900);cursor:pointer;flex:1;min-width:0;outline:none}
+#cartDiscountContainer select:focus{border-color:var(--b500)}
+.cart-discount-info{margin-top:5px;font-size:.78rem;color:var(--green);font-weight:600;text-align:right;padding-right:2px}
+
+/* ── ADMIN DISCOUNT ASSIGN ── */
+.discount-assign-box{display:flex;flex-direction:column;gap:10px}
+.discount-assign-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 </style>
 </head>
 <body>
@@ -474,6 +486,18 @@ tr:hover td{background:var(--b50)}
       <button class="nbtn nbtn-ghost" onclick="doLogout()" style="color:var(--g400)">← Cerrar sesión</button>
     </div>
     <div class="astats" id="adminStats"></div>
+
+    <!-- ── ASIGNACIÓN DE DESCUENTOS POR CLIENTE ── -->
+    <div class="atable-wrap" style="margin-bottom:24px">
+      <div class="atable-hd" style="align-items:flex-start;flex-direction:column;gap:6px">
+        <h3>🏷️ Descuentos por cliente</h3>
+        <p style="font-size:.8rem;color:var(--g400);margin:0">Asigna qué descuentos puede elegir cada cliente al hacer su pedido. Los descuentos se crean desde el inventario.</p>
+      </div>
+      <div style="padding:16px 20px 20px">
+        <div id="adminDiscountSection"><p style="font-size:.82rem;color:var(--g400)">Cargando descuentos...</p></div>
+      </div>
+    </div>
+
     <div class="atable-wrap">
       <div class="atable-hd">
         <h3>Registro de Pedidos</h3>
@@ -560,6 +584,7 @@ tr:hover td{background:var(--b50)}
       <span class="ctotal-lbl">Subtotal</span>
       <span class="ctotal-val" id="cartTotal">$0.00</span>
     </div>
+    <div id="cartDiscountContainer" style="display:none"></div>
     <button class="btn-checkout" onclick="openCheckout()">Confirmar Pedido →</button>
   </div>
 </div>
@@ -695,6 +720,13 @@ let adminUnsubscribe = null;
 let currentCat       = 'Todos';
 let currentSearch    = '';
 
+// Descuentos: lista global (leída de Firestore) y descuentos asignados al usuario
+let allDescuentos       = [];   // [{id, nombre, porcentaje}]
+let userDiscountIds     = [];   // IDs de descuentos que tiene este usuario (cargados por uid)
+let selectedDiscount    = null; // {id, nombre, porcentaje} o null
+let unsubDescuentos     = null;
+let unsubUserDiscount   = null;
+
 // Paginación / lazy render
 const PAGE_SIZE            = 12;
 let visibleCount           = PAGE_SIZE;
@@ -818,6 +850,8 @@ auth.onAuthStateChanged(user => {
     updateNavAuth();
     // Recargar siempre al iniciar sesión para que el stockMap incluya pedidos pendientes
     loadProducts();
+    // Cargar descuentos globales (todos los descuentos definidos por el admin)
+    startDescuentosListener();
     if (isAdmin) {
       startAdminListener();
       // Si llegó desde un QR (URL con ?pedido=ID)
@@ -827,11 +861,19 @@ auth.onAuthStateChanged(user => {
         showPage('adminPanel');
         setTimeout(() => highlightOrder(pedidoId), 1800);
       }
+    } else {
+      // Usuario normal: cargar sus descuentos asignados
+      startUserDiscountListener(user.uid);
     }
   } else {
     currentUser = null;
     isAdmin     = false;
     if (adminUnsubscribe) { adminUnsubscribe(); adminUnsubscribe = null; }
+    if (unsubDescuentos)  { unsubDescuentos();  unsubDescuentos  = null; }
+    if (unsubUserDiscount){ unsubUserDiscount();unsubUserDiscount= null; }
+    allDescuentos    = [];
+    userDiscountIds  = [];
+    selectedDiscount = null;
     updateNavAuth();
     // Sin sesión: cargar productos (solo stock de Firebase, sin ajuste de pedidos)
     loadProducts();
@@ -928,6 +970,203 @@ async function doLogout() {
 }
 
 // ═══════════════════════════════════════════════════
+//  DESCUENTOS — LISTENERS Y LÓGICA
+// ═══════════════════════════════════════════════════
+
+// Escucha la colección "descuentos" (compartida con inventario)
+function startDescuentosListener() {
+  if (unsubDescuentos) return;
+  unsubDescuentos = db.collection('descuentos').orderBy('createdAt', 'asc').onSnapshot(snap => {
+    allDescuentos = [];
+    snap.forEach(doc => allDescuentos.push({ id: doc.id, ...doc.data() }));
+    // Si hay selector de descuento activo, actualizarlo
+    renderCartDiscountSelector();
+    // Si el panel admin está visible, actualizar su sección de descuentos
+    if (isAdmin && document.getElementById('page-adminPanel').classList.contains('active')) {
+      renderAdminDiscountSection();
+    }
+  }, err => console.error('Descuentos listener:', err));
+}
+
+// Escucha el documento user-discounts/{uid} del usuario actual
+function startUserDiscountListener(uid) {
+  if (unsubUserDiscount) { unsubUserDiscount(); unsubUserDiscount = null; }
+  unsubUserDiscount = db.collection('user-discounts').doc(uid).onSnapshot(snap => {
+    if (snap.exists) {
+      userDiscountIds = snap.data().discountIds || [];
+    } else {
+      userDiscountIds = [];
+    }
+    selectedDiscount = null; // resetear selección al actualizar
+    renderCartDiscountSelector();
+  }, err => console.error('User discount listener:', err));
+}
+
+// Descuentos del usuario actual (filtrados de la lista global)
+function getUserDiscounts() {
+  return allDescuentos.filter(d => userDiscountIds.includes(d.id));
+}
+
+// Renderiza el selector de descuento en el carrito (si el usuario tiene descuentos asignados)
+function renderCartDiscountSelector() {
+  const container = document.getElementById('cartDiscountContainer');
+  if (!container) return;
+  const myDiscounts = getUserDiscounts();
+  if (!currentUser || isAdmin || myDiscounts.length === 0) {
+    container.innerHTML = '';
+    container.style.display = 'none';
+    selectedDiscount = null;
+    updateCartUI();
+    return;
+  }
+  container.style.display = 'block';
+  const opts = myDiscounts.map(d =>
+    `<option value="${d.id}" ${selectedDiscount && selectedDiscount.id === d.id ? 'selected' : ''}>${escHtml(d.nombre)} (${d.porcentaje}%)</option>`
+  ).join('');
+  container.innerHTML = `
+    <div class="cart-discount-row">
+      <label class="cart-discount-label"><span>🏷️ Descuento</span></label>
+      <select id="cartDiscountSelect" onchange="onCartDiscountChange(this)">
+        <option value="">Sin descuento</option>
+        ${opts}
+      </select>
+    </div>
+    ${selectedDiscount ? `<div class="cart-discount-info">Descuento del <b>${selectedDiscount.porcentaje}%</b> aplicado al total</div>` : ''}
+  `;
+  updateCartUI();
+}
+
+function onCartDiscountChange(sel) {
+  const id = sel.value;
+  if (!id) {
+    selectedDiscount = null;
+  } else {
+    selectedDiscount = allDescuentos.find(d => d.id === id) || null;
+  }
+  renderCartDiscountSelector();
+}
+
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Calcular total del carrito con descuento aplicado
+function getCartTotal() {
+  const raw = Object.keys(cart).reduce((s, id) => {
+    const p = products.find(x => x.id === id);
+    return s + (p ? p.price * (cart[id] || 0) : 0);
+  }, 0);
+  if (selectedDiscount && selectedDiscount.porcentaje) {
+    return +(raw * (1 - selectedDiscount.porcentaje / 100)).toFixed(2);
+  }
+  return +raw.toFixed(2);
+}
+
+function getCartRawTotal() {
+  return Object.keys(cart).reduce((s, id) => {
+    const p = products.find(x => x.id === id);
+    return s + (p ? p.price * (cart[id] || 0) : 0);
+  }, 0);
+}
+
+// ═══════════════════════════════════════════════════
+//  ADMIN — GESTIÓN DE DESCUENTOS POR USUARIO
+// ═══════════════════════════════════════════════════
+
+// Guardar descuentos asignados a un usuario en Firestore
+async function saveUserDiscounts(uid, discountIds) {
+  await db.collection('user-discounts').doc(uid).set({ discountIds, updatedAt: Date.now() }, { merge: true });
+}
+
+// Obtener los discountIds actuales de un usuario
+async function getUserDiscountIds(uid) {
+  try {
+    const snap = await db.collection('user-discounts').doc(uid).get();
+    return snap.exists ? (snap.data().discountIds || []) : [];
+  } catch { return []; }
+}
+
+// Renderizar la sección de asignación de descuentos en el panel admin
+function renderAdminDiscountSection() {
+  const container = document.getElementById('adminDiscountSection');
+  if (!container || allDescuentos.length === 0) {
+    if (container) container.innerHTML = '<p style="font-size:.82rem;color:var(--g400);padding:12px 0">No hay descuentos creados aún. Créalos desde el inventario.</p>';
+    return;
+  }
+  container.innerHTML = `
+    <div class="discount-assign-box">
+      <div class="discount-assign-row">
+        <input type="email" id="discountUserEmail" class="finput" placeholder="Email del cliente (cuenta Google)" style="flex:1;min-width:0">
+        <button class="nbtn" onclick="loadUserForDiscount()" style="white-space:nowrap;padding:10px 16px">Buscar</button>
+      </div>
+      <div id="discountUserInfo" style="margin-top:10px"></div>
+    </div>
+  `;
+}
+
+// Buscar usuario por email y mostrar sus descuentos actuales
+async function loadUserForDiscount() {
+  const email = (document.getElementById('discountUserEmail').value || '').trim().toLowerCase();
+  const info = document.getElementById('discountUserInfo');
+  if (!email) { info.innerHTML = '<p style="color:#dc2626;font-size:.82rem">Ingresa un email.</p>'; return; }
+  info.innerHTML = '<p style="font-size:.82rem;color:var(--g400)">Buscando...</p>';
+  try {
+    // Buscar pedidos de ese email para obtener el uid
+    const snap = await db.collection('pedidos').where('email', '==', email).limit(1).get();
+    if (snap.empty) {
+      info.innerHTML = '<p style="font-size:.82rem;color:#dc2626">No se encontró ningún pedido con ese email. El cliente debe haber realizado al menos un pedido.</p>';
+      return;
+    }
+    const orderData = snap.docs[0].data();
+    const uid = orderData.userId;
+    if (!uid) {
+      info.innerHTML = '<p style="font-size:.82rem;color:#dc2626">El cliente no tiene cuenta de Google vinculada.</p>';
+      return;
+    }
+    const currentIds = await getUserDiscountIds(uid);
+    renderDiscountAssigner(uid, email, currentIds);
+  } catch(e) {
+    console.error(e);
+    info.innerHTML = '<p style="font-size:.82rem;color:#dc2626">Error al buscar. Intenta de nuevo.</p>';
+  }
+}
+
+// Mostrar checkboxes de descuentos para asignar a un usuario
+function renderDiscountAssigner(uid, email, currentIds) {
+  const info = document.getElementById('discountUserInfo');
+  const checks = allDescuentos.map(d => `
+    <label style="display:flex;align-items:center;gap:8px;font-size:.85rem;padding:6px 0;cursor:pointer">
+      <input type="checkbox" value="${d.id}" ${currentIds.includes(d.id) ? 'checked' : ''} style="accent-color:var(--b600);width:15px;height:15px">
+      <span><b>${escHtml(d.nombre)}</b> — ${d.porcentaje}%</span>
+    </label>
+  `).join('');
+  info.innerHTML = `
+    <div style="background:var(--b50);border:1.5px solid var(--b200);border-radius:10px;padding:14px 16px">
+      <p style="font-size:.82rem;font-weight:700;color:var(--b600);margin-bottom:10px">Cliente: ${escHtml(email)}</p>
+      <p style="font-size:.78rem;color:var(--g400);margin-bottom:10px">Selecciona los descuentos que puede elegir:</p>
+      <div id="discountChecks">${checks || '<p style="font-size:.82rem;color:var(--g400)">Sin descuentos disponibles.</p>'}</div>
+      <button class="nbtn" onclick="saveDiscountAssignment('${uid}')" style="margin-top:12px;width:100%;padding:10px">Guardar asignación</button>
+      <div id="discountSaveMsg" style="margin-top:8px;font-size:.8rem;text-align:center"></div>
+    </div>
+  `;
+}
+
+async function saveDiscountAssignment(uid) {
+  const checks = document.querySelectorAll('#discountChecks input[type=checkbox]:checked');
+  const ids = Array.from(checks).map(c => c.value);
+  const msg = document.getElementById('discountSaveMsg');
+  msg.textContent = 'Guardando...';
+  try {
+    await saveUserDiscounts(uid, ids);
+    msg.style.color = 'var(--green)';
+    msg.textContent = ids.length > 0 ? `✅ ${ids.length} descuento(s) asignado(s).` : '✅ Descuentos eliminados.';
+  } catch(e) {
+    msg.style.color = '#dc2626';
+    msg.textContent = 'Error al guardar.';
+  }
+}
+
+// ═══════════════════════════════════════════════════
 //  ADMIN — REAL-TIME LISTENER
 // ═══════════════════════════════════════════════════
 function startAdminListener() {
@@ -954,6 +1193,7 @@ function renderAdminPanel() {
     <div class="astat"><div class="av" style="color:var(--green)">${sold}</div><div class="al">Entregados</div></div>
     <div class="astat"><div class="av" style="color:var(--red)">${cancelled}</div><div class="al">Cancelados</div></div>
     <div class="astat"><div class="av">$${total.toFixed(2)}</div><div class="al">Total facturado</div></div>`;
+  renderAdminDiscountSection();
   renderAdminTable(orders);
 }
 
@@ -1241,22 +1481,32 @@ function cartSetVal(id, val) {
 function changeQty(id, d) {
   cart[id] = (cart[id] || 0) + d;
   if (cart[id] <= 0) delete cart[id];
+  if (!Object.keys(cart).length) selectedDiscount = null;
   saveCart(); updateCartUI(); updateAddZone(id);
 }
 
-function removeFromCart(id) { delete cart[id]; saveCart(); updateCartUI(); updateAddZone(id); }
+function removeFromCart(id) {
+  delete cart[id];
+  if (!Object.keys(cart).length) selectedDiscount = null;
+  saveCart(); updateCartUI(); updateAddZone(id);
+}
 
 function updateCartUI() {
-  const total = Object.keys(cart).reduce((s, id) => {
-    const p = products.find(x => x.id === id);
-    return s + (p ? p.price * (cart[id] || 0) : 0);
-  }, 0);
+  const rawTotal = getCartRawTotal();
+  const total    = getCartTotal();
   const count = Object.values(cart).reduce((s, n) => s + n, 0);
 
   const badge = document.getElementById('cartBadge');
   badge.textContent = count;
   count > 0 ? badge.classList.remove('hidden') : badge.classList.add('hidden');
-  document.getElementById('cartTotal').textContent = '$' + total.toFixed(2);
+
+  // Mostrar precio original tachado si hay descuento
+  const totalEl = document.getElementById('cartTotal');
+  if (selectedDiscount && rawTotal !== total) {
+    totalEl.innerHTML = `<span style="text-decoration:line-through;color:var(--g400);font-size:.88rem;font-weight:500">$${rawTotal.toFixed(2)}</span> <span style="color:var(--b600)">$${total.toFixed(2)}</span>`;
+  } else {
+    totalEl.textContent = '$' + total.toFixed(2);
+  }
 
   const el = document.getElementById('cartItems');
   if (!Object.keys(cart).length) {
@@ -1318,16 +1568,22 @@ function openCheckout() {
       <div class="odetail-item-price">$${(p.price * cart[id]).toFixed(2)}</div>
     </div>`;
   }).join('');
-  const total = Object.keys(cart).reduce((s, id) => {
-    const p = products.find(x => x.id === id);
-    return s + (p ? p.price * (cart[id] || 0) : 0);
-  }, 0);
+  const rawTotal   = getCartRawTotal();
+  const finalTotal = getCartTotal();
+  const discountRow = selectedDiscount
+    ? `<div class="odetail-subtotal" style="color:var(--green)">
+         <span>🏷️ Descuento (${selectedDiscount.nombre} −${selectedDiscount.porcentaje}%)</span>
+         <span>−$${(rawTotal - finalTotal).toFixed(2)}</span>
+       </div>`
+    : '';
 
   document.getElementById('checkoutSummary').innerHTML = `
     <div class="osumtitle">Resumen del pedido</div>
     <div class="odetail-list" style="gap:4px">${items}
-      <div class="odetail-subtotal">
-        <span>Subtotal</span><span>$${total.toFixed(2)}</span>
+      ${selectedDiscount ? `<div class="odetail-subtotal"><span>Subtotal</span><span>$${rawTotal.toFixed(2)}</span></div>` : ''}
+      ${discountRow}
+      <div class="odetail-subtotal" ${selectedDiscount ? 'style="font-weight:700;color:var(--b600)"' : ''}>
+        <span>${selectedDiscount ? 'Total con descuento' : 'Subtotal'}</span><span>$${finalTotal.toFixed(2)}</span>
       </div>
     </div>`;
 
@@ -1389,11 +1645,19 @@ async function placeOrder() {
     const p = products.find(x => x.id === id);
     return { id, name: p.name, qty: cart[id], price: p.price, cost: p.cost };
   });
-  const total = items.reduce((s, i) => s + i.qty * i.price, 0);
+  const rawTotal   = items.reduce((s, i) => s + i.qty * i.price, 0);
+  const finalTotal = selectedDiscount
+    ? +(rawTotal * (1 - selectedDiscount.porcentaje / 100)).toFixed(2)
+    : +rawTotal.toFixed(2);
 
   try {
     const docRef = await db.collection('pedidos').add({
-      code, name, grade, section, items, total,
+      code, name, grade, section, items,
+      total:               +rawTotal.toFixed(2),
+      totalConDescuento:   selectedDiscount ? finalTotal : null,
+      discountId:          selectedDiscount ? selectedDiscount.id        : null,
+      discountName:        selectedDiscount ? selectedDiscount.nombre    : null,
+      discountPct:         selectedDiscount ? selectedDiscount.porcentaje: null,
       sucursal:    sucursal,
       status:      'pending',
       createdAt:   firebase.firestore.FieldValue.serverTimestamp(),
