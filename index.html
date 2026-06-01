@@ -807,23 +807,40 @@ async function loadProducts() {
     });
 
     // Descontar del stockMap local los pedidos pendientes (aún no entregados ni con stock descontado)
-    // Esto hace que el stock visible siempre coincida con el real disponible
+    // Cache de 2 min para evitar re-query en cada cambio de auth state
+    const PENDING_CACHE_KEY = 'pico_pending_v1';
+    const PENDING_CACHE_TTL = 2 * 60 * 1000;
+    let pendingOrders = null;
     try {
-      const pendingSnap = await db.collection('pedidos')
-        .where('status', '==', 'pending')
-        .get();
-      pendingSnap.forEach(doc => {
-        const o = doc.data();
-        if (!o.stockDeducted && o.items) {
-          for (const item of o.items) {
-            if (stockMap[item.id] !== undefined) {
-              stockMap[item.id] = Math.max(0, stockMap[item.id] - (item.qty || 0));
-            }
+      const pc = sessionStorage.getItem(PENDING_CACHE_KEY);
+      if (pc) {
+        const { ts, data } = JSON.parse(pc);
+        if (Date.now() - ts < PENDING_CACHE_TTL) pendingOrders = data;
+      }
+    } catch(_) {}
+
+    if (!pendingOrders) {
+      try {
+        const pendingSnap = await db.collection('pedidos')
+          .where('status', '==', 'pending')
+          .get();
+        pendingOrders = [];
+        pendingSnap.forEach(doc => pendingOrders.push(doc.data()));
+        try { sessionStorage.setItem(PENDING_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: pendingOrders })); } catch(_) {}
+      } catch (e) {
+        pendingOrders = [];
+        // Sin sesion o sin permisos — mostrar stock de Firebase sin ajuste
+      }
+    }
+
+    for (const o of pendingOrders) {
+      if (!o.stockDeducted && o.items) {
+        for (const item of o.items) {
+          if (stockMap[item.id] !== undefined) {
+            stockMap[item.id] = Math.max(0, stockMap[item.id] - (item.qty || 0));
           }
         }
-      });
-    } catch (e) {
-      // Si no hay sesión, no se pueden leer pedidos — no pasa nada, se muestra stock de Firebase
+      }
     }
 
     loadEl.style.display  = 'none';
@@ -1181,16 +1198,22 @@ async function saveDiscountAssignment(uid) {
 // ═══════════════════════════════════════════════════
 //  ADMIN — REAL-TIME LISTENER
 // ═══════════════════════════════════════════════════
+const ADMIN_ORDERS_LIMIT = 200;
+
 function startAdminListener() {
   if (adminUnsubscribe) return;
-  adminUnsubscribe = db.collection('pedidos').onSnapshot(snap => {
-    orders = [];
-    snap.forEach(doc => orders.push({ firestoreId: doc.id, ...doc.data() }));
-    orders.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-    if (document.getElementById('page-adminPanel').classList.contains('active')) {
-      renderAdminPanel();
-    }
-  }, err => console.error('Admin listener:', err));
+  // LIMITE: evita leer toda la coleccion en cada update (el gran leak de lecturas)
+  adminUnsubscribe = db.collection('pedidos')
+    .orderBy('createdAt', 'desc')
+    .limit(ADMIN_ORDERS_LIMIT)
+    .onSnapshot(snap => {
+      orders = [];
+      snap.forEach(doc => orders.push({ firestoreId: doc.id, ...doc.data() }));
+      orders.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      if (document.getElementById('page-adminPanel').classList.contains('active')) {
+        renderAdminPanel();
+      }
+    }, err => console.error('Admin listener:', err));
 }
 
 function renderAdminPanel() {
@@ -1713,6 +1736,8 @@ async function placeOrder() {
     }
 
     cart = {};
+    myOrdersCache = null; // invalidar cache de mis pedidos al crear uno nuevo
+    try { sessionStorage.removeItem('pico_pending_v1'); } catch(_) {} // invalidar cache de pendientes
     selectedDiscount = null; // Bug 1 fix: resetear descuento seleccionado al completar pedido
     try { localStorage.removeItem('pico_cart'); } catch(_) {}
     updateCartUI();
@@ -1770,75 +1795,95 @@ function showOrderQR(firestoreId, code) {
 // ═══════════════════════════════════════════════════
 //  MY ORDERS (Firestore)
 // ═══════════════════════════════════════════════════
+// Cache de mis pedidos para evitar re-queries en cada navegacion
+let myOrdersCache = null;
+let myOrdersCacheUid = null;
+
 async function renderMyOrders() {
   const el = document.getElementById('myOrdersList');
   if (!currentUser) {
     el.innerHTML = '<p style="color:var(--g300);font-size:.85rem">Inicia sesión para ver tu historial de pedidos.</p>';
     return;
   }
+  // Usar cache si ya cargamos los pedidos de este usuario en esta sesion
+  if (myOrdersCache && myOrdersCacheUid === currentUser.uid) {
+    _renderMyOrdersList(el, myOrdersCache);
+    return;
+  }
   el.innerHTML = '<p style="color:var(--g400);font-size:.85rem;text-align:center;padding:24px 0">Cargando...</p>';
   try {
-    const snap = await db.collection('pedidos').where('userId', '==', currentUser.uid).get();
+    const snap = await db.collection('pedidos')
+      .where('userId', '==', currentUser.uid)
+      .orderBy('createdAt', 'desc')
+      .limit(50)
+      .get();
     const myOrders = snap.docs.map(d => ({ firestoreId: d.id, ...d.data() }));
     myOrders.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-    if (!myOrders.length) {
-      el.innerHTML = '<p style="color:var(--g300);font-size:.85rem">No tienes pedidos aún.</p>';
-      return;
-    }
-    el.innerHTML = myOrders.map(o => {
-      const isCancelled  = o.status === 'cancelled';
-      const isPending    = o.status === 'pending';
-      const isDelivered  = o.status === 'delivered' || o.status === 'sold';
-      const canCancel    = isPending;
-      return `
-      <div class="ocard" ${isCancelled ? 'style="opacity:.65;border-color:#fca5a5"' : ''}>
-        <div class="ocard-hd">
-          <span class="ocode">${o.code}</span>
-          <span class="sbadge ${isCancelled ? 'sc' : (isPending ? 'sp' : 'ss')}">
-            ${isCancelled ? '❌ Cancelado' : (isPending ? '⏳ Pendiente' : '✅ Entregado')}
-          </span>
-        </div>
-        <div class="ometa">
-          <span>👤 ${o.name}</span>
-          <span>🎓 ${o.grade} – ${o.section}</span>
-          <span>📅 ${fmtDate(o.createdAt)}</span>
-          <span>💰 $${(typeof o.totalConDescuento === 'number' ? o.totalConDescuento : (o.total || 0)).toFixed(2)}</span>
-          ${o.deliveredAt ? `<span>📦 ${fmtDate(o.deliveredAt)}</span>` : ''}
-        </div>
-        <div style="margin-top:9px;padding-top:9px;border-top:1px solid var(--b50)">
-          <div class="odetail-list" style="gap:4px">
-            ${(o.items || []).map(i => `
-              <div class="odetail-item">
-                <div>
-                  <div class="odetail-item-name">${i.name}</div>
-                  <div class="odetail-item-sub">$${(i.price||0).toFixed(2)} × ${i.qty}</div>
-                </div>
-                <div class="odetail-item-price">$${((i.price||0)*i.qty).toFixed(2)}</div>
-              </div>`).join('')}
-            <div class="odetail-subtotal">
-              <span>Total</span>
-              <span>$${(typeof o.totalConDescuento === 'number' ? o.totalConDescuento : (o.total||0)).toFixed(2)}</span>
-            </div>
-          </div>
-        </div>
-        ${canCancel ? `
-        <div style="margin-top:12px;text-align:right">
-          <button class="btn-cancel-order" onclick="customerCancelOrder('${o.firestoreId}','${o.code}',this)">
-            ✕ Cancelar pedido
-          </button>
-        </div>` : ''}
-        <div style="margin-top:10px;text-align:right">
-          <button onclick="showOrderQR('${o.firestoreId}','${o.code}')"
-            style="padding:5px 12px;border-radius:7px;border:1.5px solid var(--b200);background:var(--b50);color:var(--b600);font-family:var(--font);font-size:.73rem;font-weight:600;cursor:pointer">
-            🔲 Ver QR
-          </button>
-        </div>
-      </div>`;
-    }).join('');
-  } catch (err) {
+    // Guardar en cache
+    myOrdersCache = myOrders;
+    myOrdersCacheUid = currentUser.uid;
+    _renderMyOrdersList(el, myOrders);
+    } catch (err) {
     el.innerHTML = '<p style="color:var(--red);font-size:.85rem">Error al cargar los pedidos.</p>';
     console.error('renderMyOrders:', err);
   }
+}
+
+
+function _renderMyOrdersList(el, myOrders) {
+  if (!myOrders.length) {
+    el.innerHTML = '<p style="color:var(--g300);font-size:.85rem">No tienes pedidos aún.</p>';
+    return;
+  }
+  el.innerHTML = myOrders.map(o => {
+    const isCancelled  = o.status === 'cancelled';
+    const isPending    = o.status === 'pending';
+    const canCancel    = isPending;
+    return `
+    <div class="ocard" ${isCancelled ? 'style="opacity:.65;border-color:#fca5a5"' : ''}>
+      <div class="ocard-hd">
+        <span class="ocode">${o.code}</span>
+        <span class="sbadge ${isCancelled ? 'sc' : (isPending ? 'sp' : 'ss')}">
+          ${isCancelled ? '❌ Cancelado' : (isPending ? '⏳ Pendiente' : '✅ Entregado')}
+        </span>
+      </div>
+      <div class="ometa">
+        <span>👤 ${o.name}</span>
+        <span>🎓 ${o.grade} – ${o.section}</span>
+        <span>📅 ${fmtDate(o.createdAt)}</span>
+        <span>💰 $${(typeof o.totalConDescuento === 'number' ? o.totalConDescuento : (o.total || 0)).toFixed(2)}</span>
+        ${o.deliveredAt ? `<span>📦 ${fmtDate(o.deliveredAt)}</span>` : ''}
+      </div>
+      <div style="margin-top:9px;padding-top:9px;border-top:1px solid var(--b50)">
+        <div class="odetail-list" style="gap:4px">
+          ${(o.items || []).map(i => `
+            <div class="odetail-item">
+              <div>
+                <div class="odetail-item-name">${i.name}</div>
+                <div class="odetail-item-sub">$${(i.price||0).toFixed(2)} × ${i.qty}</div>
+              </div>
+              <div class="odetail-item-price">$${((i.price||0)*i.qty).toFixed(2)}</div>
+            </div>`).join('')}
+          <div class="odetail-subtotal">
+            <span>Total</span>
+            <span>$${(typeof o.totalConDescuento === 'number' ? o.totalConDescuento : (o.total||0)).toFixed(2)}</span>
+          </div>
+        </div>
+      </div>
+      ${canCancel ? `
+      <div style="margin-top:12px;text-align:right">
+        <button class="btn-cancel-order" onclick="customerCancelOrder('${o.firestoreId}','${o.code}',this)">
+          ✕ Cancelar pedido
+        </button>
+      </div>` : ''}
+      <div style="margin-top:10px;text-align:right">
+        <button onclick="showOrderQR('${o.firestoreId}','${o.code}')"
+          style="padding:5px 12px;border-radius:7px;border:1.5px solid var(--b200);background:var(--b50);color:var(--b600);font-family:var(--font);font-size:.73rem;font-weight:600;cursor:pointer">
+          🔲 Ver QR
+        </button>
+      </div>
+    </div>`;
+  }).join('');
 }
 
 async function customerCancelOrder(firestoreId, code, btn) {
@@ -1878,6 +1923,7 @@ async function customerCancelOrder(firestoreId, code, btn) {
     }
     renderProducts();
     renderMyOrders();
+    myOrdersCache = null; // invalidar cache al cancelar
     showToast('✅ Pedido cancelado — stock restaurado');
   } catch (err) {
     showToast('❌ Error al cancelar: ' + err.message);
