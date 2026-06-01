@@ -1370,12 +1370,12 @@ async function changeStatus(firestoreId, val) {
 
         // ✅ Actualizar estadisticas acumuladas (igual que en inventario al registrar venta directa)
         const statDocId = sucursal === 'cdb' ? 'ColegioDonBosco' : 'ColegioExsal';
-        stockBatch.update(db.collection('estadisticas').doc(statDocId), {
+        stockBatch.set(db.collection('estadisticas').doc(statDocId), {
           'ventas':            firebase.firestore.FieldValue.increment(totalVentasEfectivo),
           'costos':            firebase.firestore.FieldValue.increment(+costTotal.toFixed(2)),
           'unidades vendidas': firebase.firestore.FieldValue.increment(totalUnidades),
           'numero de ventas':  firebase.firestore.FieldValue.increment(freshData.items.length)
-        });
+        }, { merge: true });
 
         await stockBatch.commit();
         renderProducts();
