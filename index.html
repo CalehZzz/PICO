@@ -1309,6 +1309,13 @@ async function changeStatus(firestoreId, val) {
         const user = firebase.auth().currentUser;
         const sellerEmail = user ? user.email : 'admin';
 
+        // Helper: clave "YYYY-MM" para el mes actual (igual que en inventario)
+        const now = new Date();
+        const mesKey = now.getFullYear() + '-' + String(now.getMonth()).padStart(2, '0');
+
+        let totalUnidades = 0;
+        let totalVentasEfectivo = 0;
+
         for (const item of freshData.items) {
           const prodRef = db.collection('productos').doc(item.id);
           const prodSnap = await prodRef.get();
@@ -1330,6 +1337,8 @@ async function changeStatus(firestoreId, val) {
 
           // Crear registro en "ventas" con descuento proporcional aplicado
           const itemTotal = +(unitPrice * qty * discFactor).toFixed(2);
+          totalUnidades += qty;
+          totalVentasEfectivo += itemTotal;
           stockBatch.set(db.collection('ventas').doc(), {
             orderNumber: 'PED-' + Date.now().toString().slice(-6) + '-' + Math.random().toString(36).slice(-3),
             productName: item.name,
@@ -1340,6 +1349,7 @@ async function changeStatus(firestoreId, val) {
             sucursal,
             date: new Date().toLocaleDateString('es'),
             timestamp: Date.now(),
+            mes: mesKey,          // ✅ necesario para el panel de ventas del inventario
             fromOrder: firestoreId,
             ...(freshData.discountPct ? { discountName: freshData.discountName, discountPct: freshData.discountPct } : {})
           });
@@ -1356,6 +1366,15 @@ async function changeStatus(firestoreId, val) {
           costTotal: +costTotal.toFixed(2),
           totalConDescuento: +totalEfectivo.toFixed(2),
           deliveredAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        // ✅ Actualizar estadisticas acumuladas (igual que en inventario al registrar venta directa)
+        const statDocId = sucursal === 'cdb' ? 'ColegioDonBosco' : 'ColegioExsal';
+        stockBatch.update(db.collection('estadisticas').doc(statDocId), {
+          'ventas':            firebase.firestore.FieldValue.increment(totalVentasEfectivo),
+          'costos':            firebase.firestore.FieldValue.increment(+costTotal.toFixed(2)),
+          'unidades vendidas': firebase.firestore.FieldValue.increment(totalUnidades),
+          'numero de ventas':  firebase.firestore.FieldValue.increment(freshData.items.length)
         });
 
         await stockBatch.commit();
