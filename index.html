@@ -6,9 +6,9 @@
 <title>PICO</title>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <style>
 :root {
   --b50:#eff6ff;--b100:#dbeafe;--b200:#bfdbfe;--b300:#93c5fd;
@@ -521,8 +521,6 @@ tr:hover td{background:var(--b50)}
       <h2>PICO</h2>
       <button class="nbtn nbtn-ghost" onclick="doLogout()" style="color:var(--g400)">← Cerrar sesión</button>
     </div>
-    <div class="astats" id="adminStats"></div>
-
     <!-- ── ASIGNACIÓN DE DESCUENTOS POR CLIENTE ── -->
     <div class="atable-wrap" style="margin-bottom:24px">
       <div class="atable-hd" style="align-items:flex-start;flex-direction:column;gap:6px">
@@ -1352,46 +1350,18 @@ function adminPage(section, dir) {
 function refreshAdminAfterChange() {
   if (!isAdmin) return;
   if (!document.getElementById('page-adminPanel').classList.contains('active')) return;
-  loadAdminStats();
   loadAdminSection('active');
   loadAdminSection('done');
 }
 
 function renderAdminPanel() {
   if (!isAdmin) return;
-  loadAdminStats();
   renderAdminDiscountSection();
   // Reiniciar a la primera página de cada sección y cargar
   adminPaging.active = { page: 0, cursors: [], docs: [], atEnd: false, loading: false };
   adminPaging.done   = { page: 0, cursors: [], docs: [], atEnd: false, loading: false };
   loadAdminSection('active');
   loadAdminSection('done');
-}
-
-// Estadísticas globales SIN leer todos los documentos: usa agregación count() de Firestore
-async function loadAdminStats() {
-  const elStats = document.getElementById('adminStats');
-  try {
-    const col = db.collection('pedidos');
-    const [pendingC, deliveredC, soldC, cancelledC] = await Promise.all([
-      col.where('status', '==', 'pending').count().get(),
-      col.where('status', '==', 'delivered').count().get(),
-      col.where('status', '==', 'sold').count().get(),
-      col.where('status', '==', 'cancelled').count().get()
-    ]);
-    const pending   = pendingC.data().count;
-    const delivered = deliveredC.data().count + soldC.data().count;
-    const cancelled = cancelledC.data().count;
-    const total     = pending + delivered + cancelled;
-    elStats.innerHTML = `
-      <div class="astat"><div class="av">${total}</div><div class="al">Total pedidos</div></div>
-      <div class="astat"><div class="av" style="color:var(--amber)">${pending}</div><div class="al">Pendientes</div></div>
-      <div class="astat"><div class="av" style="color:var(--green)">${delivered}</div><div class="al">Entregados</div></div>
-      <div class="astat"><div class="av" style="color:var(--red)">${cancelled}</div><div class="al">Cancelados</div></div>`;
-  } catch (err) {
-    console.error('loadAdminStats:', err);
-    elStats.innerHTML = `<div class="astat"><div class="av">—</div><div class="al">No se pudieron cargar las estadísticas</div></div>`;
-  }
 }
 
 // Renderiza la página actual de una sección (con filtro de texto opcional sobre lo cargado)
