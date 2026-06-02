@@ -1464,11 +1464,98 @@ async function changeSucursal(firestoreId, val) {
   }
 }
 
+// Revierte una entrega: restaura stock, borra los registros de "ventas" del pedido
+// y resta las estadísticas SOLO si la entrega fue del mes actual. Deja el pedido como pendiente.
+async function revertDelivery(firestoreId, data) {
+  const sucursal = data.sucursal === 'cdb' ? 'cdb' : 'exsal';
+  const stockField = sucursal === 'cdb' ? 'stockCdb' : 'stockExsal';
+  const statDocId = sucursal === 'cdb' ? 'ColegioDonBosco' : 'ColegioExsal';
+
+  // ¿La entrega fue de este mes? (las estadísticas de meses cerrados ya fueron archivadas)
+  const now = new Date();
+  const mesActual = now.getFullYear() + '-' + String(now.getMonth()).padStart(2, '0');
+  let mesEntrega = null;
+  if (data.deliveredAt) {
+    const dd = data.deliveredAt.toDate ? data.deliveredAt.toDate() : new Date(data.deliveredAt);
+    mesEntrega = dd.getFullYear() + '-' + String(dd.getMonth()).padStart(2, '0');
+  }
+  const revertStats = mesEntrega === mesActual;
+
+  // Recalcular totales del pedido (precios/costos congelados, igual que al entregar)
+  const discFactor = data.discountPct ? ((100 - data.discountPct) / 100) : 1;
+  let totalUnidades = 0, totalVentasEfectivo = 0, costTotal = 0;
+  for (const item of data.items) {
+    const qty = item.qty || 1;
+    const unitCost  = typeof item.cost  === 'number' ? item.cost  : 0;
+    const unitPrice = typeof item.price === 'number' ? item.price : 0;
+    totalUnidades += qty;
+    totalVentasEfectivo += +(unitPrice * qty * discFactor).toFixed(2);
+    costTotal += unitCost * qty;
+  }
+  const totalEfectivo = typeof data.totalConDescuento === 'number' ? data.totalConDescuento : totalVentasEfectivo;
+
+  const batch = db.batch();
+
+  // 1) Restaurar stock (siempre)
+  for (const item of data.items) {
+    if (!item.id) continue;
+    const prodRef = db.collection('productos').doc(item.id);
+    batch.update(prodRef, { [stockField]: firebase.firestore.FieldValue.increment(item.qty || 1) });
+    stockMap[item.id] = (stockMap[item.id] || 0) + (item.qty || 1);
+  }
+
+  // 2) Borrar los registros de "ventas" creados para este pedido (siempre)
+  const ventasSnap = await db.collection('ventas').where('fromOrder', '==', firestoreId).get();
+  ventasSnap.forEach(doc => batch.delete(doc.ref));
+
+  // 3) Revertir estadísticas SOLO si la entrega fue de este mes
+  const statUpdate = {
+    'pedidosPendientes': firebase.firestore.FieldValue.increment(1)
+  };
+  if (revertStats) {
+    statUpdate['pedidosEntregados'] = firebase.firestore.FieldValue.increment(-1);
+    statUpdate['ventas']            = firebase.firestore.FieldValue.increment(-totalVentasEfectivo);
+    statUpdate['unidades vendidas'] = firebase.firestore.FieldValue.increment(-totalUnidades);
+    statUpdate['numero de ventas']  = firebase.firestore.FieldValue.increment(-data.items.length);
+    statUpdate['ingresosPedidos']   = firebase.firestore.FieldValue.increment(-(+totalEfectivo.toFixed(2)));
+    statUpdate['costosPedidos']     = firebase.firestore.FieldValue.increment(-(+costTotal.toFixed(2)));
+  }
+  batch.set(db.collection('estadisticas').doc(statDocId), statUpdate, { merge: true });
+
+  // 4) Volver el pedido a pendiente y limpiar marcas de entrega
+  batch.update(db.collection('pedidos').doc(firestoreId), {
+    status: 'pending',
+    stockDeducted: false,
+    deliveredAt: null,
+    costTotal: firebase.firestore.FieldValue.delete()
+  });
+
+  await batch.commit();
+}
+
 async function changeStatus(firestoreId, val) {
   try {
+    // ── VOLVER A PENDIENTE: revertir entrega (stock, ventas y estadísticas) ──
+    if (val === 'pending') {
+      const freshSnap = await db.collection('pedidos').doc(firestoreId).get();
+      const fresh = freshSnap.data() || {};
+      // Solo hay algo que revertir si el pedido tenía stock descontado (estaba entregado)
+      if (fresh.stockDeducted && fresh.items) {
+        await revertDelivery(firestoreId, fresh);
+        renderProducts();
+        refreshAdminAfterChange();
+        showToast('🔄 Pedido devuelto a pendiente — entrega revertida');
+        return;
+      }
+      // Si no estaba entregado realmente, solo cambiar el estado
+      await db.collection('pedidos').doc(firestoreId).update({ status: 'pending', deliveredAt: null });
+      refreshAdminAfterChange();
+      showToast('🔄 Marcado como pendiente');
+      return;
+    }
+
     const update = { status: val };
     if (val === 'delivered') update.deliveredAt = firebase.firestore.FieldValue.serverTimestamp();
-    if (val === 'pending')   update.deliveredAt = null;
     await db.collection('pedidos').doc(firestoreId).update(update);
 
     // Al confirmar entrega, descontar stockCdb o stockExsal según sucursal
@@ -1557,7 +1644,12 @@ async function changeStatus(firestoreId, val) {
         stockBatch.set(db.collection('estadisticas').doc(statDocId), {
           'ventas':            firebase.firestore.FieldValue.increment(totalVentasEfectivo),
           'unidades vendidas': firebase.firestore.FieldValue.increment(totalUnidades),
-          'numero de ventas':  firebase.firestore.FieldValue.increment(freshData.items.length)
+          'numero de ventas':  firebase.firestore.FieldValue.increment(freshData.items.length),
+          // Contadores de pedidos (mensuales salvo pedidosPendientes)
+          'pedidosEntregados': firebase.firestore.FieldValue.increment(1),
+          'ingresosPedidos':   firebase.firestore.FieldValue.increment(+totalEfectivo.toFixed(2)),
+          'costosPedidos':     firebase.firestore.FieldValue.increment(+costTotal.toFixed(2)),
+          'pedidosPendientes': firebase.firestore.FieldValue.increment(-1)
         }, { merge: true });
 
         await stockBatch.commit();
@@ -1568,16 +1660,21 @@ async function changeStatus(firestoreId, val) {
       }
     }
     refreshAdminAfterChange();
-    showToast(val === 'delivered' ? '✅ Marcado como entregado' : '🔄 Marcado como pendiente');
+    showToast('✅ Marcado como entregado');
   } catch (err) {
     showToast('❌ Error: ' + err.message);
   }
 }
 
 async function adminCancelOrder(firestoreId, code) {
+  const order = findLoadedOrder(firestoreId);
+  // No se permite cancelar entregados: primero hay que volverlos a pendiente
+  if (order && (order.status === 'delivered' || order.status === 'sold')) {
+    showToast('Primero vuelve el pedido a pendiente para poder cancelarlo');
+    return;
+  }
   if (!confirm(`¿Cancelar el pedido ${code}? Esta acción no se puede deshacer.`)) return;
   try {
-    const order = findLoadedOrder(firestoreId);
     const batch = db.batch();
     // Marcar pedido como cancelado
     batch.update(db.collection('pedidos').doc(firestoreId), {
@@ -1586,6 +1683,15 @@ async function adminCancelOrder(firestoreId, code) {
       cancelledBy: 'admin',
       stockDeducted: false
     });
+    // Ajustar contadores de pedidos en estadísticas según el estado previo
+    if (order) {
+      const sucC = order.sucursal === 'cdb' ? 'ColegioDonBosco' : 'ColegioExsal';
+      const statUpdate = { 'pedidosCancelados': firebase.firestore.FieldValue.increment(1) };
+      if (order.status === 'pending') {
+        statUpdate['pedidosPendientes'] = firebase.firestore.FieldValue.increment(-1);
+      }
+      batch.set(db.collection('estadisticas').doc(sucC), statUpdate, { merge: true });
+    }
     // Restaurar stock en Firebase solo si ya fue descontado
     if (order && order.items && order.stockDeducted) {
       const sucursal   = order.sucursal;
@@ -1887,6 +1993,14 @@ async function placeOrder() {
       email:       currentUser?.email || null
     });
 
+    // Incrementar contador de pedidos pendientes en estadísticas (tiempo real, NO se resetea por mes)
+    try {
+      const statDocId = sucursal === 'cdb' ? 'ColegioDonBosco' : 'ColegioExsal';
+      await db.collection('estadisticas').doc(statDocId).set({
+        pedidosPendientes: firebase.firestore.FieldValue.increment(1)
+      }, { merge: true });
+    } catch (e) { console.warn('No se pudo incrementar pedidosPendientes:', e); }
+
     // Actualizar stock solo en memoria (sin tocar la colección productos)
     for (const id of Object.keys(cart)) {
       stockMap[id] = Math.max(0, (stockMap[id] || 0) - (cart[id] || 0));
@@ -2116,6 +2230,13 @@ async function customerCancelOrder(firestoreId, code, btn) {
   try {
     const snap = await db.collection('pedidos').doc(firestoreId).get();
     const orderData = snap.data() || {};
+    // No se permite cancelar entregados
+    if (orderData.status === 'delivered' || orderData.status === 'sold') {
+      showToast('Este pedido ya fue entregado y no puede cancelarse');
+      btn.disabled = false;
+      btn.textContent = '✕ Cancelar pedido';
+      return;
+    }
     const items = orderData.items || [];
     const batch = db.batch();
     // Marcar pedido como cancelado
@@ -2125,6 +2246,15 @@ async function customerCancelOrder(firestoreId, code, btn) {
       cancelledBy: currentUser?.uid || 'customer',
       stockDeducted: false
     });
+    // Ajustar contadores de pedidos en estadísticas (el cliente solo cancela pendientes)
+    {
+      const sucC = orderData.sucursal === 'cdb' ? 'ColegioDonBosco' : 'ColegioExsal';
+      const statUpdate = { 'pedidosCancelados': firebase.firestore.FieldValue.increment(1) };
+      if (orderData.status === 'pending') {
+        statUpdate['pedidosPendientes'] = firebase.firestore.FieldValue.increment(-1);
+      }
+      batch.set(db.collection('estadisticas').doc(sucC), statUpdate, { merge: true });
+    }
     // Restaurar stock en Firebase solo si ya fue descontado
     if (orderData.stockDeducted) {
       const sucursal   = orderData.sucursal;
