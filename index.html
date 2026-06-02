@@ -335,7 +335,9 @@ tr:hover td{background:var(--b50)}
   th,td{padding:8px 8px}
   .auth-box{width:calc(100vw - 24px);right:12px}
   .admin-pg{padding:16px 12px}
-  .nav-right .nbtn-ghost:not(.nbtn-orders){display:none}
+  .nav-right .nbtn-ghost:not(.nbtn-orders):not(.nbtn-mobile-keep){display:none}
+  /* Cuando el usuario es admin, en móvil se muestra "Admin" en lugar de "Mis Pedidos" */
+  body.is-admin .nav-right .nbtn-orders{display:none}
   .nav-right{gap:4px}
   .brand-name{font-size:.92rem}
   .cart-btn{padding:7px 10px;font-size:.78rem}
@@ -357,6 +359,26 @@ tr:hover td{background:var(--b50)}
 #cartDiscountContainer select:focus{border-color:var(--b500)}
 .cart-discount-info{margin-top:5px;font-size:.78rem;color:var(--green);font-weight:600;text-align:right;padding-right:2px}
 
+/* ── PAGINATION ARROWS ── */
+.page-arrow{
+  width:42px;height:42px;border-radius:11px;border:1.5px solid var(--b200);
+  background:var(--b50);color:var(--b600);font-size:1.5rem;font-weight:700;line-height:1;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:background .15s,border-color .15s,opacity .15s;font-family:var(--font);
+}
+.page-arrow:hover:not(:disabled){background:var(--b100);border-color:var(--b500)}
+.page-arrow:disabled{opacity:.4;cursor:not-allowed}
+
+/* ── ORDERS TABS ── */
+.orders-tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.otab{
+  padding:8px 14px;border-radius:9px;border:1.5px solid var(--b200);
+  background:var(--b50);color:var(--g500);font-family:var(--font);font-size:.8rem;
+  font-weight:700;cursor:pointer;transition:all .15s;
+}
+.otab:hover{border-color:var(--b500)}
+.otab.active{background:var(--b600);color:#fff;border-color:var(--b600)}
+
 /* ── ADMIN DISCOUNT ASSIGN ── */
 .discount-assign-box{display:flex;flex-direction:column;gap:10px}
 .discount-assign-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
@@ -373,7 +395,7 @@ tr:hover td{background:var(--b50)}
   <div class="nav-right">
     <button class="nbtn nbtn-ghost nbtn-orders" onclick="showPage('myOrders')">Mis Pedidos</button>
     <span id="adminNavBtn" class="hidden">
-      <button class="nbtn nbtn-ghost" onclick="showPage('adminPanel')" style="color:var(--b600);font-weight:700">📊 Admin</button>
+      <button class="nbtn nbtn-ghost nbtn-mobile-keep" onclick="showPage('adminPanel')" style="color:var(--b600);font-weight:700">📊 Admin</button>
     </span>
     <span id="inventoryNavBtn" class="hidden">
       <button class="nbtn nbtn-ghost" onclick="window.open('https://calehzzz.github.io/PICOInventory/','_blank')" style="color:var(--b600);font-weight:700">📦 Inventario</button>
@@ -454,8 +476,11 @@ tr:hover td{background:var(--b50)}
       <p>Cargando productos...</p>
     </div>
     <div class="pgrid" id="productsGrid" style="display:none"></div>
-    <div id="products-sentinel" style="height:1px"></div>
-    <div id="products-loading-more" class="hidden" style="text-align:center;padding:20px;color:var(--g400);font-size:.83rem">⟳ Cargando más productos...</div>
+    <div id="paginationControls" class="hidden" style="display:flex;align-items:center;justify-content:center;gap:14px;padding:26px 0 4px;flex-wrap:wrap">
+      <button id="prevPageBtn" class="page-arrow" onclick="goToPage(currentPage - 1)" aria-label="Página anterior">‹</button>
+      <span id="pageInfo" style="font-size:.88rem;font-weight:700;color:var(--g700);min-width:90px;text-align:center"></span>
+      <button id="nextPageBtn" class="page-arrow" onclick="goToPage(currentPage + 1)" aria-label="Página siguiente">›</button>
+    </div>
     <div id="noResults" class="nores hidden">
       <div class="ni">🔎</div>
       <p>Sin resultados para tu búsqueda</p>
@@ -476,7 +501,16 @@ tr:hover td{background:var(--b50)}
     <div id="trackResult"></div>
     <hr class="divider">
     <h3 style="font-size:.9rem;font-weight:700;color:var(--g900);margin-bottom:14px">Historial de pedidos</h3>
+    <div class="orders-tabs" id="myOrdersTabs">
+      <button class="otab active" id="otab-active" onclick="switchMyOrdersTab('active')">⏳ Activos</button>
+      <button class="otab" id="otab-done" onclick="switchMyOrdersTab('done')">📦 Entregados / Cancelados</button>
+    </div>
     <div id="myOrdersList"></div>
+    <div id="myOrdersPager" class="hidden" style="display:flex;align-items:center;justify-content:center;gap:14px;padding:20px 0 4px">
+      <button id="myOrdersPrevBtn" class="page-arrow" onclick="myOrdersPageNav(-1)" aria-label="Página anterior">‹</button>
+      <span id="myOrdersPageInfo" style="font-size:.85rem;font-weight:700;color:var(--g700);min-width:80px;text-align:center"></span>
+      <button id="myOrdersNextBtn" class="page-arrow" onclick="myOrdersPageNav(1)" aria-label="Página siguiente">›</button>
+    </div>
   </div>
 </div>
 
@@ -500,12 +534,13 @@ tr:hover td{background:var(--b50)}
       </div>
     </div>
 
-    <div class="atable-wrap">
+    <!-- ── PEDIDOS ACTIVOS (PENDIENTES) ── -->
+    <div class="atable-wrap" style="margin-bottom:24px">
       <div class="atable-hd">
-        <h3>Registro de Pedidos</h3>
+        <h3>⏳ Pedidos activos (pendientes)</h3>
         <div class="search-wrap" style="width:220px">
           <span style="color:var(--g300)">🔍</span>
-          <input type="text" placeholder="Filtrar por nombre, código..." oninput="filterAdminTable(this.value)">
+          <input type="text" placeholder="Filtrar en esta página..." oninput="filterAdminTable('active', this.value)">
         </div>
       </div>
       <div style="overflow-x:auto">
@@ -525,9 +560,51 @@ tr:hover td{background:var(--b50)}
               <th>Acciones</th>
             </tr>
           </thead>
-          <tbody id="adminTableBody"></tbody>
+          <tbody id="adminActiveBody"></tbody>
         </table>
       </div>
+      <div id="adminActivePager" class="hidden" style="display:flex;align-items:center;justify-content:center;gap:14px;padding:16px 0">
+        <button id="activePrevBtn" class="page-arrow" onclick="adminPage('active', -1)" aria-label="Página anterior">‹</button>
+        <span id="activePageInfo" style="font-size:.85rem;font-weight:700;color:var(--g700);min-width:80px;text-align:center"></span>
+        <button id="activeNextBtn" class="page-arrow" onclick="adminPage('active', 1)" aria-label="Página siguiente">›</button>
+      </div>
+    </div>
+
+    <!-- ── PEDIDOS FINALIZADOS (ENTREGADOS / CANCELADOS) ── -->
+    <div class="atable-wrap">
+      <div class="atable-hd">
+        <h3>✅ Pedidos finalizados (entregados / cancelados)</h3>
+        <div class="search-wrap" style="width:220px">
+          <span style="color:var(--g300)">🔍</span>
+          <input type="text" placeholder="Filtrar en esta página..." oninput="filterAdminTable('done', this.value)">
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Código</th>
+              <th>Estudiante</th>
+              <th>Grado</th>
+              <th>Sección</th>
+              <th>Productos</th>
+              <th>Total</th>
+              <th>Fecha pedido</th>
+              <th>Entrega</th>
+              <th>Sucursal</th>
+              <th>Estado</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="adminDoneBody"></tbody>
+        </table>
+      </div>
+      <div id="adminDonePager" class="hidden" style="display:flex;align-items:center;justify-content:center;gap:14px;padding:16px 0">
+        <button id="donePrevBtn" class="page-arrow" onclick="adminPage('done', -1)" aria-label="Página anterior">‹</button>
+        <span id="donePageInfo" style="font-size:.85rem;font-weight:700;color:var(--g700);min-width:80px;text-align:center"></span>
+        <button id="doneNextBtn" class="page-arrow" onclick="adminPage('done', 1)" aria-label="Página siguiente">›</button>
+      </div>
+    </div>
     </div>
   </div>
 </div>
@@ -718,6 +795,13 @@ let products         = [];
 let stockMap         = {};
 let cart             = {};
 let orders           = [];
+// Busca un pedido entre los docs actualmente cargados (admin: ambas secciones; cliente: mis pedidos)
+function findLoadedOrder(firestoreId) {
+  return adminPaging.active.docs.find(o => o.firestoreId === firestoreId)
+      || adminPaging.done.docs.find(o => o.firestoreId === firestoreId)
+      || (myOrdersPaging.docs || []).find(o => o.firestoreId === firestoreId)
+      || (orders || []).find(o => o.firestoreId === firestoreId);
+}
 let adminUnsubscribe = null;
 let currentCat       = 'Todos';
 let currentSearch    = '';
@@ -730,10 +814,9 @@ let unsubDescuentos     = null;
 let unsubUserDiscount   = null;
 
 // Paginación / lazy render
-const PAGE_SIZE            = 12;
-let visibleCount           = PAGE_SIZE;
+const PAGE_SIZE            = 10;
+let currentPage            = 1;
 let currentFiltered        = [];
-let scrollObserver         = null;
 
 // Cache de productos en sessionStorage (evita releer Firestore en cada refresh)
 const PROD_CACHE_KEY = 'pico_prods_v1';
@@ -924,12 +1007,14 @@ function updateNavAuth() {
       </div>`;
     profBtn.classList.remove('hidden');
     isAdmin ? adminBtn.classList.remove('hidden') : adminBtn.classList.add('hidden');
+    document.body.classList.toggle('is-admin', !!isAdmin);
     const invBtn = document.getElementById('inventoryNavBtn');
     isAdmin ? invBtn.classList.remove('hidden') : invBtn.classList.add('hidden');
   } else {
     area.innerHTML = `<button class="nbtn nbtn-outline" onclick="toggleAuth()">Iniciar Sesión</button>`;
     profBtn.classList.add('hidden');
     adminBtn.classList.add('hidden');
+    document.body.classList.remove('is-admin');
     document.getElementById('inventoryNavBtn').classList.add('hidden');
   }
 }
@@ -1198,44 +1283,150 @@ async function saveDiscountAssignment(uid) {
 // ═══════════════════════════════════════════════════
 //  ADMIN — REAL-TIME LISTENER
 // ═══════════════════════════════════════════════════
-const ADMIN_ORDERS_LIMIT = 200;
+const ADMIN_PAGE_SIZE = 5;
+
+// Estado de paginación por sección. cursors[n] = snapshot del último doc de la página n (para startAfter)
+const adminPaging = {
+  active: { page: 0, cursors: [], docs: [], atEnd: false, loading: false },
+  done:   { page: 0, cursors: [], docs: [], atEnd: false, loading: false }
+};
 
 function startAdminListener() {
-  if (adminUnsubscribe) return;
-  // LIMITE: evita leer toda la coleccion en cada update (el gran leak de lecturas)
-  adminUnsubscribe = db.collection('pedidos')
-    .orderBy('createdAt', 'desc')
-    .limit(ADMIN_ORDERS_LIMIT)
-    .onSnapshot(snap => {
-      orders = [];
-      snap.forEach(doc => orders.push({ firestoreId: doc.id, ...doc.data() }));
-      orders.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-      if (document.getElementById('page-adminPanel').classList.contains('active')) {
-        renderAdminPanel();
-      }
-    }, err => console.error('Admin listener:', err));
+  // Ya no usamos un listener global que lea todos los pedidos.
+  // La carga es paginada y bajo demanda (5 en 5) al abrir el panel.
+}
+
+// Construye la query base de cada sección (orden: más recientes primero)
+function adminSectionQuery(section) {
+  const base = db.collection('pedidos');
+  if (section === 'active') {
+    return base.where('status', '==', 'pending').orderBy('createdAt', 'desc');
+  }
+  // 'done' = entregados/vendidos + cancelados. Firestore no permite "in" + orderBy distinto
+  // sin índice, así que usamos 'status' "in" con orderBy createdAt (requiere índice compuesto).
+  return base.where('status', 'in', ['delivered', 'sold', 'cancelled']).orderBy('createdAt', 'desc');
+}
+
+// Carga la página actual de una sección desde Firestore (lectura real de 5 docs)
+async function loadAdminSection(section) {
+  const st = adminPaging[section];
+  if (st.loading) return;
+  st.loading = true;
+  const bodyId = section === 'active' ? 'adminActiveBody' : 'adminDoneBody';
+  const tb = document.getElementById(bodyId);
+  tb.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:24px;color:var(--g300)">Cargando...</td></tr>`;
+  try {
+    let q = adminSectionQuery(section).limit(ADMIN_PAGE_SIZE);
+    if (st.page > 0 && st.cursors[st.page - 1]) {
+      q = q.startAfter(st.cursors[st.page - 1]);
+    }
+    const snap = await q.get();
+    st.docs = snap.docs.map(d => ({ firestoreId: d.id, ...d.data() }));
+    // Guardar cursor (último doc) de esta página para poder avanzar
+    if (snap.docs.length) st.cursors[st.page] = snap.docs[snap.docs.length - 1];
+    // Si trajimos menos de PAGE_SIZE, ya no hay más páginas
+    st.atEnd = snap.docs.length < ADMIN_PAGE_SIZE;
+    renderAdminSection(section);
+  } catch (err) {
+    console.error('loadAdminSection ' + section + ':', err);
+    tb.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:24px;color:var(--red)">Error al cargar. ${err.code === 'failed-precondition' ? 'Falta un índice en Firestore (revisa la consola).' : err.message}</td></tr>`;
+  } finally {
+    st.loading = false;
+  }
+}
+
+// Avanzar/retroceder página de una sección
+function adminPage(section, dir) {
+  const st = adminPaging[section];
+  if (dir > 0) {
+    if (st.atEnd) return;
+    st.page++;
+  } else {
+    if (st.page === 0) return;
+    st.page--;
+  }
+  loadAdminSection(section);
+}
+
+// Tras cambiar estado/cancelar un pedido: refrescar stats y recargar las páginas visibles
+function refreshAdminAfterChange() {
+  if (!isAdmin) return;
+  if (!document.getElementById('page-adminPanel').classList.contains('active')) return;
+  loadAdminStats();
+  loadAdminSection('active');
+  loadAdminSection('done');
 }
 
 function renderAdminPanel() {
   if (!isAdmin) return;
-  const pending   = orders.filter(o => o.status === 'pending').length;
-  const sold      = orders.filter(o => o.status === 'delivered' || o.status === 'sold').length;
-  const cancelled = orders.filter(o => o.status === 'cancelled').length;
-  const total     = orders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + (typeof o.totalConDescuento === 'number' ? o.totalConDescuento : (o.total || 0)), 0);
-  document.getElementById('adminStats').innerHTML = `
-    <div class="astat"><div class="av">${orders.length}</div><div class="al">Total pedidos</div></div>
-    <div class="astat"><div class="av" style="color:var(--amber)">${pending}</div><div class="al">Pendientes</div></div>
-    <div class="astat"><div class="av" style="color:var(--green)">${sold}</div><div class="al">Entregados</div></div>
-    <div class="astat"><div class="av" style="color:var(--red)">${cancelled}</div><div class="al">Cancelados</div></div>
-    <div class="astat"><div class="av">$${total.toFixed(2)}</div><div class="al">Total facturado</div></div>`;
+  loadAdminStats();
   renderAdminDiscountSection();
-  renderAdminTable(orders);
+  // Reiniciar a la primera página de cada sección y cargar
+  adminPaging.active = { page: 0, cursors: [], docs: [], atEnd: false, loading: false };
+  adminPaging.done   = { page: 0, cursors: [], docs: [], atEnd: false, loading: false };
+  loadAdminSection('active');
+  loadAdminSection('done');
 }
 
-function renderAdminTable(data) {
-  const tb = document.getElementById('adminTableBody');
+// Estadísticas globales SIN leer todos los documentos: usa agregación count() de Firestore
+async function loadAdminStats() {
+  const elStats = document.getElementById('adminStats');
+  try {
+    const col = db.collection('pedidos');
+    const [pendingC, deliveredC, soldC, cancelledC] = await Promise.all([
+      col.where('status', '==', 'pending').count().get(),
+      col.where('status', '==', 'delivered').count().get(),
+      col.where('status', '==', 'sold').count().get(),
+      col.where('status', '==', 'cancelled').count().get()
+    ]);
+    const pending   = pendingC.data().count;
+    const delivered = deliveredC.data().count + soldC.data().count;
+    const cancelled = cancelledC.data().count;
+    const total     = pending + delivered + cancelled;
+    elStats.innerHTML = `
+      <div class="astat"><div class="av">${total}</div><div class="al">Total pedidos</div></div>
+      <div class="astat"><div class="av" style="color:var(--amber)">${pending}</div><div class="al">Pendientes</div></div>
+      <div class="astat"><div class="av" style="color:var(--green)">${delivered}</div><div class="al">Entregados</div></div>
+      <div class="astat"><div class="av" style="color:var(--red)">${cancelled}</div><div class="al">Cancelados</div></div>`;
+  } catch (err) {
+    console.error('loadAdminStats:', err);
+    elStats.innerHTML = `<div class="astat"><div class="av">—</div><div class="al">No se pudieron cargar las estadísticas</div></div>`;
+  }
+}
+
+// Renderiza la página actual de una sección (con filtro de texto opcional sobre lo cargado)
+function renderAdminSection(section, filterText) {
+  const st = adminPaging[section];
+  const bodyId  = section === 'active' ? 'adminActiveBody' : 'adminDoneBody';
+  const pagerId = section === 'active' ? 'adminActivePager' : 'adminDonePager';
+  const infoId  = section === 'active' ? 'activePageInfo'   : 'donePageInfo';
+  const prevId  = section === 'active' ? 'activePrevBtn'    : 'donePrevBtn';
+  const nextId  = section === 'active' ? 'activeNextBtn'    : 'doneNextBtn';
+
+  let data = st.docs;
+  if (filterText) {
+    const lq = filterText.toLowerCase();
+    data = data.filter(o =>
+      (o.name    || '').toLowerCase().includes(lq) ||
+      (o.code    || '').toLowerCase().includes(lq) ||
+      (o.grade   || '').toLowerCase().includes(lq) ||
+      (o.section || '').toLowerCase().includes(lq)
+    );
+  }
+  renderAdminRows(bodyId, data);
+
+  // Controles de paginación
+  const pager = document.getElementById(pagerId);
+  pager.classList.remove('hidden');
+  document.getElementById(infoId).textContent = `Página ${st.page + 1}`;
+  document.getElementById(prevId).disabled = st.page === 0;
+  document.getElementById(nextId).disabled = st.atEnd;
+}
+
+function renderAdminRows(bodyId, data) {
+  const tb = document.getElementById(bodyId);
   if (!data.length) {
-    tb.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:32px;color:var(--g300)">Sin pedidos registrados</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:32px;color:var(--g300)">Sin pedidos en esta página</td></tr>`;
     return;
   }
   tb.innerHTML = data.map(o => {
@@ -1295,7 +1486,7 @@ async function changeSucursal(firestoreId, val) {
   try {
     await db.collection('pedidos').doc(firestoreId).update({ sucursal: val || null });
     // Actualizar en memoria local
-    const o = orders.find(x => x.firestoreId === firestoreId);
+    const o = findLoadedOrder(firestoreId);
     if (o) o.sucursal = val || null;
     showToast(val ? `🏫 Sucursal asignada: ${val.toUpperCase()}` : '↩️ Sucursal eliminada');
   } catch (err) {
@@ -1401,10 +1592,12 @@ async function changeStatus(firestoreId, val) {
 
         await stockBatch.commit();
         renderProducts();
+        refreshAdminAfterChange();
         showToast(`✅ Entregado — stock ${sucursal.toUpperCase()} descontado en Firebase`);
         return;
       }
     }
+    refreshAdminAfterChange();
     showToast(val === 'delivered' ? '✅ Marcado como entregado' : '🔄 Marcado como pendiente');
   } catch (err) {
     showToast('❌ Error: ' + err.message);
@@ -1414,7 +1607,7 @@ async function changeStatus(firestoreId, val) {
 async function adminCancelOrder(firestoreId, code) {
   if (!confirm(`¿Cancelar el pedido ${code}? Esta acción no se puede deshacer.`)) return;
   try {
-    const order = orders.find(o => o.firestoreId === firestoreId);
+    const order = findLoadedOrder(firestoreId);
     const batch = db.batch();
     // Marcar pedido como cancelado
     batch.update(db.collection('pedidos').doc(firestoreId), {
@@ -1445,6 +1638,7 @@ async function adminCancelOrder(firestoreId, code) {
       }
       renderProducts();
     }
+    refreshAdminAfterChange();
     showToast('✅ Pedido cancelado — stock restaurado en Firebase');
   } catch (err) {
     showToast('❌ Error al cancelar: ' + err.message);
@@ -1452,7 +1646,7 @@ async function adminCancelOrder(firestoreId, code) {
 }
 
 function showOrderDetail(firestoreId) {
-  const o = orders.find(x => x.firestoreId === firestoreId);
+  const o = findLoadedOrder(firestoreId);
   if (!o) return;
   document.getElementById('orderDetailTitle').textContent = `📦 Pedido ${o.code || ''}`;
   const items = (o.items || []).map(i => `
@@ -1476,15 +1670,8 @@ function showOrderDetail(firestoreId) {
   openModal('orderDetailModal');
 }
 
-function filterAdminTable(q) {
-  const lq = q.toLowerCase();
-  const f  = orders.filter(o =>
-    (o.name    || '').toLowerCase().includes(lq) ||
-    (o.code    || '').toLowerCase().includes(lq) ||
-    (o.grade   || '').toLowerCase().includes(lq) ||
-    (o.section || '').toLowerCase().includes(lq)
-  );
-  renderAdminTable(f);
+function filterAdminTable(section, q) {
+  renderAdminSection(section, q);
 }
 
 function highlightOrder(firestoreId) {
@@ -1736,7 +1923,7 @@ async function placeOrder() {
     }
 
     cart = {};
-    myOrdersCache = null; // invalidar cache de mis pedidos al crear uno nuevo
+    myOrdersPaging.page = 0; myOrdersPaging.cursors = []; myOrdersPaging.atEnd = false; // refrescar al crear pedido
     try { sessionStorage.removeItem('pico_pending_v1'); } catch(_) {} // invalidar cache de pendientes
     selectedDiscount = null; // Bug 1 fix: resetear descuento seleccionado al completar pedido
     try { localStorage.removeItem('pico_cart'); } catch(_) {}
@@ -1796,43 +1983,109 @@ function showOrderQR(firestoreId, code) {
 //  MY ORDERS (Firestore)
 // ═══════════════════════════════════════════════════
 // Cache de mis pedidos para evitar re-queries en cada navegacion
-let myOrdersCache = null;
-let myOrdersCacheUid = null;
+const MY_ORDERS_PAGE_SIZE = 5;
+let myOrdersTab = 'active';
+const myOrdersPaging = { page: 0, cursors: [], docs: [], atEnd: false, loading: false, uid: null };
+
+function switchMyOrdersTab(tab) {
+  if (myOrdersTab === tab) return;
+  myOrdersTab = tab;
+  document.getElementById('otab-active').classList.toggle('active', tab === 'active');
+  document.getElementById('otab-done').classList.toggle('active', tab === 'done');
+  // Reiniciar paginación al cambiar de pestaña
+  myOrdersPaging.page = 0;
+  myOrdersPaging.cursors = [];
+  myOrdersPaging.atEnd = false;
+  loadMyOrdersPage();
+}
+
+// Query base de "Mis Pedidos" según pestaña (más recientes primero)
+function myOrdersQuery() {
+  const base = db.collection('pedidos').where('userId', '==', currentUser.uid);
+  if (myOrdersTab === 'active') {
+    return base.where('status', '==', 'pending').orderBy('createdAt', 'desc');
+  }
+  return base.where('status', 'in', ['delivered', 'sold', 'cancelled']).orderBy('createdAt', 'desc');
+}
 
 async function renderMyOrders() {
   const el = document.getElementById('myOrdersList');
+  const tabs = document.getElementById('myOrdersTabs');
+  const pager = document.getElementById('myOrdersPager');
   if (!currentUser) {
     el.innerHTML = '<p style="color:var(--g300);font-size:.85rem">Inicia sesión para ver tu historial de pedidos.</p>';
+    if (tabs)  tabs.style.display = 'none';
+    if (pager) pager.classList.add('hidden');
     return;
   }
-  // Usar cache si ya cargamos los pedidos de este usuario en esta sesion
-  if (myOrdersCache && myOrdersCacheUid === currentUser.uid) {
-    _renderMyOrdersList(el, myOrdersCache);
-    return;
+  if (tabs) tabs.style.display = '';
+  // Si cambió de usuario, reiniciar
+  if (myOrdersPaging.uid !== currentUser.uid) {
+    myOrdersPaging.uid = currentUser.uid;
+    myOrdersPaging.page = 0;
+    myOrdersPaging.cursors = [];
+    myOrdersPaging.atEnd = false;
   }
+  loadMyOrdersPage();
+}
+
+// Carga la página actual de Mis Pedidos desde Firestore (5 docs reales)
+async function loadMyOrdersPage() {
+  if (!currentUser) return;
+  const el = document.getElementById('myOrdersList');
+  const st = myOrdersPaging;
+  if (st.loading) return;
+  st.loading = true;
   el.innerHTML = '<p style="color:var(--g400);font-size:.85rem;text-align:center;padding:24px 0">Cargando...</p>';
   try {
-    const snap = await db.collection('pedidos')
-      .where('userId', '==', currentUser.uid)
-      .orderBy('createdAt', 'desc')
-      .limit(50)
-      .get();
-    const myOrders = snap.docs.map(d => ({ firestoreId: d.id, ...d.data() }));
-    myOrders.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-    // Guardar en cache
-    myOrdersCache = myOrders;
-    myOrdersCacheUid = currentUser.uid;
-    _renderMyOrdersList(el, myOrders);
-    } catch (err) {
-    el.innerHTML = '<p style="color:var(--red);font-size:.85rem">Error al cargar los pedidos.</p>';
+    let q = myOrdersQuery().limit(MY_ORDERS_PAGE_SIZE);
+    if (st.page > 0 && st.cursors[st.page - 1]) {
+      q = q.startAfter(st.cursors[st.page - 1]);
+    }
+    const snap = await q.get();
+    st.docs = snap.docs.map(d => ({ firestoreId: d.id, ...d.data() }));
+    if (snap.docs.length) st.cursors[st.page] = snap.docs[snap.docs.length - 1];
+    st.atEnd = snap.docs.length < MY_ORDERS_PAGE_SIZE;
+    _renderMyOrdersList(el, st.docs);
+    _renderMyOrdersPager();
+  } catch (err) {
+    el.innerHTML = `<p style="color:var(--red);font-size:.85rem">Error al cargar los pedidos. ${err.code === 'failed-precondition' ? 'Falta un índice en Firestore (revisa la consola).' : ''}</p>`;
     console.error('renderMyOrders:', err);
+  } finally {
+    st.loading = false;
   }
+}
+
+function myOrdersPageNav(dir) {
+  const st = myOrdersPaging;
+  if (dir > 0) {
+    if (st.atEnd) return;
+    st.page++;
+  } else {
+    if (st.page === 0) return;
+    st.page--;
+  }
+  loadMyOrdersPage();
+}
+
+function _renderMyOrdersPager() {
+  const st = myOrdersPaging;
+  const pager = document.getElementById('myOrdersPager');
+  // Ocultar paginador si estamos en la primera página y no hay más
+  if (st.page === 0 && st.atEnd) { pager.classList.add('hidden'); return; }
+  pager.classList.remove('hidden');
+  document.getElementById('myOrdersPageInfo').textContent = `Página ${st.page + 1}`;
+  document.getElementById('myOrdersPrevBtn').disabled = st.page === 0;
+  document.getElementById('myOrdersNextBtn').disabled = st.atEnd;
 }
 
 
 function _renderMyOrdersList(el, myOrders) {
   if (!myOrders.length) {
-    el.innerHTML = '<p style="color:var(--g300);font-size:.85rem">No tienes pedidos aún.</p>';
+    const msg = myOrdersTab === 'active'
+      ? (myOrdersPaging.page === 0 ? 'No tienes pedidos activos.' : 'No hay más pedidos en esta página.')
+      : (myOrdersPaging.page === 0 ? 'No tienes pedidos entregados ni cancelados.' : 'No hay más pedidos en esta página.');
+    el.innerHTML = `<p style="color:var(--g300);font-size:.85rem">${msg}</p>`;
     return;
   }
   el.innerHTML = myOrders.map(o => {
@@ -1922,8 +2175,8 @@ async function customerCancelOrder(firestoreId, code, btn) {
       stockMap[item.id] = (stockMap[item.id] || 0) + (item.qty || 0);
     }
     renderProducts();
+    myOrdersPaging.page = 0; myOrdersPaging.cursors = []; myOrdersPaging.atEnd = false;
     renderMyOrders();
-    myOrdersCache = null; // invalidar cache al cancelar
     showToast('✅ Pedido cancelado — stock restaurado');
   } catch (err) {
     showToast('❌ Error al cancelar: ' + err.message);
@@ -1998,8 +2251,8 @@ function stockClass(s) { return s === 0 ? 'stock-none' : s <= 5 ? 'stock-low' : 
 function stockLabel(s) { return s === 0 ? 'Sin stock'  : s <= 5 ? `Pocas (${s})` : `${s} disp.`; }
 
 function renderProducts() {
-  // Cada vez que cambia el filtro/búsqueda, reiniciar el contador
-  visibleCount = PAGE_SIZE;
+  // Cada vez que cambia el filtro/búsqueda, volver a la primera página
+  currentPage = 1;
   currentFiltered = products.filter(p => {
     const mc = currentCat === 'Todos' || p.cat === currentCat;
     const ms = p.name.toLowerCase().includes(currentSearch) ||
@@ -2008,23 +2261,36 @@ function renderProducts() {
     return mc && ms;
   });
   _renderVisibleSlice();
-  _setupScrollObserver();
+}
+
+// Navega a una página concreta del catálogo (paginación 100% local, sin lecturas extra)
+function goToPage(page) {
+  const totalPages = Math.max(1, Math.ceil(currentFiltered.length / PAGE_SIZE));
+  currentPage = Math.min(Math.max(1, page), totalPages);
+  _renderVisibleSlice();
+  // Subir al inicio del catálogo al cambiar de página
+  const wrap = document.querySelector('.catalog-wrap');
+  if (wrap) wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function _renderVisibleSlice() {
-  const grid  = document.getElementById('productsGrid');
-  const noRes = document.getElementById('noResults');
-  const more  = document.getElementById('products-loading-more');
+  const grid   = document.getElementById('productsGrid');
+  const noRes  = document.getElementById('noResults');
+  const pager  = document.getElementById('paginationControls');
 
   if (!currentFiltered.length) {
     grid.innerHTML = '';
     noRes.classList.remove('hidden');
-    more.classList.add('hidden');
+    pager.classList.add('hidden');
     return;
   }
   noRes.classList.add('hidden');
 
-  const slice = currentFiltered.slice(0, visibleCount);
+  const totalPages = Math.max(1, Math.ceil(currentFiltered.length / PAGE_SIZE));
+  if (currentPage > totalPages) currentPage = totalPages;
+
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const slice = currentFiltered.slice(start, start + PAGE_SIZE);
   grid.innerHTML = slice.map((p, i) => {
     const s       = stockMap[p.id] !== undefined ? stockMap[p.id] : p.stock;
     const noStock = s === 0;
@@ -2048,27 +2314,15 @@ function _renderVisibleSlice() {
     </div>`;
   }).join('');
 
-  // Mostrar/ocultar indicador de "más productos"
-  more.classList.toggle('hidden', visibleCount >= currentFiltered.length);
-}
-
-function _setupScrollObserver() {
-  if (scrollObserver) { scrollObserver.disconnect(); scrollObserver = null; }
-  const sentinel = document.getElementById('products-sentinel');
-  if (!sentinel || visibleCount >= currentFiltered.length) return;
-
-  scrollObserver = new IntersectionObserver(entries => {
-    if (entries[0].isIntersecting) {
-      visibleCount += PAGE_SIZE;
-      _renderVisibleSlice();
-      // Si aún quedan más, re-observar (el sentinel sigue al final del grid)
-      if (visibleCount >= currentFiltered.length) {
-        scrollObserver.disconnect();
-        scrollObserver = null;
-      }
-    }
-  }, { rootMargin: '200px' });   // empezar a cargar 200px antes de llegar al fondo
-  scrollObserver.observe(sentinel);
+  // Controles de paginación
+  if (totalPages <= 1) {
+    pager.classList.add('hidden');
+  } else {
+    pager.classList.remove('hidden');
+    document.getElementById('pageInfo').textContent = `Página ${currentPage} de ${totalPages}`;
+    document.getElementById('prevPageBtn').disabled = currentPage <= 1;
+    document.getElementById('nextPageBtn').disabled = currentPage >= totalPages;
+  }
 }
 
 function renderAddZoneHTML(id, noStock) {
