@@ -455,9 +455,13 @@ tr:hover td{background:var(--b50)}
   <div class="catalog-wrap">
     <div class="cat-toolbar">
       <span class="cat-title">Catálogo de Componentes</span>
-      <div class="search-wrap">
-        <span style="color:var(--g300)">🔍</span>
-        <input type="text" id="searchInput" placeholder="Buscar producto..." oninput="filterProducts()">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <button id="sucursalBadge" onclick="reopenSucursalGate()" title="Cambiar sucursal"
+          style="display:flex;align-items:center;gap:6px;padding:8px 13px;border-radius:9px;border:1.5px solid var(--b200);background:var(--b50);color:var(--b600);font-family:var(--font);font-size:.8rem;font-weight:600;cursor:pointer;transition:all .16s;white-space:nowrap"></button>
+        <div class="search-wrap">
+          <span style="color:var(--g300)">🔍</span>
+          <input type="text" id="searchInput" placeholder="Buscar producto..." oninput="filterProducts()">
+        </div>
       </div>
     </div>
     <div class="filters">
@@ -763,6 +767,21 @@ tr:hover td{background:var(--b50)}
   </div>
 </div>
 
+<!-- ═══ MODAL OBLIGATORIO: ELEGIR SUCURSAL ═══ -->
+<div class="moverlay" id="sucursalGateModal" style="z-index:500">
+  <div class="modal" style="max-width:420px">
+    <div class="mbody" style="text-align:center;padding:30px 26px 8px">
+      <div style="font-size:2.6rem;margin-bottom:10px">🏫</div>
+      <h2 style="font-size:1.2rem;font-weight:700;color:var(--g900);letter-spacing:-.01em;margin-bottom:6px">Selecciona tu sucursal</h2>
+      <p style="color:var(--g400);font-size:.85rem;line-height:1.5">Antes de continuar elige dónde recogerás tus pedidos. Verás el stock disponible de esa sucursal.</p>
+    </div>
+    <div class="mfoot" style="flex-direction:column;gap:10px;padding-bottom:26px">
+      <button class="btn-pri" style="flex:none;width:100%" onclick="chooseGateSucursal('cdb')">🏫 Colegio Don Bosco (CDB)</button>
+      <button class="btn-pri" style="flex:none;width:100%" onclick="chooseGateSucursal('exsal')">🏢 EXSAL</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ TOAST ═══ -->
 <div class="toast" id="toast"></div>
 
@@ -791,6 +810,9 @@ let currentUser      = null;
 let isAdmin          = false;
 let products         = [];
 let stockMap         = {};
+// Sucursal elegida en el gate de entrada ('cdb' | 'exsal'). Determina qué stock se muestra.
+const SUCURSAL_KEY   = 'pico_sucursal_v1';
+let selectedSucursal = localStorage.getItem(SUCURSAL_KEY) || null;
 let cart             = {};
 let orders           = [];
 // Busca un pedido entre los docs actualmente cargados (admin: ambas secciones; cliente: mis pedidos)
@@ -868,13 +890,24 @@ async function loadProducts() {
     }
 
     // Procesar productos (detectar cat/emoji, calcular stock)
+    // El stock mostrado es SOLO el de la sucursal elegida (stockCdb o stockExsal).
+    const stockField = selectedSucursal === 'cdb' ? 'stockCdb'
+                     : selectedSucursal === 'exsal' ? 'stockExsal'
+                     : null;
     products = [];
     rawProducts.forEach(d => {
       const { cat, e } = detectCatEmoji(d.name, d.desc);
-      const hasSucursalStock = typeof d.stockCdb === 'number' || typeof d.stockExsal === 'number';
-      const s = hasSucursalStock
-        ? ((typeof d.stockCdb === 'number' ? d.stockCdb : 0) + (typeof d.stockExsal === 'number' ? d.stockExsal : 0))
-        : (typeof d.stock === 'number' ? d.stock : 0);
+      let s;
+      if (stockField) {
+        // Stock real de la sucursal seleccionada
+        s = typeof d[stockField] === 'number' ? d[stockField] : 0;
+      } else {
+        // Sin sucursal (no debería ocurrir tras el gate): fallback a la suma o stock legado
+        const hasSucursalStock = typeof d.stockCdb === 'number' || typeof d.stockExsal === 'number';
+        s = hasSucursalStock
+          ? ((typeof d.stockCdb === 'number' ? d.stockCdb : 0) + (typeof d.stockExsal === 'number' ? d.stockExsal : 0))
+          : (typeof d.stock === 'number' ? d.stock : 0);
+      }
       products.push({
         id:    d.id,
         name:  d.name  || 'Producto',
@@ -887,42 +920,9 @@ async function loadProducts() {
       stockMap[d.id] = s;
     });
 
-    // Descontar del stockMap local los pedidos pendientes (aún no entregados ni con stock descontado)
-    // Cache de 2 min para evitar re-query en cada cambio de auth state
-    const PENDING_CACHE_KEY = 'pico_pending_v1';
-    const PENDING_CACHE_TTL = 2 * 60 * 1000;
-    let pendingOrders = null;
-    try {
-      const pc = sessionStorage.getItem(PENDING_CACHE_KEY);
-      if (pc) {
-        const { ts, data } = JSON.parse(pc);
-        if (Date.now() - ts < PENDING_CACHE_TTL) pendingOrders = data;
-      }
-    } catch(_) {}
-
-    if (!pendingOrders) {
-      try {
-        const pendingSnap = await db.collection('pedidos')
-          .where('status', '==', 'pending')
-          .get();
-        pendingOrders = [];
-        pendingSnap.forEach(doc => pendingOrders.push(doc.data()));
-        try { sessionStorage.setItem(PENDING_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: pendingOrders })); } catch(_) {}
-      } catch (e) {
-        pendingOrders = [];
-        // Sin sesion o sin permisos — mostrar stock de Firebase sin ajuste
-      }
-    }
-
-    for (const o of pendingOrders) {
-      if (!o.stockDeducted && o.items) {
-        for (const item of o.items) {
-          if (stockMap[item.id] !== undefined) {
-            stockMap[item.id] = Math.max(0, stockMap[item.id] - (item.qty || 0));
-          }
-        }
-      }
-    }
+    // El stock que se muestra es directamente el de la sucursal (stockCdb / stockExsal)
+    // leído de Firebase. El descuento por pedido ya está aplicado en Firebase al
+    // momento de crear el pedido, así que NO se vuelve a restar aquí (evita doble descuento).
 
     loadEl.style.display  = 'none';
     gridEl.style.display  = '';
@@ -948,6 +948,8 @@ auth.onAuthStateChanged(user => {
     };
     // Admin = autenticado con email + contraseña
     isAdmin = user.providerData.some(p => p.providerId === 'password');
+    // Sincronizar la sucursal elegida en el gate con el perfil del usuario
+    if (selectedSucursal) syncSucursalToProfile(selectedSucursal);
     updateNavAuth();
     // Recargar siempre al iniciar sesión para que el stockMap incluya pedidos pendientes
     loadProducts();
@@ -1496,19 +1498,15 @@ async function revertDelivery(firestoreId, data) {
 
   const batch = db.batch();
 
-  // 1) Restaurar stock (siempre)
-  for (const item of data.items) {
-    if (!item.id) continue;
-    const prodRef = db.collection('productos').doc(item.id);
-    batch.update(prodRef, { [stockField]: firebase.firestore.FieldValue.increment(item.qty || 1) });
-    stockMap[item.id] = (stockMap[item.id] || 0) + (item.qty || 1);
-  }
+  // NOTA: el stock NO se restaura al volver a pendiente. El stock sigue descontado
+  // mientras el pedido exista (solo se devuelve al cancelar). Aquí solo se revierten
+  // los registros de "ventas" y las estadísticas de la entrega.
 
-  // 2) Borrar los registros de "ventas" creados para este pedido (siempre)
+  // 1) Borrar los registros de "ventas" creados para este pedido (siempre)
   const ventasSnap = await db.collection('ventas').where('fromOrder', '==', firestoreId).get();
   ventasSnap.forEach(doc => batch.delete(doc.ref));
 
-  // 3) Revertir estadísticas SOLO si la entrega fue de este mes
+  // 2) Revertir estadísticas SOLO si la entrega fue de este mes
   const statUpdate = {
     'pedidosPendientes': firebase.firestore.FieldValue.increment(1)
   };
@@ -1522,10 +1520,13 @@ async function revertDelivery(firestoreId, data) {
   }
   batch.set(db.collection('estadisticas').doc(statDocId), statUpdate, { merge: true });
 
-  // 4) Volver el pedido a pendiente y limpiar marcas de entrega
+  // 3) Volver el pedido a pendiente y limpiar marcas de entrega.
+  //    stockDeducted se mantiene true: el stock sigue descontado mientras el pedido exista.
+  //    saleRecorded vuelve a false: la venta dejó de estar registrada.
   batch.update(db.collection('pedidos').doc(firestoreId), {
     status: 'pending',
-    stockDeducted: false,
+    stockDeducted: true,
+    saleRecorded: false,
     deliveredAt: null,
     costTotal: firebase.firestore.FieldValue.delete()
   });
@@ -1535,12 +1536,12 @@ async function revertDelivery(firestoreId, data) {
 
 async function changeStatus(firestoreId, val) {
   try {
-    // ── VOLVER A PENDIENTE: revertir entrega (stock, ventas y estadísticas) ──
+    // ── VOLVER A PENDIENTE: revertir la entrega (ventas y estadísticas; el stock NO se toca) ──
     if (val === 'pending') {
       const freshSnap = await db.collection('pedidos').doc(firestoreId).get();
       const fresh = freshSnap.data() || {};
-      // Solo hay algo que revertir si el pedido tenía stock descontado (estaba entregado)
-      if (fresh.stockDeducted && fresh.items) {
+      // Solo hay algo que revertir si la venta fue registrada (estaba entregado)
+      if (fresh.saleRecorded && fresh.items) {
         await revertDelivery(firestoreId, fresh);
         renderProducts();
         refreshAdminAfterChange();
@@ -1558,11 +1559,11 @@ async function changeStatus(firestoreId, val) {
     if (val === 'delivered') update.deliveredAt = firebase.firestore.FieldValue.serverTimestamp();
     await db.collection('pedidos').doc(firestoreId).update(update);
 
-    // Al confirmar entrega, descontar stockCdb o stockExsal según sucursal
+    // Al confirmar entrega: registrar venta y estadísticas (el stock ya se descontó al crear el pedido)
     if (val === 'delivered') {
       const freshSnap = await db.collection('pedidos').doc(firestoreId).get();
       const freshData = freshSnap.data() || {};
-      if (freshData.items && !freshData.stockDeducted) {
+      if (freshData.items && !freshData.saleRecorded) {
         const sucursal = freshData.sucursal; // 'cdb' | 'exsal' | null
         if (!sucursal) {
           showToast('⚠️ Asigna una sucursal antes de marcar como entregado');
@@ -1588,23 +1589,15 @@ async function changeStatus(firestoreId, val) {
         let totalVentasEfectivo = 0;
 
         for (const item of freshData.items) {
-          const prodRef = db.collection('productos').doc(item.id);
-          const prodSnap = await prodRef.get();
-          const prodData = prodSnap.data() || {};
           const qty = item.qty || 1;
 
           // Priorizar costo/precio congelado en el item al momento del pedido
-          const unitCost  = typeof item.cost  === 'number' ? item.cost  : (typeof prodData.cost  === 'number' ? prodData.cost  : 0);
-          const unitPrice = typeof item.price === 'number' ? item.price : (typeof prodData.price === 'number' ? prodData.price : 0);
+          const unitCost  = typeof item.cost  === 'number' ? item.cost  : 0;
+          const unitPrice = typeof item.price === 'number' ? item.price : 0;
           costTotal  += unitCost  * qty;
           priceTotal += unitPrice * qty;
 
-          // Descontar stock de la sucursal
-          const newFieldVal = Math.max(0, (prodData[stockField] !== undefined ? prodData[stockField] : 0) - qty);
-          const newCdb   = stockField === 'stockCdb'   ? newFieldVal : (typeof prodData.stockCdb   === 'number' ? prodData.stockCdb   : 0);
-          const newExsal = stockField === 'stockExsal' ? newFieldVal : (typeof prodData.stockExsal === 'number' ? prodData.stockExsal : 0);
-          stockBatch.update(prodRef, { [stockField]: newFieldVal });
-          stockMap[item.id] = Math.max(0, newCdb + newExsal);
+          // NOTA: el stock ya se descontó al crear el pedido. Al entregar NO se toca el stock.
 
           // Crear registro en "ventas" con descuento proporcional aplicado
           const itemTotal = +(unitPrice * qty * discFactor).toFixed(2);
@@ -1634,6 +1627,7 @@ async function changeStatus(firestoreId, val) {
         stockBatch.update(db.collection('pedidos').doc(firestoreId), {
           status: 'delivered',
           stockDeducted: true,
+          saleRecorded: true,
           costTotal: +costTotal.toFixed(2),
           totalConDescuento: +totalEfectivo.toFixed(2),
           deliveredAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -1655,7 +1649,7 @@ async function changeStatus(firestoreId, val) {
         await stockBatch.commit();
         renderProducts();
         refreshAdminAfterChange();
-        showToast(`✅ Entregado — stock ${sucursal.toUpperCase()} descontado en Firebase`);
+        showToast('✅ Pedido marcado como entregado');
         return;
       }
     }
@@ -1692,23 +1686,21 @@ async function adminCancelOrder(firestoreId, code) {
       }
       batch.set(db.collection('estadisticas').doc(sucC), statUpdate, { merge: true });
     }
-    // Restaurar stock en Firebase solo si ya fue descontado
+    // Restaurar stock en Firebase (atómico) si el pedido tenía stock descontado.
+    // Todo pedido activo (creado con la lógica nueva) tiene stockDeducted=true.
     if (order && order.items && order.stockDeducted) {
       const sucursal   = order.sucursal;
       const stockField = sucursal === 'exsal' ? 'stockExsal' : 'stockCdb';
       for (const item of order.items) {
-        const prodRef  = db.collection('productos').doc(item.id);
-        const prodSnap = await prodRef.get();
-        const prodData = prodSnap.data() || {};
-        const newFieldVal = (typeof prodData[stockField] === 'number' ? prodData[stockField] : 0) + (item.qty || 0);
-        const newCdb   = stockField === 'stockCdb'   ? newFieldVal : (typeof prodData.stockCdb   === 'number' ? prodData.stockCdb   : 0);
-        const newExsal = stockField === 'stockExsal' ? newFieldVal : (typeof prodData.stockExsal === 'number' ? prodData.stockExsal : 0);
-        batch.update(prodRef, { [stockField]: newFieldVal });
+        batch.update(db.collection('productos').doc(item.id), {
+          [stockField]: firebase.firestore.FieldValue.increment(item.qty || 0)
+        });
       }
     }
     await batch.commit();
+    try { sessionStorage.removeItem(PROD_CACHE_KEY); } catch(_) {}
     // Restaurar stock visual local
-    if (order && order.items) {
+    if (order && order.items && order.stockDeducted) {
       for (const item of order.items) {
         stockMap[item.id] = (stockMap[item.id] || 0) + (item.qty || 0);
       }
@@ -1978,6 +1970,8 @@ async function placeOrder() {
     : +rawTotal.toFixed(2);
 
   try {
+    const stockField = sucursal === 'cdb' ? 'stockCdb' : 'stockExsal';
+
     const docRef = await db.collection('pedidos').add({
       code, name, grade, section, items,
       total:               +rawTotal.toFixed(2),
@@ -1987,11 +1981,25 @@ async function placeOrder() {
       discountPct:         selectedDiscount ? selectedDiscount.porcentaje: null,
       sucursal:    sucursal,
       status:      'pending',
+      stockDeducted: true,
       createdAt:   firebase.firestore.FieldValue.serverTimestamp(),
       deliveredAt: null,
       userId:      currentUser?.uid   || null,
       email:       currentUser?.email || null
     });
+
+    // Descontar el stock de la sucursal en Firebase (atómico) al crear el pedido.
+    try {
+      const stockBatch = db.batch();
+      for (const id of Object.keys(cart)) {
+        stockBatch.update(db.collection('productos').doc(id), {
+          [stockField]: firebase.firestore.FieldValue.increment(-(cart[id] || 0))
+        });
+      }
+      await stockBatch.commit();
+      // Invalidar cache de productos para que el stock se relea de Firebase
+      try { sessionStorage.removeItem(PROD_CACHE_KEY); } catch(_) {}
+    } catch (e) { console.warn('No se pudo descontar stock al crear el pedido:', e); }
 
     // Incrementar contador de pedidos pendientes en estadísticas (tiempo real, NO se resetea por mes)
     try {
@@ -2001,14 +2009,13 @@ async function placeOrder() {
       }, { merge: true });
     } catch (e) { console.warn('No se pudo incrementar pedidosPendientes:', e); }
 
-    // Actualizar stock solo en memoria (sin tocar la colección productos)
+    // Reflejar el descuento en el stockMap local
     for (const id of Object.keys(cart)) {
       stockMap[id] = Math.max(0, (stockMap[id] || 0) - (cart[id] || 0));
     }
 
     cart = {};
     myOrdersPaging.page = 0; myOrdersPaging.cursors = []; myOrdersPaging.atEnd = false; // refrescar al crear pedido
-    try { sessionStorage.removeItem('pico_pending_v1'); } catch(_) {} // invalidar cache de pendientes
     selectedDiscount = null; // Bug 1 fix: resetear descuento seleccionado al completar pedido
     try { localStorage.removeItem('pico_cart'); } catch(_) {}
     updateCartUI();
@@ -2255,24 +2262,23 @@ async function customerCancelOrder(firestoreId, code, btn) {
       }
       batch.set(db.collection('estadisticas').doc(sucC), statUpdate, { merge: true });
     }
-    // Restaurar stock en Firebase solo si ya fue descontado
+    // Restaurar stock en Firebase (atómico) si el pedido tenía stock descontado.
     if (orderData.stockDeducted) {
       const sucursal   = orderData.sucursal;
       const stockField = sucursal === 'exsal' ? 'stockExsal' : 'stockCdb';
       for (const item of items) {
-        const prodRef  = db.collection('productos').doc(item.id);
-        const prodSnap = await prodRef.get();
-        const prodData = prodSnap.data() || {};
-        const newFieldVal = (typeof prodData[stockField] === 'number' ? prodData[stockField] : 0) + (item.qty || 0);
-        const newCdb   = stockField === 'stockCdb'   ? newFieldVal : (typeof prodData.stockCdb   === 'number' ? prodData.stockCdb   : 0);
-        const newExsal = stockField === 'stockExsal' ? newFieldVal : (typeof prodData.stockExsal === 'number' ? prodData.stockExsal : 0);
-        batch.update(prodRef, { [stockField]: newFieldVal });
+        batch.update(db.collection('productos').doc(item.id), {
+          [stockField]: firebase.firestore.FieldValue.increment(item.qty || 0)
+        });
       }
     }
     await batch.commit();
+    try { sessionStorage.removeItem(PROD_CACHE_KEY); } catch(_) {}
     // Restaurar stock visual local
-    for (const item of items) {
-      stockMap[item.id] = (stockMap[item.id] || 0) + (item.qty || 0);
+    if (orderData.stockDeducted) {
+      for (const item of items) {
+        stockMap[item.id] = (stockMap[item.id] || 0) + (item.qty || 0);
+      }
     }
     renderProducts();
     myOrdersPaging.page = 0; myOrdersPaging.cursors = []; myOrdersPaging.atEnd = false;
@@ -2351,6 +2357,7 @@ function stockClass(s) { return s === 0 ? 'stock-none' : s <= 5 ? 'stock-low' : 
 function stockLabel(s) { return s === 0 ? 'Sin stock'  : s <= 5 ? `Pocas (${s})` : `${s} disp.`; }
 
 function renderProducts() {
+  updateSucursalBadge();
   // Cada vez que cambia el filtro/búsqueda, volver a la primera página
   currentPage = 1;
   currentFiltered = products.filter(p => {
@@ -2495,6 +2502,15 @@ function saveProfile() {
   const sucursal = document.getElementById('profileSucursal').value;
   if (!grade || !section) { showToast('⚠️ Selecciona grado y sección'); return; }
   localStorage.setItem('el_profile_' + currentUser.uid, JSON.stringify({ grade, section, sucursal }));
+  // Si cambió la sucursal desde el perfil, reflejarlo en el gate y recargar el stock
+  if (sucursal && sucursal !== selectedSucursal) {
+    selectedSucursal = sucursal;
+    localStorage.setItem(SUCURSAL_KEY, sucursal);
+    cart = {};
+    saveCart();
+    updateCartUI();
+    loadProducts();
+  }
   renderProfile();
   showToast('✅ Perfil actualizado');
 }
@@ -2566,6 +2582,50 @@ async function fixStockTotal() {
 }
 
 // ═══════════════════════════════════════════════════
+//  GATE DE SUCURSAL (obligatorio antes de usar la app)
+// ═══════════════════════════════════════════════════
+function showSucursalGate() {
+  const m = document.getElementById('sucursalGateModal');
+  m.classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function chooseGateSucursal(suc) {
+  selectedSucursal = suc;
+  localStorage.setItem(SUCURSAL_KEY, suc);
+  // Sincronizar con el perfil del usuario logueado (si lo hay)
+  syncSucursalToProfile(suc);
+  const m = document.getElementById('sucursalGateModal');
+  m.classList.remove('open');
+  if (!document.querySelector('.moverlay.open')) document.body.style.overflow = '';
+  showToast(suc === 'cdb' ? '🏫 Sucursal: Don Bosco (CDB)' : '🏢 Sucursal: EXSAL');
+  // Vaciar carrito al cambiar de sucursal (el stock difiere entre sucursales)
+  cart = {};
+  saveCart();
+  updateCartUI();
+  // Recargar productos con el stock de la nueva sucursal
+  loadProducts();
+}
+function updateSucursalBadge() {
+  const el = document.getElementById('sucursalBadge');
+  if (!el) return;
+  if (!selectedSucursal) { el.style.display = 'none'; return; }
+  el.style.display = 'flex';
+  el.innerHTML = (selectedSucursal === 'cdb' ? '🏫 CDB' : '🏢 EXSAL')
+    + ' <span style="font-size:.7rem;color:var(--g400);font-weight:500">▼</span>';
+}
+
+// Permite reabrir el gate manualmente (ej. para cambiar de sucursal)
+function reopenSucursalGate() { showSucursalGate(); }
+
+function syncSucursalToProfile(suc) {
+  if (!currentUser) return;
+  const key   = 'el_profile_' + currentUser.uid;
+  const saved = JSON.parse(localStorage.getItem(key) || '{}');
+  saved.sucursal = suc;
+  localStorage.setItem(key, JSON.stringify(saved));
+}
+
+// ═══════════════════════════════════════════════════
 //  INIT
 // ═══════════════════════════════════════════════════
 // loadProducts() se llama desde onAuthStateChanged para garantizar
@@ -2573,6 +2633,8 @@ async function fixStockTotal() {
 loadCart();
 updateNavAuth();
 updateCartUI();
+// Obligar a elegir sucursal antes de continuar
+if (!selectedSucursal) showSucursalGate();
 </script>
 </body>
 </html>
