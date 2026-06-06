@@ -1,1 +1,73 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PICO · Mi Perfil</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<body data-page="profile">
 
+<!-- ═══ PROFILE ═══ -->
+<div class="page active" id="page-profile">
+  <div class="profile-pg">
+    <h2>PICO</h2>
+    <div class="profile-card">
+      <div id="profileInfo"></div>
+      <hr class="divider" style="margin:0 0 20px">
+      <p style="font-size:.88rem;font-weight:600;color:var(--g700);margin-bottom:4px">📚 Datos académicos</p>
+      <p style="font-size:.78rem;color:var(--g400);margin-bottom:16px">Se completarán automáticamente al confirmar un pedido.</p>
+      <div class="frow">
+        <div>
+          <label class="flabel">Grado</label>
+          <select id="profileGrade" class="fselect">
+            <option value="">Seleccionar...</option>
+            <option>1° Bachillerato</option>
+            <option>2° Bachillerato</option>
+            <option>3° Bachillerato</option>
+          </select>
+        </div>
+        <div>
+          <label class="flabel">Sección</label>
+          <select id="profileSection" class="fselect">
+            <option value="">Seleccionar...</option>
+            <option>A</option><option>B</option><option>C</option>
+            <option>D</option><option>E</option><option>F</option>
+            <option>G</option><option>H</option><option>I</option>
+          </select>
+        </div>
+      </div>
+      <label class="flabel">Sucursal</label>
+      <select id="profileSucursal" class="fselect">
+        <option value="">Seleccionar...</option>
+        <option value="cdb">🏫 CDB</option>
+        <option value="exsal">🏢 EXSAL</option>
+      </select>
+      <button class="btn-auth" onclick="saveProfile()">Guardar cambios</button>
+      <button onclick="doLogout()" style="width:100%;margin-top:10px;padding:11px;border-radius:9px;border:1.5px solid #fca5a5;background:#fff;color:#dc2626;font-family:var(--font);font-size:.87rem;font-weight:700;cursor:pointer;transition:all .16s" onmouseover="this.style.background='#fee2e2'" onmouseout="this.style.background='#fff'">👋 Cerrar Sesión</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SCRIPTS (orden importante: config y components primero, init al final) ═══ -->
+<script src="/js/config.js"></script>
+<script src="/js/components.js"></script>
+<script src="/js/products.js"></script>
+<script src="/js/auth.js"></script>
+<script src="/js/discounts.js"></script>
+<script src="/js/admin.js"></script>
+<script src="/js/cart.js"></script>
+<script src="/js/orders.js"></script>
+<script src="/js/catalog.js"></script>
+<script src="/js/profile.js"></script>
+<script src="/js/utils.js"></script>
+<script src="/js/init.js"></script>
+</body>
+</html>
