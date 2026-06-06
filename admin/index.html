@@ -1,1 +1,125 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PICO · Panel de Administración</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<body data-page="adminPanel">
 
+<!-- ═══ ADMIN PANEL ═══ -->
+<div class="page active" id="page-adminPanel">
+  <div class="admin-pg">
+    <div class="admin-hd">
+      <h2>PICO</h2>
+      <button class="nbtn nbtn-ghost" onclick="doLogout()" style="color:var(--g400)">← Cerrar sesión</button>
+    </div>
+    <!-- ── ASIGNACIÓN DE DESCUENTOS POR CLIENTE ── -->
+    <div class="atable-wrap" style="margin-bottom:24px">
+      <div class="atable-hd" style="align-items:flex-start;flex-direction:column;gap:6px">
+        <h3>🏷️ Descuentos por cliente</h3>
+        <p style="font-size:.8rem;color:var(--g400);margin:0">Asigna qué descuentos puede elegir cada cliente al hacer su pedido. Los descuentos se crean desde el inventario.</p>
+      </div>
+      <div style="padding:16px 20px 20px">
+        <div id="adminDiscountSection"><p style="font-size:.82rem;color:var(--g400)">Cargando descuentos...</p></div>
+      </div>
+    </div>
+
+    <!-- ── PEDIDOS ACTIVOS (PENDIENTES) ── -->
+    <div class="atable-wrap" style="margin-bottom:24px">
+      <div class="atable-hd">
+        <h3>⏳ Pedidos activos (pendientes)</h3>
+        <div class="search-wrap" style="width:220px">
+          <span style="color:var(--g300)">🔍</span>
+          <input type="text" placeholder="Filtrar en esta página..." oninput="filterAdminTable('active', this.value)">
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Código</th>
+              <th>Estudiante</th>
+              <th>Grado</th>
+              <th>Sección</th>
+              <th>Productos</th>
+              <th>Total</th>
+              <th>Fecha pedido</th>
+              <th>Entrega</th>
+              <th>Sucursal</th>
+              <th>Estado</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="adminActiveBody"></tbody>
+        </table>
+      </div>
+      <div id="adminActivePager" class="hidden" style="display:flex;align-items:center;justify-content:center;gap:14px;padding:16px 0">
+        <button id="activePrevBtn" class="page-arrow" onclick="adminPage('active', -1)" aria-label="Página anterior">‹</button>
+        <span id="activePageInfo" style="font-size:.85rem;font-weight:700;color:var(--g700);min-width:80px;text-align:center"></span>
+        <button id="activeNextBtn" class="page-arrow" onclick="adminPage('active', 1)" aria-label="Página siguiente">›</button>
+      </div>
+    </div>
+
+    <!-- ── PEDIDOS FINALIZADOS (ENTREGADOS / CANCELADOS) ── -->
+    <div class="atable-wrap">
+      <div class="atable-hd">
+        <h3>✅ Pedidos finalizados (entregados / cancelados)</h3>
+        <div class="search-wrap" style="width:220px">
+          <span style="color:var(--g300)">🔍</span>
+          <input type="text" placeholder="Filtrar en esta página..." oninput="filterAdminTable('done', this.value)">
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Código</th>
+              <th>Estudiante</th>
+              <th>Grado</th>
+              <th>Sección</th>
+              <th>Productos</th>
+              <th>Total</th>
+              <th>Fecha pedido</th>
+              <th>Entrega</th>
+              <th>Sucursal</th>
+              <th>Estado</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="adminDoneBody"></tbody>
+        </table>
+      </div>
+      <div id="adminDonePager" class="hidden" style="display:flex;align-items:center;justify-content:center;gap:14px;padding:16px 0">
+        <button id="donePrevBtn" class="page-arrow" onclick="adminPage('done', -1)" aria-label="Página anterior">‹</button>
+        <span id="donePageInfo" style="font-size:.85rem;font-weight:700;color:var(--g700);min-width:80px;text-align:center"></span>
+        <button id="doneNextBtn" class="page-arrow" onclick="adminPage('done', 1)" aria-label="Página siguiente">›</button>
+      </div>
+    </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SCRIPTS (orden importante: config y components primero, init al final) ═══ -->
+<script src="/js/config.js"></script>
+<script src="/js/components.js"></script>
+<script src="/js/products.js"></script>
+<script src="/js/auth.js"></script>
+<script src="/js/discounts.js"></script>
+<script src="/js/admin.js"></script>
+<script src="/js/cart.js"></script>
+<script src="/js/orders.js"></script>
+<script src="/js/catalog.js"></script>
+<script src="/js/profile.js"></script>
+<script src="/js/utils.js"></script>
+<script src="/js/init.js"></script>
+</body>
+</html>
