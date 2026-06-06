@@ -200,12 +200,13 @@ async function customerCancelOrder(firestoreId, code, btn) {
       const stockField = sucursal === 'exsal' ? 'stockExsal' : 'stockCdb';
       for (const item of items) {
         batch.update(db.collection('productos').doc(item.id), {
-          [stockField]: firebase.firestore.FieldValue.increment(item.qty || 0)
+          [stockField]: firebase.firestore.FieldValue.increment(item.qty || 0),
+          updatedAt: Date.now()   // marca cambio para el caché incremental
         });
       }
     }
     await batch.commit();
-    try { sessionStorage.removeItem(PROD_CACHE_KEY); } catch(_) {}
+    // El caché eterno se conserva; la próxima carga releerá solo lo cambiado.
     // Restaurar stock visual local
     if (orderData.stockDeducted) {
       for (const item of items) {

@@ -244,12 +244,13 @@ async function placeOrder() {
       const stockBatch = db.batch();
       for (const id of Object.keys(cart)) {
         stockBatch.update(db.collection('productos').doc(id), {
-          [stockField]: firebase.firestore.FieldValue.increment(-(cart[id] || 0))
+          [stockField]: firebase.firestore.FieldValue.increment(-(cart[id] || 0)),
+          updatedAt: Date.now()   // marca el producto como cambiado para el caché incremental
         });
       }
       await stockBatch.commit();
-      // Invalidar cache de productos para que el stock se relea de Firebase
-      try { sessionStorage.removeItem(PROD_CACHE_KEY); } catch(_) {}
+      // El caché eterno se mantiene; la próxima carga releerá solo estos productos
+      // gracias al sello updatedAt. (Ya no se borra todo el caché.)
     } catch (e) { console.warn('No se pudo descontar stock al crear el pedido:', e); }
 
     // Incrementar contador de pedidos pendientes en estadísticas (tiempo real, NO se resetea por mes)

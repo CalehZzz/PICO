@@ -54,6 +54,42 @@ const PAGE_SIZE            = 10;
 let currentPage            = 1;
 let currentFiltered        = [];
 
-// Cache de productos en sessionStorage (evita releer Firestore en cada refresh)
-const PROD_CACHE_KEY = 'pico_prods_v1';
-const PROD_CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+// ═══════════════════════════════════════════════════
+//  CACHE ETERNO DE PRODUCTOS  (localStorage, sin expiración)
+// ═══════════════════════════════════════════════════
+// El catálogo completo se guarda en localStorage y sobrevive a cerrar la
+// pestaña / el navegador. NO expira por tiempo. La frescura se mantiene con
+// una sincronización incremental: al abrir, solo se releen de Firestore los
+// productos cuyo 'updatedAt' es más nuevo que la última sync guardada.
+const PROD_CACHE_KEY  = 'pico_prods_v2';        // {data:[...], syncTs:<ms>}
+const PROD_SYNC_KEY   = 'pico_prods_sync_v2';   // último updatedAt sincronizado (ms)
+// (Se conserva el nombre v1 antiguo solo para limpiarlo si existiera)
+const PROD_CACHE_KEY_OLD = 'pico_prods_v1';
+
+// Lee el caché de productos desde localStorage. Devuelve {data, syncTs} o null.
+function readProdCache() {
+  try {
+    const raw = localStorage.getItem(PROD_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.data)) return null;
+    return parsed;
+  } catch (_) { return null; }
+}
+
+// Guarda el caché completo. syncTs = mayor updatedAt visto hasta ahora (ms).
+function writeProdCache(data, syncTs) {
+  try {
+    localStorage.setItem(PROD_CACHE_KEY, JSON.stringify({ data, syncTs: syncTs || 0 }));
+  } catch (_) {}
+}
+
+// Convierte un valor updatedAt (Timestamp de Firestore o número) a milisegundos.
+function updatedAtToMs(v) {
+  if (v == null) return 0;
+  if (typeof v === 'number') return v;
+  if (typeof v.toMillis === 'function') return v.toMillis();
+  if (typeof v.seconds === 'number') return v.seconds * 1000;
+  const t = new Date(v).getTime();
+  return isNaN(t) ? 0 : t;
+}
