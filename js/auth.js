@@ -30,7 +30,7 @@ auth.onAuthStateChanged(user => {
       const page      = document.body.dataset.page;
       if (pedidoId && page !== 'adminPanel') {
         // El QR puede abrirse desde cualquier página: redirigir al panel admin.
-        location.href = 'admin.html?pedido=' + encodeURIComponent(pedidoId);
+        location.href = '/admin/?pedido=' + encodeURIComponent(pedidoId);
         return;
       }
       if (pedidoId && page === 'adminPanel') {

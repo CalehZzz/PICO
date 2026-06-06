@@ -7,11 +7,16 @@
 // ═══════════════════════════════════════════════════
 // Mapa de páginas → archivos HTML (estructura multipágina).
 const PAGE_URLS = {
-  catalog:    'index.html',
-  myOrders:   'mis-pedidos.html',
-  adminPanel: 'admin.html',
-  profile:    'perfil.html'
+  catalog:    '/',
+  myOrders:   '/mis-pedidos/',
+  adminPanel: '/admin/',
+  profile:    '/perfil/'
 };
+
+// Normaliza una ruta para comparar (quita index.html y barras finales).
+function normPath(p) {
+  return p.replace(/index\.html$/, '').replace(/\/+$/, '') || '/';
+}
 
 // Navega a la página solicitada. Si ya estamos en ella, solo sube al inicio.
 function showPage(name) {
@@ -21,8 +26,7 @@ function showPage(name) {
   }
   const url = PAGE_URLS[name];
   if (!url) return;
-  const here = location.pathname.split('/').pop() || 'index.html';
-  if (here === url) { window.scrollTo(0, 0); return; }
+  if (normPath(location.pathname) === normPath(url)) { window.scrollTo(0, 0); return; }
   location.href = url;
 }
 
@@ -37,14 +41,14 @@ function initPageAfterAuth() {
       renderProfile();
     } else {
       showToast('⚠️ Inicia sesión para ver tu perfil');
-      setTimeout(() => { location.href = 'index.html'; }, 1300);
+      setTimeout(() => { location.href = '/'; }, 1300);
     }
   } else if (page === 'adminPanel') {
     if (isAdmin) {
       renderAdminPanel();
     } else {
       showToast('⚠️ Acceso solo para administradores');
-      setTimeout(() => { location.href = 'index.html'; }, 1300);
+      setTimeout(() => { location.href = '/'; }, 1300);
     }
   }
   // 'catalog' se renderiza vía loadProducts() -> renderProducts().
