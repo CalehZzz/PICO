@@ -1,3 +1,4 @@
+
 # PICO — Estructura multipágina
 
 Tu `tienda.html` era un único archivo que simulaba varias "páginas" mostrando y
