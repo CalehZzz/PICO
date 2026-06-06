@@ -1,1 +1,58 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PICO · Mis Pedidos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<body data-page="myOrders">
 
+<!-- ═══ MY ORDERS ═══ -->
+<div class="page active" id="page-myOrders">
+  <div class="op">
+    <h2>PICO</h2>
+    <p class="sub">Consulta el estado de tus pedidos o búscalos por código de seguimiento.</p>
+    <div class="track-bar">
+      <input type="text" id="trackInput" placeholder="Ingresa tu código (ej: EL-4A2X)"
+        onkeydown="if(event.key==='Enter')trackOrder()">
+      <button class="btn-track" onclick="trackOrder()">Buscar</button>
+    </div>
+    <div id="trackResult"></div>
+    <hr class="divider">
+    <h3 style="font-size:.9rem;font-weight:700;color:var(--g900);margin-bottom:14px">Historial de pedidos</h3>
+    <div class="orders-tabs" id="myOrdersTabs">
+      <button class="otab active" id="otab-active" onclick="switchMyOrdersTab('active')">⏳ Activos</button>
+      <button class="otab" id="otab-done" onclick="switchMyOrdersTab('done')">📦 Entregados / Cancelados</button>
+    </div>
+    <div id="myOrdersList"></div>
+    <div id="myOrdersPager" class="hidden" style="display:flex;align-items:center;justify-content:center;gap:14px;padding:20px 0 4px">
+      <button id="myOrdersPrevBtn" class="page-arrow" onclick="myOrdersPageNav(-1)" aria-label="Página anterior">‹</button>
+      <span id="myOrdersPageInfo" style="font-size:.85rem;font-weight:700;color:var(--g700);min-width:80px;text-align:center"></span>
+      <button id="myOrdersNextBtn" class="page-arrow" onclick="myOrdersPageNav(1)" aria-label="Página siguiente">›</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SCRIPTS (orden importante: config y components primero, init al final) ═══ -->
+<script src="/js/config.js"></script>
+<script src="/js/components.js"></script>
+<script src="/js/products.js"></script>
+<script src="/js/auth.js"></script>
+<script src="/js/discounts.js"></script>
+<script src="/js/admin.js"></script>
+<script src="/js/cart.js"></script>
+<script src="/js/orders.js"></script>
+<script src="/js/catalog.js"></script>
+<script src="/js/profile.js"></script>
+<script src="/js/utils.js"></script>
+<script src="/js/init.js"></script>
+</body>
+</html>
