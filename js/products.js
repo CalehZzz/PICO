@@ -82,6 +82,7 @@ async function loadProducts() {
     // El stock mostrado es SOLO el de la sucursal elegida (stockCdb o stockExsal).
     const stockField = selectedSucursal === 'cdb' ? 'stockCdb'
                      : selectedSucursal === 'exsal' ? 'stockExsal'
+                     : selectedSucursal === 'domicilio' ? 'stockCdb'  // domicilio usa el stock de CDB (por ahora)
                      : null;
     products = [];
     rawProducts.forEach(d => {

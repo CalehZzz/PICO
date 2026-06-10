@@ -9,7 +9,9 @@
 // ── Aviso por correo de cada pedido (vía extensión Trigger Email) ──
 function sendOrderEmail(orderId, d) {
   const NOTIFY_EMAIL = 'picosvsupport@gmail.com'; // ← correo donde quieres recibir el aviso
-  const sucLabel = d.sucursal === 'cdb' ? 'Colegio Don Bosco (CDB)' : 'Colegio Exsal (EXSAL)';
+  const sucLabel = d.tipoEntrega === 'domicilio' ? '🚚 Envío a domicilio'
+                 : d.sucursal === 'cdb' ? 'Colegio Don Bosco (CDB)'
+                 : 'Colegio Exsal (EXSAL)';
   const finalTotal = d.totalConDescuento != null ? d.totalConDescuento : d.total;
 
   const rows = d.items.map(i => `
@@ -34,6 +36,12 @@ function sendOrderEmail(orderId, d) {
         <tr><td style="padding:4px 0;color:#64748b">Cliente</td><td style="padding:4px 0;font-weight:600">${d.name}</td></tr>
         <tr><td style="padding:4px 0;color:#64748b">Grado / Sección</td><td style="padding:4px 0;font-weight:600">${d.grade} - ${d.section}</td></tr>
         <tr><td style="padding:4px 0;color:#64748b">Sucursal</td><td style="padding:4px 0;font-weight:600">${sucLabel}</td></tr>
+        ${d.tipoEntrega === 'domicilio' && d.envio ? `
+        <tr><td style="padding:4px 0;color:#64748b">Dirección</td><td style="padding:4px 0;font-weight:600">${d.envio.direccion}</td></tr>
+        <tr><td style="padding:4px 0;color:#64748b">Ciudad</td><td style="padding:4px 0;font-weight:600">${d.envio.ciudad}</td></tr>
+        <tr><td style="padding:4px 0;color:#64748b">Teléfono</td><td style="padding:4px 0;font-weight:600">${d.envio.telefono}</td></tr>
+        ${d.envio.referencia ? `<tr><td style="padding:4px 0;color:#64748b">Referencia</td><td style="padding:4px 0;font-weight:600">${d.envio.referencia}</td></tr>` : ''}
+        <tr><td style="padding:4px 0;color:#64748b">Método de pago</td><td style="padding:4px 0;font-weight:600">${d.metodoPago === 'tarjeta' ? '💳 Tarjeta (simulado)' : '💵 Efectivo'}</td></tr>` : ''}
         ${d.email ? `<tr><td style="padding:4px 0;color:#64748b">Correo cliente</td><td style="padding:4px 0;font-weight:600">${d.email}</td></tr>` : ''}
       </table>
       <table style="width:100%;border-collapse:collapse;font-size:14px">
@@ -226,14 +234,56 @@ function openCheckout() {
     sucursalInfoEl.style.color = '#dc2626';
     document.getElementById('placeOrderBtn').disabled = true;
   } else {
-    const label = saved.sucursal === 'cdb' ? '🏫 CDB' : '🏢 EXSAL';
-    sucursalInfoEl.innerHTML = `🏫 <b>Sucursal:</b> ${label} <span style="font-size:.75rem;color:var(--g400)">(puedes cambiarlo en tu perfil)</span>`;
+    const esDomicilio = saved.sucursal === 'domicilio';
+    const label = saved.sucursal === 'cdb' ? '🏫 CDB'
+                : saved.sucursal === 'exsal' ? '🏢 EXSAL'
+                : '🚚 Envío a domicilio';
+    sucursalInfoEl.innerHTML = esDomicilio
+      ? `🚚 <b>Entrega:</b> ${label} <span style="font-size:.75rem;color:var(--g400)">(puedes cambiarlo en tu perfil)</span>`
+      : `🏫 <b>Sucursal:</b> ${label} <span style="font-size:.75rem;color:var(--g400)">(puedes cambiarlo en tu perfil)</span>`;
     sucursalInfoEl.style.background = '';
     sucursalInfoEl.style.borderColor = '';
     sucursalInfoEl.style.color = '';
     document.getElementById('placeOrderBtn').disabled = false;
   }
+
+  // Mostrar/ocultar datos de envío + método de pago según el tipo de entrega
+  toggleDeliveryFields(saved.sucursal === 'domicilio');
+
   openModal('checkoutModal');
+}
+
+// ── Tipo de entrega: alterna las secciones de envío y pago ──
+let selectedPayment = 'tarjeta'; // 'tarjeta' | 'efectivo'
+
+function toggleDeliveryFields(esDomicilio) {
+  const ship = document.getElementById('shippingSection');
+  const pay  = document.getElementById('paymentSection');
+  if (ship) ship.style.display = esDomicilio ? '' : 'none';
+  if (pay)  pay.style.display  = esDomicilio ? '' : 'none';
+  if (esDomicilio) {
+    // Prefijar datos de envío guardados (si existen)
+    const saved = getSavedProfile();
+    if (saved.shipAddress) document.getElementById('shipAddress').value = saved.shipAddress;
+    if (saved.shipPhone)   document.getElementById('shipPhone').value   = saved.shipPhone;
+    if (saved.shipCity)    document.getElementById('shipCity').value    = saved.shipCity;
+    if (saved.shipRef)     document.getElementById('shipRef').value     = saved.shipRef;
+    selectPayment(selectedPayment); // re-aplicar estado visual del método de pago
+  }
+}
+
+// ── Selección de método de pago (tarjeta / efectivo) ──
+function selectPayment(method) {
+  selectedPayment = method;
+  const card = document.getElementById('payCard');
+  const cash = document.getElementById('payCash');
+  const cardFields = document.getElementById('cardFields');
+  const cashNote   = document.getElementById('cashNote');
+  if (!card || !cash) return;
+  card.classList.toggle('active', method === 'tarjeta');
+  cash.classList.toggle('active', method === 'efectivo');
+  if (cardFields) cardFields.style.display = method === 'tarjeta' ? '' : 'none';
+  if (cashNote)   cashNote.style.display   = method === 'efectivo' ? '' : 'none';
 }
 
 async function placeOrder() {
@@ -250,6 +300,31 @@ async function placeOrder() {
     closeModal('checkoutModal');
     showPage('profile');
     return;
+  }
+
+  // ── Datos de envío + método de pago (solo entrega a domicilio) ──
+  const esDomicilio = sucursal === 'domicilio';
+  let envio = null;
+  let metodoPago = null;
+  if (esDomicilio) {
+    const direccion  = document.getElementById('shipAddress').value.trim();
+    const telefono   = document.getElementById('shipPhone').value.trim();
+    const ciudad     = document.getElementById('shipCity').value.trim();
+    const referencia = document.getElementById('shipRef').value.trim();
+    if (!direccion || !telefono || !ciudad) {
+      showToast('⚠️ Completa los datos de envío');
+      return;
+    }
+    envio = { direccion, telefono, ciudad, referencia };
+    metodoPago = selectedPayment; // 'tarjeta' | 'efectivo' (pago simulado)
+    // Guardar la dirección en el perfil para futuros pedidos
+    try {
+      const key   = 'el_profile_' + currentUser.uid;
+      const prof  = JSON.parse(localStorage.getItem(key) || '{}');
+      prof.shipAddress = direccion; prof.shipPhone = telefono;
+      prof.shipCity = ciudad;       prof.shipRef = referencia;
+      localStorage.setItem(key, JSON.stringify(prof));
+    } catch (_) {}
   }
 
   // Validar stock local
@@ -276,7 +351,7 @@ async function placeOrder() {
     : +rawTotal.toFixed(2);
 
   try {
-    const stockField = sucursal === 'cdb' ? 'stockCdb' : 'stockExsal';
+    const stockField = (sucursal === 'cdb' || sucursal === 'domicilio') ? 'stockCdb' : 'stockExsal';
 
     const docRef = await db.collection('pedidos').add({
       code, name, grade, section, items,
@@ -286,6 +361,9 @@ async function placeOrder() {
       discountName:        selectedDiscount ? selectedDiscount.nombre    : null,
       discountPct:         selectedDiscount ? selectedDiscount.porcentaje: null,
       sucursal:    sucursal,
+      tipoEntrega: esDomicilio ? 'domicilio' : 'pickup',
+      envio:       envio,        // {direccion, telefono, ciudad, referencia} o null
+      metodoPago:  metodoPago,   // 'tarjeta' | 'efectivo' | null (pago simulado)
       status:      'pending',
       stockDeducted: true,
       createdAt:   firebase.firestore.FieldValue.serverTimestamp(),
@@ -302,6 +380,9 @@ async function placeOrder() {
       discountName: selectedDiscount ? selectedDiscount.nombre : null,
       discountPct:  selectedDiscount ? selectedDiscount.porcentaje : null,
       sucursal,
+      tipoEntrega: esDomicilio ? 'domicilio' : 'pickup',
+      envio,
+      metodoPago,
       email: currentUser?.email || null
     }).catch(e => console.warn('No se pudo encolar el correo de aviso:', e));
 
@@ -321,7 +402,7 @@ async function placeOrder() {
 
     // Incrementar contador de pedidos pendientes en estadísticas (tiempo real, NO se resetea por mes)
     try {
-      const statDocId = sucursal === 'cdb' ? 'ColegioDonBosco' : 'ColegioExsal';
+      const statDocId = (sucursal === 'cdb' || sucursal === 'domicilio') ? 'ColegioDonBosco' : 'ColegioExsal';
       await db.collection('estadisticas').doc(statDocId).set({
         pedidosPendientes: firebase.firestore.FieldValue.increment(1)
       }, { merge: true });

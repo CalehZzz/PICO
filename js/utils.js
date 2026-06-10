@@ -119,7 +119,9 @@ function chooseGateSucursal(suc) {
   const m = document.getElementById('sucursalGateModal');
   m.classList.remove('open');
   if (!document.querySelector('.moverlay.open')) document.body.style.overflow = '';
-  showToast(suc === 'cdb' ? '🏫 Sucursal: Don Bosco (CDB)' : '🏢 Sucursal: EXSAL');
+  showToast(suc === 'cdb' ? '🏫 Sucursal: Don Bosco (CDB)'
+          : suc === 'exsal' ? '🏢 Sucursal: EXSAL'
+          : '🚚 Entrega: Envío a domicilio');
   // Vaciar carrito al cambiar de sucursal (el stock difiere entre sucursales)
   cart = {};
   saveCart();
@@ -132,7 +134,11 @@ function updateSucursalBadge() {
   if (!el) return;
   if (!selectedSucursal) { el.style.display = 'none'; return; }
   el.style.display = 'flex';
-  el.innerHTML = (selectedSucursal === 'cdb' ? '🏫 CDB' : '🏢 EXSAL')
+  const sucLabel = selectedSucursal === 'cdb'   ? '🏫 CDB'
+                 : selectedSucursal === 'exsal' ? '🏢 EXSAL'
+                 : selectedSucursal === 'domicilio' ? '🚚 Domicilio'
+                 : '';
+  el.innerHTML = sucLabel
     + ' <span style="font-size:.7rem;color:var(--g400);font-weight:500">▼</span>';
 }
 

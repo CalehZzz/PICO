@@ -17,7 +17,7 @@ function renderProfile() {
     ? `<img src="${currentUser.photoURL}" class="profile-photo-lg" alt="">`
     : `<div class="profile-avatar-lg">${initials}</div>`;
   const saved = getSavedProfile();
-  const sucursalLabel = saved.sucursal === 'cdb' ? '🏫 CDB' : saved.sucursal === 'exsal' ? '🏢 EXSAL' : '';
+  const sucursalLabel = saved.sucursal === 'cdb' ? '🏫 CDB' : saved.sucursal === 'exsal' ? '🏢 EXSAL' : saved.sucursal === 'domicilio' ? '🚚 Domicilio' : '';
   document.getElementById('profileInfo').innerHTML = `
     ${avatarHtml}
     <div class="profile-name">${currentUser.name}</div>
