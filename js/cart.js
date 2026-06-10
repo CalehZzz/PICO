@@ -34,7 +34,7 @@ function sendOrderEmail(orderId, d) {
       <p style="margin:0 0 16px;color:#64748b">${new Date().toLocaleString('es-SV')}</p>
       <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
         <tr><td style="padding:4px 0;color:#64748b">Cliente</td><td style="padding:4px 0;font-weight:600">${d.name}</td></tr>
-        <tr><td style="padding:4px 0;color:#64748b">Grado / Sección</td><td style="padding:4px 0;font-weight:600">${d.grade} - ${d.section}</td></tr>
+        ${d.tipoEntrega === 'domicilio' ? '' : `<tr><td style="padding:4px 0;color:#64748b">Grado / Sección</td><td style="padding:4px 0;font-weight:600">${d.grade} - ${d.section}</td></tr>`}
         <tr><td style="padding:4px 0;color:#64748b">Sucursal</td><td style="padding:4px 0;font-weight:600">${sucLabel}</td></tr>
         ${d.tipoEntrega === 'domicilio' && d.envio ? `
         <tr><td style="padding:4px 0;color:#64748b">Dirección</td><td style="padding:4px 0;font-weight:600">${d.envio.direccion}</td></tr>
@@ -259,8 +259,11 @@ let selectedPayment = 'tarjeta'; // 'tarjeta' | 'efectivo'
 function toggleDeliveryFields(esDomicilio) {
   const ship = document.getElementById('shippingSection');
   const pay  = document.getElementById('paymentSection');
+  const academic = document.getElementById('academicFields');
   if (ship) ship.style.display = esDomicilio ? '' : 'none';
   if (pay)  pay.style.display  = esDomicilio ? '' : 'none';
+  // Grado y sección no aplican al envío a domicilio.
+  if (academic) academic.style.display = esDomicilio ? 'none' : '';
   if (esDomicilio) {
     // Prefijar datos de envío guardados (si existen)
     const saved = getSavedProfile();
@@ -288,9 +291,6 @@ function selectPayment(method) {
 
 async function placeOrder() {
   const name    = document.getElementById('studentName').value.trim();
-  const grade   = document.getElementById('studentGrade').value;
-  const section = document.getElementById('studentSection').value;
-  if (!name || !grade || !section) { showToast('⚠️ Completa todos los campos'); return; }
 
   // Sucursal desde perfil (obligatoria)
   const savedProfile = getSavedProfile();
@@ -301,6 +301,13 @@ async function placeOrder() {
     showPage('profile');
     return;
   }
+
+  // Grado y sección solo se piden para retiro en sucursal (no para domicilio).
+  const esDomicilioEntrega = sucursal === 'domicilio';
+  const grade   = esDomicilioEntrega ? '' : document.getElementById('studentGrade').value;
+  const section = esDomicilioEntrega ? '' : document.getElementById('studentSection').value;
+  if (!name) { showToast('⚠️ Ingresa tu nombre completo'); return; }
+  if (!esDomicilioEntrega && (!grade || !section)) { showToast('⚠️ Completa todos los campos'); return; }
 
   // ── Datos de envío + método de pago (solo entrega a domicilio) ──
   const esDomicilio = sucursal === 'domicilio';

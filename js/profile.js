@@ -35,6 +35,12 @@ function saveProfile() {
   const section  = document.getElementById('profileSection').value;
   const sucursal = document.getElementById('profileSucursal').value;
   if (!grade || !section) { showToast('⚠️ Selecciona grado y sección'); return; }
+  // Envío a domicilio aún no disponible para usuarios normales (sí para admin).
+  if (sucursal === 'domicilio' && !isAdmin) {
+    showComingSoon();
+    document.getElementById('profileSucursal').value = selectedSucursal || '';
+    return;
+  }
   localStorage.setItem('el_profile_' + currentUser.uid, JSON.stringify({ grade, section, sucursal }));
   // Si cambió la sucursal desde el perfil, reflejarlo en el gate y recargar el stock
   if (sucursal && sucursal !== selectedSucursal) {

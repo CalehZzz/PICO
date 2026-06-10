@@ -111,7 +111,14 @@ function showSucursalGate() {
   m.classList.add('open');
   document.body.style.overflow = 'hidden';
 }
+// Muestra el aviso de "Próximamente" para el envío a domicilio.
+function showComingSoon() {
+  openModal('comingSoonModal');
+}
+
 function chooseGateSucursal(suc) {
+  // Envío a domicilio aún no disponible para usuarios normales (sí para admin).
+  if (suc === 'domicilio' && !isAdmin) { showComingSoon(); return; }
   selectedSucursal = suc;
   localStorage.setItem(SUCURSAL_KEY, suc);
   // Sincronizar con el perfil del usuario logueado (si lo hay)
