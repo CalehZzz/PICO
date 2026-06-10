@@ -370,3 +370,18 @@ tr:hover td{background:var(--b50)}
 /* ── ADMIN DISCOUNT ASSIGN ── */
 .discount-assign-box{display:flex;flex-direction:column;gap:10px}
 .discount-assign-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+
+/* ─── ENVÍO A DOMICILIO · separador de sección + método de pago ─── */
+.section-sep{display:flex;align-items:center;gap:10px;margin:6px 0 14px}
+.section-sep::after{content:'';flex:1;height:1px;background:var(--b100)}
+.section-sep span{font-size:.7rem;font-weight:700;color:var(--b600);text-transform:uppercase;letter-spacing:.07em;white-space:nowrap}
+.pay-methods{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.pay-opt{display:flex;align-items:center;justify-content:center;gap:7px;padding:13px 10px;
+  border-radius:10px;border:1.5px solid var(--b200);background:var(--g50);cursor:pointer;
+  font-family:var(--font);font-size:.85rem;font-weight:600;color:var(--g500);transition:all .16s}
+.pay-opt:hover{border-color:var(--b300);background:var(--b50)}
+.pay-opt.active{border-color:var(--b500);background:var(--b50);color:var(--b600);
+  box-shadow:0 0 0 3px rgba(59,130,246,.1)}
+.pay-ico{font-size:1.15rem;line-height:1}
+.pay-note{font-size:.76rem;color:var(--g400);background:var(--g50);border:1px solid var(--b100);
+  border-radius:9px;padding:9px 12px;margin-bottom:4px;line-height:1.45}
