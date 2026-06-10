@@ -5,6 +5,61 @@
 // ═══════════════════════════════════════════════════
 //  CART  (con persistencia en localStorage)
 // ═══════════════════════════════════════════════════
+
+// ── Aviso por correo de cada pedido (vía extensión Trigger Email) ──
+function sendOrderEmail(orderId, d) {
+  const NOTIFY_EMAIL = 'picosvsupport@gmail.com'; // ← correo donde quieres recibir el aviso
+  const sucLabel = d.sucursal === 'cdb' ? 'Colegio Don Bosco (CDB)' : 'Colegio Exsal (EXSAL)';
+  const finalTotal = d.totalConDescuento != null ? d.totalConDescuento : d.total;
+
+  const rows = d.items.map(i => `
+    <tr>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee">${i.name}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:center">${i.qty}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">$${i.price.toFixed(2)}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">$${(i.qty * i.price).toFixed(2)}</td>
+    </tr>`).join('');
+
+  const descuento = d.totalConDescuento != null ? `
+    <tr><td colspan="3" style="padding:6px 10px;text-align:right">Subtotal</td>
+        <td style="padding:6px 10px;text-align:right">$${d.total.toFixed(2)}</td></tr>
+    <tr><td colspan="3" style="padding:6px 10px;text-align:right;color:#16a34a">Descuento (${d.discountName || ''} ${d.discountPct || 0}%)</td>
+        <td style="padding:6px 10px;text-align:right;color:#16a34a">−$${(d.total - finalTotal).toFixed(2)}</td></tr>` : '';
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#0f172a">
+      <h2 style="margin:0 0 4px">🛒 Nuevo pedido · ${d.code}</h2>
+      <p style="margin:0 0 16px;color:#64748b">${new Date().toLocaleString('es-SV')}</p>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
+        <tr><td style="padding:4px 0;color:#64748b">Cliente</td><td style="padding:4px 0;font-weight:600">${d.name}</td></tr>
+        <tr><td style="padding:4px 0;color:#64748b">Grado / Sección</td><td style="padding:4px 0;font-weight:600">${d.grade} - ${d.section}</td></tr>
+        <tr><td style="padding:4px 0;color:#64748b">Sucursal</td><td style="padding:4px 0;font-weight:600">${sucLabel}</td></tr>
+        ${d.email ? `<tr><td style="padding:4px 0;color:#64748b">Correo cliente</td><td style="padding:4px 0;font-weight:600">${d.email}</td></tr>` : ''}
+      </table>
+      <table style="width:100%;border-collapse:collapse;font-size:14px">
+        <tr style="background:#f1f5f9">
+          <th style="padding:8px 10px;text-align:left">Producto</th>
+          <th style="padding:8px 10px;text-align:center">Cant.</th>
+          <th style="padding:8px 10px;text-align:right">Precio</th>
+          <th style="padding:8px 10px;text-align:right">Subtotal</th>
+        </tr>
+        ${rows}
+        ${descuento}
+        <tr><td colspan="3" style="padding:10px;text-align:right;font-weight:700;font-size:16px;border-top:2px solid #0f172a">TOTAL</td>
+            <td style="padding:10px;text-align:right;font-weight:700;font-size:16px;border-top:2px solid #0f172a">$${finalTotal.toFixed(2)}</td></tr>
+      </table>
+      <p style="margin-top:16px;color:#94a3b8;font-size:12px">ID del pedido: ${orderId}</p>
+    </div>`;
+
+  return db.collection('mail').add({
+    to: NOTIFY_EMAIL,
+    message: {
+      subject: `🛒 Nuevo pedido ${d.code} — ${d.name} (${sucLabel})`,
+      html
+    }
+  });
+}
+
 function saveCart() {
   try { localStorage.setItem('pico_cart', JSON.stringify(cart)); } catch(_) {}
 }
@@ -238,6 +293,17 @@ async function placeOrder() {
       userId:      currentUser?.uid   || null,
       email:       currentUser?.email || null
     });
+
+    // Aviso por correo al dueño (no bloquea el pedido si algo falla)
+    sendOrderEmail(docRef.id, {
+      code, name, grade, section, items,
+      total: +rawTotal.toFixed(2),
+      totalConDescuento: selectedDiscount ? finalTotal : null,
+      discountName: selectedDiscount ? selectedDiscount.nombre : null,
+      discountPct:  selectedDiscount ? selectedDiscount.porcentaje : null,
+      sucursal,
+      email: currentUser?.email || null
+    }).catch(e => console.warn('No se pudo encolar el correo de aviso:', e));
 
     // Descontar el stock de la sucursal en Firebase (atómico) al crear el pedido.
     try {
