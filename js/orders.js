@@ -178,6 +178,11 @@ async function customerCancelOrder(firestoreId, code, btn) {
     }
     const items = orderData.items || [];
     const batch = db.batch();
+    // Borrar la factura vinculada a este pedido (si existe). Operación neutra para estadísticas.
+    try {
+      const facSnap = await db.collection('facturas').where('fromOrder', '==', firestoreId).get();
+      facSnap.forEach(d => batch.delete(d.ref));
+    } catch (e) { console.warn('No se pudo localizar la factura del pedido para borrarla:', e); }
     // Marcar pedido como cancelado
     batch.update(db.collection('pedidos').doc(firestoreId), {
       status: 'cancelled',

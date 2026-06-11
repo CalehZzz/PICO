@@ -237,7 +237,7 @@ async function revertDelivery(firestoreId, data) {
     statUpdate['pedidosEntregados'] = firebase.firestore.FieldValue.increment(-1);
     statUpdate['ventas']            = firebase.firestore.FieldValue.increment(-totalVentasEfectivo);
     statUpdate['unidades vendidas'] = firebase.firestore.FieldValue.increment(-totalUnidades);
-    statUpdate['numero de ventas']  = firebase.firestore.FieldValue.increment(-data.items.length);
+    statUpdate['numero de ventas']  = firebase.firestore.FieldValue.increment(-1);
     statUpdate['ingresosPedidos']   = firebase.firestore.FieldValue.increment(-(+totalEfectivo.toFixed(2)));
     statUpdate['costosPedidos']     = firebase.firestore.FieldValue.increment(-(+costTotal.toFixed(2)));
   }
@@ -310,6 +310,7 @@ async function changeStatus(firestoreId, val) {
 
         let totalUnidades = 0;
         let totalVentasEfectivo = 0;
+        const ventaItems = [];
 
         for (const item of freshData.items) {
           const qty = item.qty || 1;
@@ -322,25 +323,40 @@ async function changeStatus(firestoreId, val) {
 
           // NOTA: el stock ya se descontó al crear el pedido. Al entregar NO se toca el stock.
 
-          // Crear registro en "ventas" con descuento proporcional aplicado
+          // Línea de la venta con descuento proporcional aplicado
           const itemTotal = +(unitPrice * qty * discFactor).toFixed(2);
           totalUnidades += qty;
           totalVentasEfectivo += itemTotal;
-          stockBatch.set(db.collection('ventas').doc(), {
-            orderNumber: 'PED-' + Date.now().toString().slice(-6) + '-' + Math.random().toString(36).slice(-3),
+          ventaItems.push({
+            pid: item.id || null,
             productName: item.name,
             qty,
+            precioUnit: unitPrice,
             costTotal: +(unitCost * qty).toFixed(2),
             total: itemTotal,
-            seller: sellerEmail,
-            sucursal,
-            date: new Date().toLocaleDateString('es'),
-            timestamp: Date.now(),
-            mes: mesKey,          // ✅ necesario para el panel de ventas del inventario
-            fromOrder: firestoreId,
-            ...(freshData.discountPct ? { discountName: freshData.discountName, discountPct: freshData.discountPct } : {})
+            descPct: freshData.discountPct || 0,
+            descNombre: freshData.discountName || ''
           });
         }
+
+        // Un solo documento de venta con todos los productos del pedido (lógica nueva).
+        // Vinculado a su factura (creada al hacer el pedido) y al pedido de origen.
+        stockBatch.set(db.collection('ventas').doc(), {
+          orderNumber: 'PED-' + Date.now().toString().slice(-6) + '-' + Math.random().toString(36).slice(-3),
+          items: ventaItems,
+          qty: totalUnidades,
+          costTotal: +costTotal.toFixed(2),
+          total: +totalVentasEfectivo.toFixed(2),
+          seller: sellerEmail,
+          sucursal,
+          date: new Date().toLocaleDateString('es'),
+          timestamp: Date.now(),
+          mes: mesKey,          // ✅ necesario para el panel de ventas del inventario
+          fromOrder: firestoreId,
+          facturaId:  freshData.facturaId  || null,
+          facturaNum: freshData.facturaNum || null,
+          ...(freshData.discountPct ? { descuentoAplicado: { nombre: freshData.discountName, porcentaje: freshData.discountPct } } : {})
+        });
 
         // Total efectivo: respetar totalConDescuento guardado; si no existe, calcular desde precios del pedido
         const totalEfectivo = typeof freshData.totalConDescuento === 'number'
@@ -361,7 +377,7 @@ async function changeStatus(firestoreId, val) {
         stockBatch.set(db.collection('estadisticas').doc(statDocId), {
           'ventas':            firebase.firestore.FieldValue.increment(totalVentasEfectivo),
           'unidades vendidas': firebase.firestore.FieldValue.increment(totalUnidades),
-          'numero de ventas':  firebase.firestore.FieldValue.increment(freshData.items.length),
+          'numero de ventas':  firebase.firestore.FieldValue.increment(1),
           // Contadores de pedidos (mensuales salvo pedidosPendientes)
           'pedidosEntregados': firebase.firestore.FieldValue.increment(1),
           'ingresosPedidos':   firebase.firestore.FieldValue.increment(+totalEfectivo.toFixed(2)),
@@ -393,6 +409,11 @@ async function adminCancelOrder(firestoreId, code) {
   if (!confirm(`¿Cancelar el pedido ${code}? Esta acción no se puede deshacer.`)) return;
   try {
     const batch = db.batch();
+    // Borrar la factura vinculada a este pedido (si existe). Neutra para estadísticas.
+    try {
+      const facSnap = await db.collection('facturas').where('fromOrder', '==', firestoreId).get();
+      facSnap.forEach(d => batch.delete(d.ref));
+    } catch (e) { console.warn('No se pudo localizar la factura del pedido para borrarla:', e); }
     // Marcar pedido como cancelado
     batch.update(db.collection('pedidos').doc(firestoreId), {
       status: 'cancelled',

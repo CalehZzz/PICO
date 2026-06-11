@@ -68,6 +68,213 @@ function sendOrderEmail(orderId, d) {
   });
 }
 
+// ════════════════════════════════════════════════════════════════
+//  FACTURA DEL PEDIDO  (PDF + correo al cliente vía Trigger Email)
+// ════════════════════════════════════════════════════════════════
+// Clave de mes "YYYY-MM" (mes 0-indexado, igual que el inventario para que
+// las facturas de tienda e inventario compartan formato y se listen juntas).
+function picoMonthKey(ts) {
+  const d = ts ? new Date(ts) : new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()).padStart(2, '0');
+}
+
+// Carga el logo (mismo origen) como dataURI una sola vez para incrustarlo en el PDF.
+let _picoLogoData = null, _picoLogoTried = false;
+function loadLogoDataURI() {
+  if (_picoLogoData || _picoLogoTried) return Promise.resolve(_picoLogoData);
+  return new Promise(resolve => {
+    try {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        try {
+          const c = document.createElement('canvas');
+          c.width = img.naturalWidth; c.height = img.naturalHeight;
+          c.getContext('2d').drawImage(img, 0, 0);
+          _picoLogoData = c.toDataURL('image/png');
+        } catch (_) { _picoLogoData = null; }
+        _picoLogoTried = true; resolve(_picoLogoData);
+      };
+      img.onerror = () => { _picoLogoTried = true; resolve(null); };
+      img.src = '/logo.png';
+    } catch (_) { _picoLogoTried = true; resolve(null); }
+  });
+}
+
+// Construye el PDF de la factura (mismo diseño que el panel de inventario).
+function buildFacturaPDF(doc, fac, logoData) {
+  const W = 210, pad = 18;
+  const azul = [74,168,232], azulOsc = [23,118,176], gris = [240,248,253], grisL = [197,227,249];
+  const negro = [15,63,99], grisT = [74,137,176], blanco = [255,255,255];
+  const items = fac.items || [];
+  const numFactura = fac.numFactura || ('FAC-' + (fac.numero || ''));
+  const fechaHoy = fac.date || new Date().toLocaleDateString('es');
+  const sucursalLabel = fac.sucursal === 'exsal' ? 'EXSAL' : fac.sucursal === 'cdb' ? 'CDB' : '—';
+  const vendedor = fac.seller || 'Tienda en línea';
+
+  doc.setFillColor(...azul); doc.rect(0, 0, W, 42, 'F');
+  if (logoData) { try { doc.addImage(logoData, 'PNG', pad, 6, 28, 28); } catch (e) {} }
+  doc.setFont('helvetica','bold'); doc.setFontSize(22); doc.setTextColor(...blanco);
+  doc.text('FACTURA', W - pad, 18, { align:'right' });
+  doc.setFontSize(10); doc.setFont('helvetica','normal');
+  doc.text(numFactura, W - pad, 25, { align:'right' });
+  doc.text('Fecha: ' + fechaHoy, W - pad, 31, { align:'right' });
+  doc.text('Sede: ' + sucursalLabel, W - pad, 37, { align:'right' });
+  doc.setFontSize(13); doc.setFont('helvetica','bold');
+  doc.text('PICO Electrónica', pad + 32, 17);
+  doc.setFontSize(9); doc.setFont('helvetica','normal');
+  doc.text('Tienda en línea', pad + 32, 23);
+
+  let y = 52;
+  doc.setFillColor(...gris); doc.roundedRect(pad, y, W - pad*2, 32, 3, 3, 'F');
+  doc.setDrawColor(...grisL); doc.setLineWidth(0.4); doc.roundedRect(pad, y, W - pad*2, 32, 3, 3, 'S');
+  doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(...grisT);
+  doc.text('CLIENTE', pad + 5, y + 7); doc.text('ENTREGA', W/2 + 5, y + 7);
+  doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(...negro);
+  doc.text(fac.cliente || 'Consumidor final', pad + 5, y + 14);
+  doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(...grisT);
+  if (fac.clienteEmail) doc.text(fac.clienteEmail, pad + 5, y + 20);
+  doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(...negro);
+  doc.text(fac.tipoEntrega === 'domicilio' ? 'Envío a domicilio' : 'Retiro en sucursal', W/2 + 5, y + 14);
+  doc.setFontSize(8); doc.setTextColor(...grisT);
+  doc.text('N° ' + numFactura, W/2 + 5, y + 20);
+  y += 38;
+
+  const cols = [10, 84, 22, 34, 40];
+  const headers = ['#', 'Producto', 'Cant.', 'Precio/ud', 'Subtotal'];
+  const colX = [pad, pad+cols[0], pad+cols[0]+cols[1], pad+cols[0]+cols[1]+cols[2], pad+cols[0]+cols[1]+cols[2]+cols[3]];
+  function drawHead() {
+    doc.setFillColor(...azul); doc.rect(pad, y, W - pad*2, 8, 'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(...blanco);
+    headers.forEach((h, i) => { const align = i >= 2 ? 'right' : 'left'; const x = i >= 2 ? colX[i]+cols[i]-2 : colX[i]+2; doc.text(h, x, y + 5.5, { align }); });
+    y += 8;
+  }
+  drawHead();
+  items.forEach((it, idx) => {
+    if (y > 262) { doc.addPage(); y = 20; drawHead(); }
+    const rowBg = idx % 2 === 0 ? blanco : gris;
+    doc.setFillColor(...rowBg); doc.rect(pad, y, W - pad*2, 7, 'F');
+    doc.setDrawColor(...grisL); doc.setLineWidth(0.2); doc.line(pad, y + 7, W - pad, y + 7);
+    doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(...negro);
+    doc.text(String(idx + 1), colX[0] + 2, y + 5);
+    let nm = it.productName || '';
+    if (it.descPct > 0) nm += ' (-' + it.descPct + '%)';
+    if (nm.length > 46) nm = nm.slice(0, 44) + '…';
+    doc.text(nm, colX[1] + 2, y + 5);
+    doc.text(String(it.qty), colX[2] + cols[2] - 2, y + 5, { align:'right' });
+    doc.text('$' + (+(it.precioUnit || 0)).toFixed(2), colX[3] + cols[3] - 2, y + 5, { align:'right' });
+    doc.text('$' + (+(it.total || 0)).toFixed(2), colX[4] + cols[4] - 2, y + 5, { align:'right' });
+    y += 7;
+  });
+
+  if (y > 250) { doc.addPage(); y = 20; }
+  const hayDesc = (+(fac.subtotal || 0)).toFixed(2) !== (+(fac.total || 0)).toFixed(2);
+  if (hayDesc) {
+    doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(...grisT);
+    doc.text('Subtotal: $' + (+(fac.subtotal || 0)).toFixed(2) + '   ·   Descuentos: -$' + (+((fac.subtotal || 0) - (fac.total || 0))).toFixed(2), W - pad, y + 4, { align:'right' });
+    y += 6;
+  }
+  doc.setFillColor(...azulOsc); doc.rect(pad, y, W - pad*2, 9, 'F');
+  doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(...blanco);
+  doc.text('TOTAL', colX[3] + cols[3] - 2, y + 6, { align:'right' });
+  doc.text('$' + (+(fac.total || 0)).toFixed(2), colX[4] + cols[4] - 2, y + 6, { align:'right' });
+  y += 18;
+
+  if (y > 262) { doc.addPage(); y = 20; }
+  doc.setFillColor(...gris); doc.roundedRect(pad, y, W - pad*2, 22, 3, 3, 'F');
+  doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(...azul);
+  doc.text('¡Gracias por tu compra!', W/2, y + 9, { align:'center' });
+  doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(...grisT);
+  doc.text('En PICO Electrónica valoramos tu confianza. Ante cualquier consulta, contáctanos.', W/2, y + 16, { align:'center' });
+  doc.setFontSize(7.5); doc.setTextColor(...grisT);
+  doc.text('Documento generado el ' + new Date().toLocaleString('es') + ' · Factura ' + numFactura, W/2, 290, { align:'center' });
+}
+
+// Crea la factura secuencial del pedido (colección 'facturas', mismo contador
+// '_meta.facturaSeq' que el inventario) y la envía al cliente como PDF adjunto.
+// NO bloquea el pedido: cualquier fallo solo se registra en consola.
+async function crearYEnviarFacturaPedido(orderId, d) {
+  const ts = Date.now();
+  const mes = picoMonthKey(ts);
+  const fecha = new Date().toLocaleDateString('es');
+  const discPct = d.discountPct || 0;
+  const discFactor = discPct ? ((100 - discPct) / 100) : 1;
+
+  const items = (d.items || []).map(it => {
+    const sub = +((it.price || 0) * (it.qty || 0)).toFixed(2);
+    return {
+      productName: it.name, qty: it.qty,
+      precioUnit: +(it.price || 0).toFixed(2),
+      subtotal: sub,
+      total: +(sub * discFactor).toFixed(2),
+      descPct: discPct, descNombre: d.discountName || ''
+    };
+  });
+  const unidades = items.reduce((s, it) => s + (it.qty || 0), 0);
+  const subtotal = +(d.total).toFixed(2);
+  const total    = (typeof d.totalConDescuento === 'number') ? +d.totalConDescuento.toFixed(2) : subtotal;
+  // El stock y las estadísticas de 'domicilio' viven en CDB → su factura va bajo CDB.
+  const facSucursal = (d.sucursal === 'exsal') ? 'exsal' : 'cdb';
+
+  const facRef  = db.collection('facturas').doc();
+  const metaRef = db.collection('estadisticas').doc('_meta');
+  let seq = 0, numFactura = '';
+
+  await db.runTransaction(async t => {
+    const metaSnap = await t.get(metaRef);
+    seq = ((metaSnap.exists && metaSnap.data().facturaSeq) || 0) + 1;
+    numFactura = 'FAC-' + String(seq).padStart(5, '0');
+    t.set(facRef, {
+      numero: seq, numFactura, sucursal: facSucursal,
+      cliente: d.name || '', clienteEmail: d.email || '',
+      seller: 'tienda-online',
+      date: fecha, timestamp: ts, mes,
+      subtotal, total, unidades, items,
+      tipoEntrega: d.tipoEntrega || 'pickup',
+      fromOrder: orderId, origen: 'tienda'
+    });
+    t.set(metaRef, { facturaSeq: seq, updatedAt: ts }, { merge: true });
+    t.update(db.collection('pedidos').doc(orderId), { facturaId: facRef.id, facturaNum: numFactura });
+  });
+
+  // Generar PDF y enviarlo al cliente (si hay correo y jsPDF disponible)
+  if (d.email && window.jspdf && window.jspdf.jsPDF) {
+    try {
+      const logoData = await loadLogoDataURI();
+      const { jsPDF } = window.jspdf;
+      const docPdf = new jsPDF({ orientation:'p', unit:'mm', format:'a4' });
+      buildFacturaPDF(docPdf, {
+        numero: seq, numFactura, sucursal: facSucursal, cliente: d.name,
+        clienteEmail: d.email, seller: 'Tienda en línea', date: fecha,
+        tipoEntrega: d.tipoEntrega, subtotal, total, items
+      }, logoData);
+      const base64 = docPdf.output('datauristring').split(',')[1];
+      await db.collection('mail').add({
+        to: d.email,
+        from: 'PICO Electrónica <pedidos@picosv.com>',
+        replyTo: 'noreply@picosv.com',
+        message: {
+          subject: `🧾 Tu factura ${numFactura} — PICO Electrónica`,
+          html: `<div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;color:#0f172a">
+            <h2 style="margin:0 0 6px">¡Gracias por tu compra, ${d.name || ''}!</h2>
+            <p style="margin:0 0 14px;color:#475569">Adjuntamos la factura <b>${numFactura}</b> de tu pedido <b>${d.code}</b>.</p>
+            <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:14px">
+              ${items.map(i => `<tr>
+                <td style="padding:5px 0;border-bottom:1px solid #eee">${i.productName} × ${i.qty}</td>
+                <td style="padding:5px 0;border-bottom:1px solid #eee;text-align:right">$${i.total.toFixed(2)}</td></tr>`).join('')}
+              <tr><td style="padding:8px 0;font-weight:700">TOTAL</td>
+                  <td style="padding:8px 0;font-weight:700;text-align:right">$${total.toFixed(2)}</td></tr>
+            </table>
+            <p style="margin:0;color:#94a3b8;font-size:12px">Este es un correo automático, por favor no respondas a esta dirección.</p>
+          </div>`,
+          attachments: [{ filename: numFactura + '.pdf', content: base64, encoding: 'base64' }]
+        }
+      });
+    } catch (e) { console.warn('No se pudo generar/enviar la factura PDF al cliente:', e); }
+  }
+  return { numFactura, facturaId: facRef.id };
+}
+
 function saveCart() {
   try { localStorage.setItem('pico_cart', JSON.stringify(cart)); } catch(_) {}
 }
@@ -392,6 +599,18 @@ async function placeOrder() {
       metodoPago,
       email: currentUser?.email || null
     }).catch(e => console.warn('No se pudo encolar el correo de aviso:', e));
+
+    // Generar la factura del pedido y enviarla al cliente (PDF adjunto). No bloquea el pedido.
+    crearYEnviarFacturaPedido(docRef.id, {
+      code, name, items,
+      total: +rawTotal.toFixed(2),
+      totalConDescuento: selectedDiscount ? finalTotal : null,
+      discountName: selectedDiscount ? selectedDiscount.nombre : null,
+      discountPct:  selectedDiscount ? selectedDiscount.porcentaje : null,
+      sucursal,
+      tipoEntrega: esDomicilio ? 'domicilio' : 'pickup',
+      email: currentUser?.email || null
+    }).catch(e => console.warn('No se pudo crear/enviar la factura del pedido:', e));
 
     // Descontar el stock de la sucursal en Firebase (atómico) al crear el pedido.
     try {
