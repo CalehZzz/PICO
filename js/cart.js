@@ -78,7 +78,8 @@ function picoMonthKey(ts) {
   return d.getFullYear() + '-' + String(d.getMonth()).padStart(2, '0');
 }
 
-// Carga el logo (mismo origen) como dataURI una sola vez para incrustarlo en el PDF.
+// Carga el logo (mismo origen) como dataURI reducido (máx ~150px) una sola vez,
+// para que el PDF pese poco y el documento de correo no supere el límite de Firestore.
 let _picoLogoData = null, _picoLogoTried = false;
 function loadLogoDataURI() {
   if (_picoLogoData || _picoLogoTried) return Promise.resolve(_picoLogoData);
@@ -88,10 +89,17 @@ function loadLogoDataURI() {
       img.crossOrigin = 'anonymous';
       img.onload = () => {
         try {
+          const max = 150;
+          const ow = img.naturalWidth || max, oh = img.naturalHeight || max;
+          const scale = Math.min(1, max / Math.max(ow, oh));
+          const w = Math.max(1, Math.round(ow * scale));
+          const h = Math.max(1, Math.round(oh * scale));
           const c = document.createElement('canvas');
-          c.width = img.naturalWidth; c.height = img.naturalHeight;
-          c.getContext('2d').drawImage(img, 0, 0);
-          _picoLogoData = c.toDataURL('image/png');
+          c.width = w; c.height = h;
+          const ctx = c.getContext('2d');
+          ctx.fillStyle = '#4aa8e8'; ctx.fillRect(0, 0, w, h); // fondo (el header es azul)
+          ctx.drawImage(img, 0, 0, w, h);
+          _picoLogoData = c.toDataURL('image/jpeg', 0.82);
         } catch (_) { _picoLogoData = null; }
         _picoLogoTried = true; resolve(_picoLogoData);
       };
@@ -113,7 +121,7 @@ function buildFacturaPDF(doc, fac, logoData) {
   const vendedor = fac.seller || 'Tienda en línea';
 
   doc.setFillColor(...azul); doc.rect(0, 0, W, 42, 'F');
-  if (logoData) { try { doc.addImage(logoData, 'PNG', pad, 6, 28, 28); } catch (e) {} }
+  if (logoData) { try { doc.addImage(logoData, 'JPEG', pad, 6, 28, 28); } catch (e) {} }
   doc.setFont('helvetica','bold'); doc.setFontSize(22); doc.setTextColor(...blanco);
   doc.text('FACTURA', W - pad, 18, { align:'right' });
   doc.setFontSize(10); doc.setFont('helvetica','normal');
@@ -237,19 +245,32 @@ async function crearYEnviarFacturaPedido(orderId, d) {
     t.update(db.collection('pedidos').doc(orderId), { facturaId: facRef.id, facturaNum: numFactura });
   });
 
-  // Generar PDF y enviarlo al cliente (si hay correo y jsPDF disponible)
-  if (d.email && window.jspdf && window.jspdf.jsPDF) {
+  // Enviar la factura al cliente por correo (Trigger Email). El correo se envía
+  // SIEMPRE que haya email; el PDF se adjunta solo si se generó y no excede el
+  // límite de tamaño de documento de Firestore (~1 MiB).
+  if (d.email) {
+    let attachments = [];
     try {
-      const logoData = await loadLogoDataURI();
-      const { jsPDF } = window.jspdf;
-      const docPdf = new jsPDF({ orientation:'p', unit:'mm', format:'a4' });
-      buildFacturaPDF(docPdf, {
-        numero: seq, numFactura, sucursal: facSucursal, cliente: d.name,
-        clienteEmail: d.email, seller: 'Tienda en línea', date: fecha,
-        tipoEntrega: d.tipoEntrega, subtotal, total, items
-      }, logoData);
-      const base64 = docPdf.output('datauristring').split(',')[1];
-      await db.collection('mail').add({
+      if (window.jspdf && window.jspdf.jsPDF) {
+        const logoData = await loadLogoDataURI();
+        const { jsPDF } = window.jspdf;
+        const docPdf = new jsPDF({ orientation:'p', unit:'mm', format:'a4' });
+        buildFacturaPDF(docPdf, {
+          numero: seq, numFactura, sucursal: facSucursal, cliente: d.name,
+          clienteEmail: d.email, seller: 'Tienda en línea', date: fecha,
+          tipoEntrega: d.tipoEntrega, subtotal, total, items
+        }, logoData);
+        const base64 = docPdf.output('datauristring').split(',')[1];
+        if (base64 && base64.length < 900000) {
+          attachments = [{ filename: numFactura + '.pdf', content: base64, encoding: 'base64' }];
+        } else {
+          console.warn('Factura PDF demasiado grande para adjuntar; se envía el correo sin adjunto.');
+        }
+      }
+    } catch (e) { console.warn('No se pudo generar el PDF de la factura (se envía el correo igual):', e); }
+
+    try {
+      const mailDoc = {
         to: d.email,
         from: 'PICO Electrónica <pedidos@picosv.com>',
         replyTo: 'noreply@picosv.com',
@@ -257,7 +278,7 @@ async function crearYEnviarFacturaPedido(orderId, d) {
           subject: `🧾 Tu factura ${numFactura} — PICO Electrónica`,
           html: `<div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;color:#0f172a">
             <h2 style="margin:0 0 6px">¡Gracias por tu compra, ${d.name || ''}!</h2>
-            <p style="margin:0 0 14px;color:#475569">Adjuntamos la factura <b>${numFactura}</b> de tu pedido <b>${d.code}</b>.</p>
+            <p style="margin:0 0 14px;color:#475569">Tu factura <b>${numFactura}</b> del pedido <b>${d.code}</b>${attachments.length ? ' va adjunta en PDF.' : '.'}</p>
             <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:14px">
               ${items.map(i => `<tr>
                 <td style="padding:5px 0;border-bottom:1px solid #eee">${i.productName} × ${i.qty}</td>
@@ -266,11 +287,12 @@ async function crearYEnviarFacturaPedido(orderId, d) {
                   <td style="padding:8px 0;font-weight:700;text-align:right">$${total.toFixed(2)}</td></tr>
             </table>
             <p style="margin:0;color:#94a3b8;font-size:12px">Este es un correo automático, por favor no respondas a esta dirección.</p>
-          </div>`,
-          attachments: [{ filename: numFactura + '.pdf', content: base64, encoding: 'base64' }]
+          </div>`
         }
-      });
-    } catch (e) { console.warn('No se pudo generar/enviar la factura PDF al cliente:', e); }
+      };
+      if (attachments.length) mailDoc.message.attachments = attachments;
+      await db.collection('mail').add(mailDoc);
+    } catch (e) { console.warn('No se pudo encolar el correo de la factura al cliente:', e); }
   }
   return { numFactura, facturaId: facRef.id };
 }
