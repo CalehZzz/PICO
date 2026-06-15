@@ -222,11 +222,15 @@ async function customerCancelOrder(firestoreId, code, btn) {
     }
     const items = orderData.items || [];
     const batch = db.batch();
-    // Borrar la factura vinculada a este pedido (si existe). Operación neutra para estadísticas.
+    // Las facturas NUNCA se borran: se marcan como ANULADAS para conservar el historial contable.
     try {
       const facSnap = await db.collection('facturas').where('fromOrder', '==', firestoreId).get();
-      facSnap.forEach(d => batch.delete(d.ref));
-    } catch (e) { console.warn('No se pudo localizar la factura del pedido para borrarla:', e); }
+      facSnap.forEach(d => batch.update(d.ref, {
+        anulada: true,
+        anuladaAt: firebase.firestore.FieldValue.serverTimestamp(),
+        anuladaBy: currentUser?.uid || 'customer'
+      }));
+    } catch (e) { console.warn('No se pudo marcar la factura del pedido como anulada:', e); }
     // Marcar pedido como cancelado
     batch.update(db.collection('pedidos').doc(firestoreId), {
       status: 'cancelled',

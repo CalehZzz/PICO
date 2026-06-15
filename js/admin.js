@@ -469,11 +469,15 @@ async function adminCancelOrder(firestoreId, code) {
   if (!confirm(`¿Cancelar el pedido ${code}? Esta acción no se puede deshacer.`)) return;
   try {
     const batch = db.batch();
-    // Borrar la factura vinculada a este pedido (si existe). Neutra para estadísticas.
+    // Las facturas NUNCA se borran: se marcan como ANULADAS para conservar el historial contable.
     try {
       const facSnap = await db.collection('facturas').where('fromOrder', '==', firestoreId).get();
-      facSnap.forEach(d => batch.delete(d.ref));
-    } catch (e) { console.warn('No se pudo localizar la factura del pedido para borrarla:', e); }
+      facSnap.forEach(d => batch.update(d.ref, {
+        anulada: true,
+        anuladaAt: firebase.firestore.FieldValue.serverTimestamp(),
+        anuladaBy: 'admin'
+      }));
+    } catch (e) { console.warn('No se pudo marcar la factura del pedido como anulada:', e); }
     // Marcar pedido como cancelado
     batch.update(db.collection('pedidos').doc(firestoreId), {
       status: 'cancelled',
@@ -485,7 +489,9 @@ async function adminCancelOrder(firestoreId, code) {
     if (order) {
       const sucC = (order.sucursal === 'cdb' || order.sucursal === 'domicilio') ? 'ColegioDonBosco' : 'ColegioExsal';
       const statUpdate = { 'pedidosCancelados': firebase.firestore.FieldValue.increment(1) };
-      if (order.status === 'pending') {
+      // Un pedido 'confirmado' (domicilio con guía) sigue contando como pendiente en el
+      // acumulado (solo deja de serlo al ENTREGAR). Por eso también se descuenta aquí.
+      if (order.status === 'pending' || order.status === 'confirmado') {
         statUpdate['pedidosPendientes'] = firebase.firestore.FieldValue.increment(-1);
       }
 

@@ -116,7 +116,12 @@ async function crearYEnviarFacturaPedido(orderId, d) {
   });
   const unidades = items.reduce((s, it) => s + (it.qty || 0), 0);
   const subtotal = +(d.total).toFixed(2);
-  const total    = (typeof d.totalConDescuento === 'number') ? +d.totalConDescuento.toFixed(2) : subtotal;
+  // Total de productos (con descuento si aplica), SIN envío.
+  const totalProductos = (typeof d.totalConDescuento === 'number') ? +d.totalConDescuento.toFixed(2) : subtotal;
+  // Envío cobrado (solo domicilio): se SUMA al total de la factura, igual que lo paga el cliente.
+  const envioCosto = (d.tipoEntrega === 'domicilio' && typeof d.envioCosto === 'number') ? +d.envioCosto.toFixed(2) : 0;
+  // Total de la factura = productos (con descuento) + envío cobrado.
+  const total = +(totalProductos + envioCosto).toFixed(2);
   // El stock y las estadísticas de 'domicilio' viven en CDB → su factura va bajo CDB.
   const facSucursal = (d.sucursal === 'exsal') ? 'exsal' : 'cdb';
 
@@ -133,9 +138,10 @@ async function crearYEnviarFacturaPedido(orderId, d) {
       cliente: d.name || '', clienteEmail: d.email || '',
       seller: 'tienda-online',
       date: fecha, timestamp: ts, mes,
-      subtotal, total, unidades, items,
+      subtotal, totalProductos, envioCosto, total, unidades, items,
       tipoEntrega: d.tipoEntrega || 'pickup',
-      fromOrder: orderId, origen: 'tienda'
+      fromOrder: orderId, origen: 'tienda',
+      anulada: false   // Las facturas NUNCA se borran; al cancelar el pedido se marcan como anuladas.
     });
     t.set(metaRef, { facturaSeq: seq, updatedAt: ts }, { merge: true });
     t.update(db.collection('pedidos').doc(orderId), { facturaId: facRef.id, facturaNum: numFactura });
@@ -149,8 +155,11 @@ async function crearYEnviarFacturaPedido(orderId, d) {
         <td style="padding:7px 0;border-bottom:1px solid #eef5fb;text-align:center">${i.qty}</td>
         <td style="padding:7px 0;border-bottom:1px solid #eef5fb;text-align:right">$${i.total.toFixed(2)}</td>
       </tr>`).join('');
-    const descRow = subtotal !== total
-      ? `<p style="margin:10px 0 0;text-align:right;color:#4a89b0;font-size:13px">Subtotal: $${subtotal.toFixed(2)} &middot; Descuento: -$${(subtotal-total).toFixed(2)}</p>`
+    const descRow = subtotal !== totalProductos
+      ? `<p style="margin:10px 0 0;text-align:right;color:#4a89b0;font-size:13px">Subtotal: $${subtotal.toFixed(2)} &middot; Descuento: -$${(subtotal-totalProductos).toFixed(2)}</p>`
+      : '';
+    const envioRowMail = envioCosto
+      ? `<p style="margin:6px 0 0;text-align:right;color:#4a89b0;font-size:13px">🚚 Envío a domicilio: $${envioCosto.toFixed(2)}</p>`
       : '';
     try {
       await db.collection('mail').add({
@@ -176,6 +185,7 @@ async function crearYEnviarFacturaPedido(orderId, d) {
       <tbody>${filas}</tbody>
     </table>
     ${descRow}
+    ${envioRowMail}
     <p style="margin:8px 0 0;text-align:right;font-size:17px;font-weight:700">TOTAL: $${total.toFixed(2)}</p>
     <p style="margin:18px 0 0;color:#94a3b8;font-size:12px">Este es un correo automático, por favor no respondas a esta dirección.</p>
   </div>
@@ -584,6 +594,7 @@ async function placeOrder() {
       discountPct:  selectedDiscount ? selectedDiscount.porcentaje : null,
       sucursal,
       tipoEntrega: esDomicilio ? 'domicilio' : 'pickup',
+      envioCosto: esDomicilio ? SHIPPING_COST : 0,
       email: currentUser?.email || null
     }).catch(e => console.warn('No se pudo crear/enviar la factura del pedido:', e));
 
