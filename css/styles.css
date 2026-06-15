@@ -457,3 +457,9 @@ tr:hover td{background:var(--b50)}
 @media(max-width:720px){
   .foot-inner{grid-template-columns:1fr;gap:24px}
 }
+
+/* ─── Mensaje de redirección a Stripe (modal de pago) ─── */
+.stripe-redirect{display:flex;align-items:center;gap:11px;background:var(--b50);
+  border:1px solid var(--b100);border-radius:11px;padding:13px 15px;margin-top:4px}
+.stripe-redirect-ico{font-size:1.4rem;line-height:1;flex-shrink:0}
+.stripe-redirect .pay-note{margin:0;font-size:.85rem;color:var(--g600);line-height:1.45}

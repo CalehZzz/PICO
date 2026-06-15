@@ -502,12 +502,33 @@ async function placeOrder() {
   // Capturamos el % de descuento ANTES de resetear selectedDiscount (se usa más abajo en Stripe).
   const stripeDiscPct = selectedDiscount ? selectedDiscount.porcentaje : 0;
 
-  // Pago con tarjeta a domicilio: el stock NO se descuenta al crear el pedido.
-  // Se descuenta del lado del servidor (Cloud Function) SOLO cuando Stripe confirma el pago.
-  const deferStock = esDomicilio && metodoPago === 'tarjeta';
-
   try {
     const stockField = (sucursal === 'cdb' || sucursal === 'domicilio') ? 'stockCdb' : 'stockExsal';
+
+    // ── Verificar que haya stock suficiente y descontarlo de forma ATÓMICA, justo antes de crear el pedido ──
+    // (aplica a TODO tipo de pedido: tarjeta, efectivo, sucursal o domicilio). Si no alcanza, no se crea el pedido.
+    await db.runTransaction(async (tx) => {
+      const ids = Object.keys(cart);
+      const snaps = await Promise.all(ids.map(id => tx.get(db.collection('productos').doc(id))));
+      // 1) Validar disponibilidad de cada producto
+      for (let k = 0; k < ids.length; k++) {
+        const snap = snaps[k];
+        const need = cart[ids[k]] || 0;
+        const data = snap.exists ? snap.data() : null;
+        const have = data && typeof data[stockField] === 'number' ? data[stockField] : 0;
+        if (!snap.exists || have < need) {
+          const nombre = (data && data.name) ? data.name : 'un producto';
+          throw new Error('STOCK_INSUFICIENTE:: No hay stock suficiente de "' + nombre + '" (disponible: ' + have + ', solicitado: ' + need + ')');
+        }
+      }
+      // 2) Descontar el stock
+      for (let k = 0; k < ids.length; k++) {
+        tx.update(db.collection('productos').doc(ids[k]), {
+          [stockField]: firebase.firestore.FieldValue.increment(-(cart[ids[k]] || 0)),
+          updatedAt: Date.now()   // marca el producto como cambiado para el caché incremental
+        });
+      }
+    });
 
     const docRef = await db.collection('pedidos').add({
       code, name, grade, section, items,
@@ -521,15 +542,17 @@ async function placeOrder() {
       envio:       envio,        // {nombre, telefono, telefono2, departamento, municipio, direccion, referencia, indicaciones} o null
       // Costo de envío y total que paga el cliente (NO afectan stats: 'total' sigue siendo solo productos)
       envioCosto:    esDomicilio ? SHIPPING_COST : 0,
-      costoEnvioReal: null,      // lo ingresa el admin al confirmar (costo real del courier)
+      costoEnvioReal: null,      // lo ingresa el admin al confirmar (costo real del courier) — SOLO admin
       totalConEnvio: +(((selectedDiscount ? finalTotal : +rawTotal.toFixed(2))) + (esDomicilio ? SHIPPING_COST : 0)).toFixed(2),
       metodoPago:  metodoPago,   // 'tarjeta' | 'efectivo' | null
       paymentStatus: esDomicilio ? (metodoPago === 'tarjeta' ? 'pending' : 'efectivo') : null,
+      comisionStripe: null,      // la calcula el servidor al confirmar el pago (solo tarjeta) — SOLO admin
+      statsRecorded: false,      // estadísticas de venta registradas (tarjeta: al pagar / efectivo: al entregar)
       trackingId:  null,         // lo asigna el admin; al asignarlo el pedido pasa a 'confirmado'
       confirmedAt: null,
       status:      'pending',
-      // Con tarjeta el stock se descuenta vía webhook al confirmarse el pago.
-      stockDeducted: deferStock ? false : true,
+      // El stock se descuenta SIEMPRE al crear el pedido (transacción de arriba).
+      stockDeducted: true,
       createdAt:   firebase.firestore.FieldValue.serverTimestamp(),
       deliveredAt: null,
       userId:      currentUser?.uid   || null,
@@ -564,23 +587,7 @@ async function placeOrder() {
       email: currentUser?.email || null
     }).catch(e => console.warn('No se pudo crear/enviar la factura del pedido:', e));
 
-    // Descontar el stock de la sucursal en Firebase (atómico) al crear el pedido.
-    // EXCEPCIÓN: pago con tarjeta a domicilio → el stock se descuenta vía webhook
-    // (Cloud Function) cuando Stripe confirma el pago, para no reservar stock de pagos que no se completen.
-    if (!deferStock) {
-      try {
-        const stockBatch = db.batch();
-        for (const id of Object.keys(cart)) {
-          stockBatch.update(db.collection('productos').doc(id), {
-            [stockField]: firebase.firestore.FieldValue.increment(-(cart[id] || 0)),
-            updatedAt: Date.now()   // marca el producto como cambiado para el caché incremental
-          });
-        }
-        await stockBatch.commit();
-        // El caché eterno se mantiene; la próxima carga releerá solo estos productos
-        // gracias al sello updatedAt. (Ya no se borra todo el caché.)
-      } catch (e) { console.warn('No se pudo descontar stock al crear el pedido:', e); }
-    }
+    // El stock ya se verificó y descontó en la transacción de arriba (antes de crear el pedido).
 
     // Incrementar contador de pedidos pendientes en estadísticas (tiempo real, NO se resetea por mes)
     try {
@@ -590,11 +597,9 @@ async function placeOrder() {
       }, { merge: true });
     } catch (e) { console.warn('No se pudo incrementar pedidosPendientes:', e); }
 
-    // Reflejar el descuento en el stockMap local (salvo pago con tarjeta diferido al webhook)
-    if (!deferStock) {
-      for (const id of Object.keys(cart)) {
-        stockMap[id] = Math.max(0, (stockMap[id] || 0) - (cart[id] || 0));
-      }
+    // Reflejar el descuento en el stockMap local
+    for (const id of Object.keys(cart)) {
+      stockMap[id] = Math.max(0, (stockMap[id] || 0) - (cart[id] || 0));
     }
 
     cart = {};
@@ -647,7 +652,12 @@ async function placeOrder() {
       openModal('successModal');
     }
   } catch (err) {
-    showToast('❌ Error al guardar el pedido: ' + err.message);
+    const msg = (err && err.message) ? err.message : String(err);
+    if (msg.indexOf('STOCK_INSUFICIENTE::') === 0) {
+      showToast('⚠️ ' + msg.replace('STOCK_INSUFICIENTE:: ', ''));
+    } else {
+      showToast('❌ Error al guardar el pedido: ' + msg);
+    }
     console.error('placeOrder:', err);
   } finally {
     btn.disabled    = false;
@@ -722,8 +732,16 @@ function startStripeCheckout(orderId, d) {
           reject(new Error(data.error.message || 'Error al crear la sesión de pago'));
         } else if (data.url) {
           settled = true; unsub();
-          window.location.assign(data.url); // → Stripe Checkout (test mode)
-          resolve();
+          // Guardamos el sessionId de Stripe en el pedido: la Cloud Function lo usa para
+          // VERIFICAR el pago con Stripe al regresar del checkout y recién ahí registrar estadísticas.
+          const sid = data.sessionId || data.id || null;
+          db.collection('pedidos').doc(orderId)
+            .update({ stripeSessionId: sid })
+            .catch(e => console.warn('No se pudo guardar stripeSessionId:', e))
+            .finally(() => {
+              window.location.assign(data.url); // → Stripe Checkout (test mode)
+              resolve();
+            });
         }
       }, err => { if (!settled) { settled = true; reject(err); } });
 

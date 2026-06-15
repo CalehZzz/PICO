@@ -236,9 +236,14 @@ async function revertDelivery(firestoreId, data) {
   // mientras el pedido exista (solo se devuelve al cancelar). Aquí solo se revierten
   // los registros de "ventas" y las estadísticas de la entrega.
 
-  // 1) Borrar los registros de "ventas" creados para este pedido (siempre)
-  const ventasSnap = await db.collection('ventas').where('fromOrder', '==', firestoreId).get();
-  ventasSnap.forEach(doc => batch.delete(doc.ref));
+  // En tarjeta, la venta se registró al PAGAR (no al entregar): no se revierte aquí.
+  const statsAtPayment = data.metodoPago === 'tarjeta' && data.statsRecorded === true;
+
+  // 1) Borrar los registros de "ventas" solo si se crearon al ENTREGAR (efectivo)
+  if (!statsAtPayment) {
+    const ventasSnap = await db.collection('ventas').where('fromOrder', '==', firestoreId).get();
+    ventasSnap.forEach(doc => batch.delete(doc.ref));
+  }
 
   // 2) Revertir estadísticas SOLO si la entrega fue de este mes
   const statUpdate = {
@@ -246,11 +251,8 @@ async function revertDelivery(firestoreId, data) {
   };
   if (revertStats) {
     statUpdate['pedidosEntregados'] = firebase.firestore.FieldValue.increment(-1);
-    statUpdate['ventas']            = firebase.firestore.FieldValue.increment(-totalVentasEfectivo);
-    statUpdate['unidades vendidas'] = firebase.firestore.FieldValue.increment(-totalUnidades);
-    statUpdate['numero de ventas']  = firebase.firestore.FieldValue.increment(-1);
 
-    // Revertir también el margen de envío que se integró al entregar (mismo cálculo que en changeStatus)
+    // Margen de envío (se aplicó al entregar para ambos tipos de pago)
     const esDom = data.tipoEntrega === 'domicilio';
     const envioCobrado = esDom ? (typeof data.envioCosto === 'number' ? data.envioCosto : 0) : 0;
     const envioReal    = esDom ? (typeof data.costoEnvioReal === 'number' ? data.costoEnvioReal : 0) : 0;
@@ -258,8 +260,19 @@ async function revertDelivery(firestoreId, data) {
     const extraCostoEnvio = diffEnvio > 0 ? diffEnvio : 0;
     const gananciaEnvio   = diffEnvio < 0 ? -diffEnvio : 0;
 
-    statUpdate['ingresosPedidos']   = firebase.firestore.FieldValue.increment(-(+(totalEfectivo + gananciaEnvio).toFixed(2)));
-    statUpdate['costosPedidos']     = firebase.firestore.FieldValue.increment(-(+(costTotal + extraCostoEnvio).toFixed(2)));
+    // Productos: solo se revierten si se contabilizaron al ENTREGAR (efectivo).
+    // En tarjeta quedan registrados (el pago sigue siendo válido).
+    const revProdIngreso = statsAtPayment ? 0 : totalEfectivo;
+    const revProdCosto   = statsAtPayment ? 0 : costTotal;
+
+    statUpdate['ingresosPedidos'] = firebase.firestore.FieldValue.increment(-(+((revProdIngreso + gananciaEnvio)).toFixed(2)));
+    statUpdate['costosPedidos']   = firebase.firestore.FieldValue.increment(-(+((revProdCosto + extraCostoEnvio)).toFixed(2)));
+
+    if (!statsAtPayment) {
+      statUpdate['ventas']            = firebase.firestore.FieldValue.increment(-totalVentasEfectivo);
+      statUpdate['unidades vendidas'] = firebase.firestore.FieldValue.increment(-totalUnidades);
+      statUpdate['numero de ventas']  = firebase.firestore.FieldValue.increment(-1);
+    }
     if (esDom) {
       statUpdate['ingresosEnvio'] = firebase.firestore.FieldValue.increment(-(+envioCobrado.toFixed(2)));
       statUpdate['costosEnvio']   = firebase.firestore.FieldValue.increment(-(+envioReal.toFixed(2)));
@@ -363,9 +376,12 @@ async function changeStatus(firestoreId, val) {
           });
         }
 
+        // ¿Las estadísticas de venta ya se registraron al confirmar el pago con tarjeta?
+        const alreadyCounted = freshData.statsRecorded === true;
+
         // Un solo documento de venta con todos los productos del pedido (lógica nueva).
-        // Vinculado a su factura (creada al hacer el pedido) y al pedido de origen.
-        stockBatch.set(db.collection('ventas').doc(), {
+        // Solo se crea si NO se creó ya al pagar (tarjeta). Vinculado a su factura y al pedido.
+        if (!alreadyCounted) stockBatch.set(db.collection('ventas').doc(), {
           orderNumber: 'PED-' + Date.now().toString().slice(-6) + '-' + Math.random().toString(36).slice(-3),
           items: ventaItems,
           qty: totalUnidades,
@@ -409,17 +425,19 @@ async function changeStatus(firestoreId, val) {
 
         // ✅ Actualizar estadisticas acumuladas (igual que en inventario al registrar venta directa)
         const statDocId = (sucursal === 'cdb' || sucursal === 'domicilio') ? 'ColegioDonBosco' : 'ColegioExsal';
+        // Si la venta ya se contabilizó al pagar (tarjeta), aquí solo movemos contadores
+        // y aplicamos el margen de envío; NO se vuelven a sumar productos.
         const statPayload = {
-          'ventas':            firebase.firestore.FieldValue.increment(totalVentasEfectivo),
-          'unidades vendidas': firebase.firestore.FieldValue.increment(totalUnidades),
-          'numero de ventas':  firebase.firestore.FieldValue.increment(1),
-          // Contadores de pedidos (mensuales salvo pedidosPendientes)
           'pedidosEntregados': firebase.firestore.FieldValue.increment(1),
-          // El margen de envío se integra directo en ingresos/costos del pedido
-          'ingresosPedidos':   firebase.firestore.FieldValue.increment(+(totalEfectivo + gananciaEnvio).toFixed(2)),
-          'costosPedidos':     firebase.firestore.FieldValue.increment(+(costTotal + extraCostoEnvio).toFixed(2)),
-          'pedidosPendientes': firebase.firestore.FieldValue.increment(-1)
+          'pedidosPendientes': firebase.firestore.FieldValue.increment(-1),
+          'ingresosPedidos':   firebase.firestore.FieldValue.increment(+(((alreadyCounted ? 0 : totalEfectivo)) + gananciaEnvio).toFixed(2)),
+          'costosPedidos':     firebase.firestore.FieldValue.increment(+(((alreadyCounted ? 0 : costTotal)) + extraCostoEnvio).toFixed(2))
         };
+        if (!alreadyCounted) {
+          statPayload['ventas']            = firebase.firestore.FieldValue.increment(totalVentasEfectivo);
+          statPayload['unidades vendidas'] = firebase.firestore.FieldValue.increment(totalUnidades);
+          statPayload['numero de ventas']  = firebase.firestore.FieldValue.increment(1);
+        }
         // Campos dedicados de envío (transparencia, no afectan el cálculo de ganancia de productos)
         if (esDom) {
           statPayload['ingresosEnvio'] = firebase.firestore.FieldValue.increment(+envioCobrado.toFixed(2));
@@ -470,6 +488,39 @@ async function adminCancelOrder(firestoreId, code) {
       if (order.status === 'pending') {
         statUpdate['pedidosPendientes'] = firebase.firestore.FieldValue.increment(-1);
       }
+
+      // Si la venta ya se registró al pagar (tarjeta), revertir productos + comisión Stripe + borrar la venta.
+      // (Un pedido entregado no se puede cancelar directo; primero se vuelve a pendiente, así que aquí
+      //  el margen de envío todavía no está aplicado.)
+      if (order.statsRecorded === true && order.items) {
+        const discFactor = order.discountPct ? ((100 - order.discountPct) / 100) : 1;
+        let totalUnidades = 0, productCost = 0, priceTotal = 0, totalVentasEfectivo = 0;
+        for (const item of order.items) {
+          const qty = item.qty || 1;
+          const unitCost  = typeof item.cost  === 'number' ? item.cost  : 0;
+          const unitPrice = typeof item.price === 'number' ? item.price : 0;
+          productCost += unitCost * qty;
+          priceTotal  += unitPrice * qty;
+          totalUnidades += qty;
+          totalVentasEfectivo += +(unitPrice * qty * discFactor).toFixed(2);
+        }
+        const totalEfectivo = typeof order.totalConDescuento === 'number'
+          ? order.totalConDescuento : +(priceTotal * discFactor).toFixed(2);
+        const comision = typeof order.comisionStripe === 'number' ? order.comisionStripe : 0;
+
+        statUpdate['ventas']            = firebase.firestore.FieldValue.increment(-totalVentasEfectivo);
+        statUpdate['unidades vendidas'] = firebase.firestore.FieldValue.increment(-totalUnidades);
+        statUpdate['numero de ventas']  = firebase.firestore.FieldValue.increment(-1);
+        statUpdate['ingresosPedidos']   = firebase.firestore.FieldValue.increment(-(+totalEfectivo.toFixed(2)));
+        statUpdate['costosPedidos']     = firebase.firestore.FieldValue.increment(-(+(productCost + comision).toFixed(2)));
+        statUpdate['comisionesStripe']  = firebase.firestore.FieldValue.increment(-comision);
+
+        try {
+          const ventasSnap = await db.collection('ventas').where('fromOrder', '==', firestoreId).get();
+          ventasSnap.forEach(d => batch.delete(d.ref));
+        } catch (e) { console.warn('No se pudieron borrar las ventas del pedido al cancelar:', e); }
+      }
+
       batch.set(db.collection('estadisticas').doc(sucC), statUpdate, { merge: true });
     }
     // Restaurar stock en Firebase (atómico) si el pedido tenía stock descontado.
@@ -636,8 +687,8 @@ function showOrderDetail(firestoreId) {
         accionBlock = `
         <div class="odetail-track-box">
           <div class="odetail-track-label">⏳ Esperando confirmación de pago</div>
-          <p class="odetail-track-hint">Este pedido se paga con tarjeta. Cuando Stripe confirme el pago (webhook),
-          se descontará el stock y podrás asignar el ID de rastreo.</p>
+          <p class="odetail-track-hint">Este pedido se paga con tarjeta. Cuando Stripe confirme el pago,
+          podrás ingresar el costo del envío y asignar el ID de rastreo.</p>
         </div>`;
       } else {
         accionBlock = `
@@ -701,6 +752,13 @@ function showOrderDetail(firestoreId) {
        </div>`
     : '';
 
+  const comisionRow = (typeof o.comisionStripe === 'number' && o.comisionStripe > 0)
+    ? `<div class="odetail-subtotal" style="color:var(--g400)">
+         <span>💳 Comisión Stripe (2.9% + $0.30) · solo admin</span>
+         <span>-$${o.comisionStripe.toFixed(2)}</span>
+       </div>`
+    : '';
+
   document.getElementById('orderDetailBody').innerHTML = `
     <div style="font-size:.78rem;color:var(--g400);margin-bottom:10px">
       <b style="color:var(--g700)">${o.name}</b>${isDomicilio ? '' : ` · ${o.grade} – ${o.section}`}<br>
@@ -712,7 +770,8 @@ function showOrderDetail(firestoreId) {
       <span>Subtotal productos</span>
       <span>$${subtotalProductos.toFixed(2)}</span>
     </div>
-    ${envioRow}`;
+    ${envioRow}
+    ${comisionRow}`;
   openModal('orderDetailModal');
 }
 
