@@ -492,12 +492,19 @@ async function placeOrder() {
   const code  = genCode();
   const items = Object.keys(cart).map(id => {
     const p = products.find(x => x.id === id);
-    return { id, name: p.name, qty: cart[id], price: p.price, cost: p.cost };
+    return { id, name: p.name, qty: cart[id], price: p.price, cost: p.cost, stripePriceId: p.stripePriceId || null };
   });
   const rawTotal   = items.reduce((s, i) => s + i.qty * i.price, 0);
   const finalTotal = selectedDiscount
     ? +(rawTotal * (1 - selectedDiscount.porcentaje / 100)).toFixed(2)
     : +rawTotal.toFixed(2);
+
+  // Capturamos el % de descuento ANTES de resetear selectedDiscount (se usa más abajo en Stripe).
+  const stripeDiscPct = selectedDiscount ? selectedDiscount.porcentaje : 0;
+
+  // Pago con tarjeta a domicilio: el stock NO se descuenta al crear el pedido.
+  // Se descuenta del lado del servidor (Cloud Function) SOLO cuando Stripe confirma el pago.
+  const deferStock = esDomicilio && metodoPago === 'tarjeta';
 
   try {
     const stockField = (sucursal === 'cdb' || sucursal === 'domicilio') ? 'stockCdb' : 'stockExsal';
@@ -514,13 +521,15 @@ async function placeOrder() {
       envio:       envio,        // {nombre, telefono, telefono2, departamento, municipio, direccion, referencia, indicaciones} o null
       // Costo de envío y total que paga el cliente (NO afectan stats: 'total' sigue siendo solo productos)
       envioCosto:    esDomicilio ? SHIPPING_COST : 0,
+      costoEnvioReal: null,      // lo ingresa el admin al confirmar (costo real del courier)
       totalConEnvio: +(((selectedDiscount ? finalTotal : +rawTotal.toFixed(2))) + (esDomicilio ? SHIPPING_COST : 0)).toFixed(2),
       metodoPago:  metodoPago,   // 'tarjeta' | 'efectivo' | null
       paymentStatus: esDomicilio ? (metodoPago === 'tarjeta' ? 'pending' : 'efectivo') : null,
       trackingId:  null,         // lo asigna el admin; al asignarlo el pedido pasa a 'confirmado'
       confirmedAt: null,
       status:      'pending',
-      stockDeducted: true,
+      // Con tarjeta el stock se descuenta vía webhook al confirmarse el pago.
+      stockDeducted: deferStock ? false : true,
       createdAt:   firebase.firestore.FieldValue.serverTimestamp(),
       deliveredAt: null,
       userId:      currentUser?.uid   || null,
@@ -556,18 +565,22 @@ async function placeOrder() {
     }).catch(e => console.warn('No se pudo crear/enviar la factura del pedido:', e));
 
     // Descontar el stock de la sucursal en Firebase (atómico) al crear el pedido.
-    try {
-      const stockBatch = db.batch();
-      for (const id of Object.keys(cart)) {
-        stockBatch.update(db.collection('productos').doc(id), {
-          [stockField]: firebase.firestore.FieldValue.increment(-(cart[id] || 0)),
-          updatedAt: Date.now()   // marca el producto como cambiado para el caché incremental
-        });
-      }
-      await stockBatch.commit();
-      // El caché eterno se mantiene; la próxima carga releerá solo estos productos
-      // gracias al sello updatedAt. (Ya no se borra todo el caché.)
-    } catch (e) { console.warn('No se pudo descontar stock al crear el pedido:', e); }
+    // EXCEPCIÓN: pago con tarjeta a domicilio → el stock se descuenta vía webhook
+    // (Cloud Function) cuando Stripe confirma el pago, para no reservar stock de pagos que no se completen.
+    if (!deferStock) {
+      try {
+        const stockBatch = db.batch();
+        for (const id of Object.keys(cart)) {
+          stockBatch.update(db.collection('productos').doc(id), {
+            [stockField]: firebase.firestore.FieldValue.increment(-(cart[id] || 0)),
+            updatedAt: Date.now()   // marca el producto como cambiado para el caché incremental
+          });
+        }
+        await stockBatch.commit();
+        // El caché eterno se mantiene; la próxima carga releerá solo estos productos
+        // gracias al sello updatedAt. (Ya no se borra todo el caché.)
+      } catch (e) { console.warn('No se pudo descontar stock al crear el pedido:', e); }
+    }
 
     // Incrementar contador de pedidos pendientes en estadísticas (tiempo real, NO se resetea por mes)
     try {
@@ -577,9 +590,11 @@ async function placeOrder() {
       }, { merge: true });
     } catch (e) { console.warn('No se pudo incrementar pedidosPendientes:', e); }
 
-    // Reflejar el descuento en el stockMap local
-    for (const id of Object.keys(cart)) {
-      stockMap[id] = Math.max(0, (stockMap[id] || 0) - (cart[id] || 0));
+    // Reflejar el descuento en el stockMap local (salvo pago con tarjeta diferido al webhook)
+    if (!deferStock) {
+      for (const id of Object.keys(cart)) {
+        stockMap[id] = Math.max(0, (stockMap[id] || 0) - (cart[id] || 0));
+      }
     }
 
     cart = {};
@@ -619,7 +634,8 @@ async function placeOrder() {
         await startStripeCheckout(docRef.id, {
           code,
           items,
-          envioCosto: SHIPPING_COST
+          envioCosto: SHIPPING_COST,
+          discountPct: stripeDiscPct
         });
         return; // la página se redirige a Stripe; el pedido ya quedó pendiente
       } catch (e) {
@@ -650,15 +666,28 @@ function startStripeCheckout(orderId, d) {
   return new Promise(async (resolve, reject) => {
     if (!currentUser || !currentUser.uid) { reject(new Error('No hay sesión activa')); return; }
     try {
-      const line_items = (d.items || []).map(i => ({
-        quantity: i.qty,
-        price_data: {
-          currency: 'usd',
-          unit_amount: Math.round((i.price || 0) * 100), // en centavos
-          product_data: { name: i.name }
+      const discPct = d.discountPct || 0;
+      const discFactor = discPct ? (1 - discPct / 100) : 1;
+
+      // Construcción de line_items:
+      //  • Sin descuento y con producto migrado a Stripe → usamos su precio fijo (price: stripePriceId).
+      //  • Con descuento (o producto sin migrar) → usamos price_data con el monto exacto que se cobra,
+      //    así el cargo de Stripe coincide siempre con totalConEnvio.
+      const line_items = (d.items || []).map(i => {
+        if (!discPct && i.stripePriceId) {
+          return { quantity: i.qty, price: i.stripePriceId };
         }
-      }));
-      // Línea aparte para el costo de envío
+        const unit = Math.round((i.price || 0) * discFactor * 100); // centavos, con descuento si aplica
+        return {
+          quantity: i.qty,
+          price_data: {
+            currency: 'usd',
+            unit_amount: unit,
+            product_data: { name: i.name }
+          }
+        };
+      });
+      // Línea aparte para el costo de envío (siempre dinámica)
       if (d.envioCosto) {
         line_items.push({
           quantity: 1,
@@ -678,7 +707,10 @@ function startStripeCheckout(orderId, d) {
           line_items,
           success_url: base + '/?pago=ok&order='     + orderId,
           cancel_url:  base + '/?pago=cancel&order='  + orderId,
-          metadata: { orderId: orderId, code: d.code || '' }
+          // metadata en la sesión y en el PaymentIntent: así el webhook (Cloud Function)
+          // recibe el orderId en customers/{uid}/payments/{id}.metadata.orderId y descuenta stock.
+          metadata: { orderId: orderId, code: d.code || '' },
+          payment_intent_data: { metadata: { orderId: orderId, code: d.code || '' } }
         });
 
       // La extensión rellena 'url' (o 'error') de forma asíncrona.

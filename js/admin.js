@@ -249,8 +249,21 @@ async function revertDelivery(firestoreId, data) {
     statUpdate['ventas']            = firebase.firestore.FieldValue.increment(-totalVentasEfectivo);
     statUpdate['unidades vendidas'] = firebase.firestore.FieldValue.increment(-totalUnidades);
     statUpdate['numero de ventas']  = firebase.firestore.FieldValue.increment(-1);
-    statUpdate['ingresosPedidos']   = firebase.firestore.FieldValue.increment(-(+totalEfectivo.toFixed(2)));
-    statUpdate['costosPedidos']     = firebase.firestore.FieldValue.increment(-(+costTotal.toFixed(2)));
+
+    // Revertir también el margen de envío que se integró al entregar (mismo cálculo que en changeStatus)
+    const esDom = data.tipoEntrega === 'domicilio';
+    const envioCobrado = esDom ? (typeof data.envioCosto === 'number' ? data.envioCosto : 0) : 0;
+    const envioReal    = esDom ? (typeof data.costoEnvioReal === 'number' ? data.costoEnvioReal : 0) : 0;
+    const diffEnvio    = +(envioReal - envioCobrado).toFixed(2);
+    const extraCostoEnvio = diffEnvio > 0 ? diffEnvio : 0;
+    const gananciaEnvio   = diffEnvio < 0 ? -diffEnvio : 0;
+
+    statUpdate['ingresosPedidos']   = firebase.firestore.FieldValue.increment(-(+(totalEfectivo + gananciaEnvio).toFixed(2)));
+    statUpdate['costosPedidos']     = firebase.firestore.FieldValue.increment(-(+(costTotal + extraCostoEnvio).toFixed(2)));
+    if (esDom) {
+      statUpdate['ingresosEnvio'] = firebase.firestore.FieldValue.increment(-(+envioCobrado.toFixed(2)));
+      statUpdate['costosEnvio']   = firebase.firestore.FieldValue.increment(-(+envioReal.toFixed(2)));
+    }
   }
   batch.set(db.collection('estadisticas').doc(statDocId), statUpdate, { merge: true });
 
@@ -374,27 +387,45 @@ async function changeStatus(firestoreId, val) {
           ? freshData.totalConDescuento
           : +(priceTotal * discFactor).toFixed(2);
 
+        // ── Margen de envío (solo domicilio): el cliente pagó envioCosto; el envío real costó costoEnvioReal.
+        //    Si el real es mayor → el exceso se carga a costos. Si es menor → la diferencia se suma a la ganancia. ──
+        const esDom = freshData.tipoEntrega === 'domicilio';
+        const envioCobrado = esDom ? (typeof freshData.envioCosto === 'number' ? freshData.envioCosto : 0) : 0;
+        const envioReal    = esDom ? (typeof freshData.costoEnvioReal === 'number' ? freshData.costoEnvioReal : 0) : 0;
+        const diffEnvio    = +(envioReal - envioCobrado).toFixed(2);   // real - cobrado
+        const extraCostoEnvio   = diffEnvio > 0 ? diffEnvio : 0;        // exceso → costos
+        const gananciaEnvio     = diffEnvio < 0 ? -diffEnvio : 0;       // ahorro → ganancia
+
+        // Guardar el margen calculado en el pedido (trazabilidad)
         stockBatch.update(db.collection('pedidos').doc(firestoreId), {
           status: 'delivered',
           stockDeducted: true,
           saleRecorded: true,
           costTotal: +costTotal.toFixed(2),
           totalConDescuento: +totalEfectivo.toFixed(2),
+          margenEnvio: esDom ? +(-diffEnvio).toFixed(2) : 0,   // positivo = ganamos en el envío
           deliveredAt: firebase.firestore.FieldValue.serverTimestamp()
         });
 
         // ✅ Actualizar estadisticas acumuladas (igual que en inventario al registrar venta directa)
         const statDocId = (sucursal === 'cdb' || sucursal === 'domicilio') ? 'ColegioDonBosco' : 'ColegioExsal';
-        stockBatch.set(db.collection('estadisticas').doc(statDocId), {
+        const statPayload = {
           'ventas':            firebase.firestore.FieldValue.increment(totalVentasEfectivo),
           'unidades vendidas': firebase.firestore.FieldValue.increment(totalUnidades),
           'numero de ventas':  firebase.firestore.FieldValue.increment(1),
           // Contadores de pedidos (mensuales salvo pedidosPendientes)
           'pedidosEntregados': firebase.firestore.FieldValue.increment(1),
-          'ingresosPedidos':   firebase.firestore.FieldValue.increment(+totalEfectivo.toFixed(2)),
-          'costosPedidos':     firebase.firestore.FieldValue.increment(+costTotal.toFixed(2)),
+          // El margen de envío se integra directo en ingresos/costos del pedido
+          'ingresosPedidos':   firebase.firestore.FieldValue.increment(+(totalEfectivo + gananciaEnvio).toFixed(2)),
+          'costosPedidos':     firebase.firestore.FieldValue.increment(+(costTotal + extraCostoEnvio).toFixed(2)),
           'pedidosPendientes': firebase.firestore.FieldValue.increment(-1)
-        }, { merge: true });
+        };
+        // Campos dedicados de envío (transparencia, no afectan el cálculo de ganancia de productos)
+        if (esDom) {
+          statPayload['ingresosEnvio'] = firebase.firestore.FieldValue.increment(+envioCobrado.toFixed(2));
+          statPayload['costosEnvio']   = firebase.firestore.FieldValue.increment(+envioReal.toFixed(2));
+        }
+        stockBatch.set(db.collection('estadisticas').doc(statDocId), statPayload, { merge: true });
 
         await stockBatch.commit();
         renderProducts();
@@ -516,23 +547,39 @@ function copyFieldRow(label, value) {
     </div>`;
 }
 
-// Asignar ID de rastreo → el pedido pasa a 'confirmado' y el cliente puede verlo
+// Asignar ID de rastreo + costo real del envío → el pedido pasa a 'confirmado'
 async function setTrackingId(firestoreId) {
   const input = document.getElementById('trackingInput');
+  const envioInput = document.getElementById('envioRealInput');
   const tid = (input?.value || '').trim();
   if (!tid) { showToast('⚠️ Ingresa un ID de rastreo'); return; }
-  if (!confirm(`¿Confirmar el pedido con el ID de rastreo "${tid}"? El cliente podrá verlo.`)) return;
+
+  const rawEnvio = (envioInput?.value || '').trim();
+  if (rawEnvio === '') { showToast('⚠️ Ingresa el costo real del envío'); return; }
+  const costoEnvioReal = parseFloat(rawEnvio);
+  if (isNaN(costoEnvioReal) || costoEnvioReal < 0) { showToast('⚠️ Costo de envío inválido'); return; }
+
+  const o = findLoadedOrder(firestoreId);
+  const cobrado = (o && typeof o.envioCosto === 'number') ? o.envioCosto : 0;
+  const diff = +(costoEnvioReal - cobrado).toFixed(2);
+  const aviso = diff > 0
+    ? `El envío costó $${diff.toFixed(2)} más de lo cobrado → se cargará a costos.`
+    : diff < 0
+    ? `El envío costó $${(-diff).toFixed(2)} menos de lo cobrado → se sumará a la ganancia.`
+    : 'El costo del envío coincide con lo cobrado.';
+  if (!confirm(`¿Confirmar el pedido?\n\nID de rastreo: ${tid}\nCosto real del envío: $${costoEnvioReal.toFixed(2)}\n${aviso}\n\nEl cliente podrá ver el ID de rastreo.`)) return;
+
   try {
     await db.collection('pedidos').doc(firestoreId).update({
       trackingId: tid,
+      costoEnvioReal: +costoEnvioReal.toFixed(2),
       status: 'confirmado',
       confirmedAt: firebase.firestore.FieldValue.serverTimestamp()
     });
-    const o = findLoadedOrder(firestoreId);
-    if (o) { o.trackingId = tid; o.status = 'confirmado'; }
+    if (o) { o.trackingId = tid; o.costoEnvioReal = +costoEnvioReal.toFixed(2); o.status = 'confirmado'; }
     closeModal('orderDetailModal');
     refreshAdminAfterChange();
-    showToast('📦 Pedido confirmado — ID de rastreo asignado');
+    showToast('📦 Pedido confirmado — ID de rastreo y costo de envío guardados');
   } catch (err) {
     showToast('❌ Error: ' + err.message);
   }
@@ -583,16 +630,38 @@ function showOrderDetail(firestoreId) {
     // Acción según el estado del pedido
     let accionBlock = '';
     if (o.status === 'pending') {
-      accionBlock = `
+      // Con tarjeta, solo se puede confirmar/enviar una vez Stripe confirmó el pago.
+      const esperaPago = o.metodoPago === 'tarjeta' && o.paymentStatus !== 'paid';
+      if (esperaPago) {
+        accionBlock = `
         <div class="odetail-track-box">
-          <label class="odetail-track-label">ID de rastreo</label>
+          <div class="odetail-track-label">⏳ Esperando confirmación de pago</div>
+          <p class="odetail-track-hint">Este pedido se paga con tarjeta. Cuando Stripe confirme el pago (webhook),
+          se descontará el stock y podrás asignar el ID de rastreo.</p>
+        </div>`;
+      } else {
+        accionBlock = `
+        <div class="odetail-track-box">
+          <label class="odetail-track-label">Costo real del envío (lo que te cobró el courier)</label>
+          <div class="odetail-track-row">
+            <input id="envioRealInput" type="number" step="0.01" min="0" inputmode="decimal"
+                   placeholder="Ej. 4.50" value="${o.costoEnvioReal != null ? o.costoEnvioReal : ''}"
+                   autocomplete="off">
+          </div>
+          <label class="odetail-track-label" style="margin-top:12px">ID de rastreo</label>
           <div class="odetail-track-row">
             <input id="trackingInput" type="text" placeholder="Ej. PICO-123456" autocomplete="off">
             <button class="odetail-confirm-btn" onclick="setTrackingId('${o.firestoreId}')">📦 Confirmar pedido</button>
           </div>
-          <p class="odetail-track-hint">Al confirmar, el pedido pasa a <b>Confirmado</b> y el cliente verá el ID de rastreo.</p>
+          <p class="odetail-track-hint">El cliente pagó <b>$${(o.envioCosto || 0).toFixed(2)}</b> de envío.
+          Si el costo real es <b>mayor</b>, la diferencia se carga a <b>costos</b>; si es <b>menor</b>, la diferencia se suma a la <b>ganancia</b> del pedido.
+          Al confirmar, el pedido pasa a <b>Confirmado</b> y el cliente verá el ID de rastreo.</p>
         </div>`;
+      }
     } else if (o.status === 'confirmado') {
+      const envioRealTxt = (typeof o.costoEnvioReal === 'number')
+        ? `<div class="odetail-track-hint" style="margin-top:0;margin-bottom:8px">Costo real del envío: <b>$${o.costoEnvioReal.toFixed(2)}</b> (cliente pagó $${(o.envioCosto||0).toFixed(2)})</div>`
+        : '';
       accionBlock = `
         <div class="odetail-track-box confirmed">
           <div class="odetail-track-label">📦 ID de rastreo asignado</div>
@@ -600,6 +669,7 @@ function showOrderDetail(firestoreId) {
             <span>${o.trackingId || '—'}</span>
             <button class="copy-btn" title="Copiar" onclick="copyToClipboard('${(o.trackingId||'').replace(/'/g,"\\'")}', this)">📋</button>
           </div>
+          ${envioRealTxt}
           <button class="odetail-deliver-btn" onclick="adminMarkDelivered('${o.firestoreId}')">✅ Marcar como entregado</button>
         </div>`;
     } else if (o.status === 'delivered' || o.status === 'sold') {

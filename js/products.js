@@ -105,6 +105,7 @@ async function loadProducts() {
         cost:  typeof d.cost  === 'number' ? d.cost  : 0,
         desc:  d.desc  || '',
         img:   d.imageUrl || '',
+        stripePriceId: d.stripePriceId || null,   // ← ID de precio en Stripe (si el producto ya fue migrado)
         stock: s, cat, e
       });
       stockMap[d.id] = s;
