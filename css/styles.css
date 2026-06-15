@@ -385,3 +385,75 @@ tr:hover td{background:var(--b50)}
 .pay-ico{font-size:1.15rem;line-height:1}
 .pay-note{font-size:.76rem;color:var(--g400);background:var(--g50);border:1px solid var(--b100);
   border-radius:9px;padding:9px 12px;margin-bottom:4px;line-height:1.45}
+
+/* ─── ESTADO "CONFIRMADO" (pedido a domicilio con guía generada) ─── */
+.si{background:#dbeafe;color:#2563eb}
+
+/* ─── DETALLE DE PEDIDO A DOMICILIO (panel admin) ─── */
+.odetail-domicilio{background:var(--g50);border:1px solid var(--b100);border-radius:12px;
+  padding:14px;margin-bottom:14px}
+.odetail-section-title{font-size:.78rem;font-weight:700;color:var(--b600);
+  text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px}
+.copy-row{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--b100);
+  border-radius:9px;padding:8px 10px;margin-bottom:7px}
+.copy-row-main{flex:1;min-width:0}
+.copy-row-label{font-size:.68rem;font-weight:700;color:var(--g400);text-transform:uppercase;
+  letter-spacing:.04em}
+.copy-row-value{font-size:.86rem;font-weight:600;color:var(--g700);word-break:break-word;margin-top:1px}
+.copy-btn{flex-shrink:0;width:34px;height:34px;border-radius:8px;border:1.5px solid var(--b200);
+  background:var(--b50);color:var(--b600);cursor:pointer;font-size:.95rem;line-height:1;
+  display:flex;align-items:center;justify-content:center;transition:all .15s}
+.copy-btn:hover{background:var(--b100)}
+.copy-btn.copied{background:#d1fae5;border-color:#6ee7b7;color:#059669}
+.odetail-pago{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:10px;padding-top:10px;
+  border-top:1px dashed var(--b200);font-size:.82rem;color:var(--g700)}
+.odetail-track-box{margin-top:12px;padding:12px;border-radius:10px;background:#fff;
+  border:1.5px solid var(--b200)}
+.odetail-track-box.confirmed{background:#eff6ff;border-color:var(--b300)}
+.odetail-track-label{font-size:.74rem;font-weight:700;color:var(--g700);
+  text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:7px}
+.odetail-track-row{display:flex;gap:8px;flex-wrap:wrap}
+.odetail-track-row input{flex:1;min-width:140px;padding:9px 11px;border-radius:8px;
+  border:1.5px solid var(--b200);font-family:var(--font);font-size:.85rem;color:var(--g700);outline:none}
+.odetail-track-row input:focus{border-color:var(--b500);box-shadow:0 0 0 3px rgba(59,130,246,.12)}
+.odetail-confirm-btn{padding:9px 14px;border-radius:8px;border:none;background:var(--b600);
+  color:#fff;font-family:var(--font);font-size:.82rem;font-weight:700;cursor:pointer;
+  white-space:nowrap;transition:background .15s}
+.odetail-confirm-btn:hover{background:var(--b700)}
+.odetail-track-hint{font-size:.74rem;color:var(--g400);margin-top:8px;line-height:1.4}
+.odetail-track-id{display:flex;align-items:center;gap:8px;margin-bottom:10px;
+  font-size:1.05rem;font-weight:800;color:var(--b600);letter-spacing:.02em}
+.odetail-deliver-btn{width:100%;padding:11px;border-radius:9px;border:none;background:var(--green);
+  color:#fff;font-family:var(--font);font-size:.86rem;font-weight:700;cursor:pointer;
+  transition:filter .15s}
+.odetail-deliver-btn:hover{filter:brightness(1.05)}
+
+/* ─── TÉRMINOS Y CONDICIONES (modal) ─── */
+.terms-body{font-size:.85rem;color:var(--g700);line-height:1.55;max-height:60vh;overflow-y:auto}
+.terms-body h4{font-size:.9rem;font-weight:700;color:var(--g900);margin:14px 0 5px}
+.terms-body h4:first-child{margin-top:0}
+.terms-body p{margin:0 0 9px;color:var(--g500)}
+.terms-body ul{margin:0 0 9px;padding-left:20px;color:var(--g500)}
+.terms-body li{margin-bottom:4px}
+
+/* ─── PIE DE PÁGINA ─── */
+.site-footer{margin-top:48px;background:var(--g900);color:var(--g300);
+  padding:38px 22px 22px}
+.foot-inner{max-width:1100px;margin:0 auto;display:grid;
+  grid-template-columns:1.4fr 1fr 1fr;gap:28px}
+.foot-col{min-width:0}
+.foot-brand{font-size:1.1rem;font-weight:800;color:#fff;letter-spacing:-.02em;margin-bottom:8px}
+.foot-tag{font-size:.82rem;color:var(--g400);line-height:1.5}
+.foot-h{font-size:.74rem;font-weight:700;color:#fff;text-transform:uppercase;
+  letter-spacing:.06em;margin-bottom:11px}
+.foot-link{display:block;font-size:.84rem;color:var(--g300);text-decoration:none;
+  margin-bottom:8px;transition:color .15s;cursor:pointer;background:none;border:none;
+  padding:0;font-family:var(--font);text-align:left}
+.foot-link:hover{color:#fff}
+.foot-static{display:block;font-size:.84rem;color:var(--g400);margin-bottom:8px;cursor:default}
+.foot-bottom{max-width:1100px;margin:28px auto 0;padding-top:18px;
+  border-top:1px solid rgba(255,255,255,.1);text-align:center;
+  font-size:.76rem;color:var(--g500)}
+@media(max-width:720px){
+  .foot-inner{grid-template-columns:1fr;gap:24px}
+}
