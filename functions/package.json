@@ -2,7 +2,7 @@
   "name": "functions",
   "description": "Cloud Functions de PICO (confirmación de pago Stripe → estadísticas + comisión)",
   "engines": {
-    "node": "18"
+    "node": "20"
   },
   "main": "index.js",
   "dependencies": {
