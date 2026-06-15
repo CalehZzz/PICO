@@ -2,6 +2,15 @@
 // PICO · Carrito y checkout
 // ════════════════════════════════════════════════════════════════
 
+// Costo fijo de envío a domicilio (USD). Se SUMA al total que paga el cliente,
+// pero NO se mezcla con 'total'/'totalConDescuento' para que las estadísticas y
+// el stock se comporten igual que un pedido normal.
+const SHIPPING_COST = 3.49;
+
+// Nombre de la colección de clientes que usa la extensión "Run Payments with Stripe".
+// La extensión oficial usa 'customers'. Si configuraste otro nombre, cámbialo aquí.
+const STRIPE_CUSTOMERS_COLLECTION = 'customers';
+
 // ═══════════════════════════════════════════════════
 //  CART  (con persistencia en localStorage)
 // ═══════════════════════════════════════════════════
@@ -37,11 +46,14 @@ function sendOrderEmail(orderId, d) {
         ${d.tipoEntrega === 'domicilio' ? '' : `<tr><td style="padding:4px 0;color:#64748b">Grado / Sección</td><td style="padding:4px 0;font-weight:600">${d.grade} - ${d.section}</td></tr>`}
         <tr><td style="padding:4px 0;color:#64748b">Sucursal</td><td style="padding:4px 0;font-weight:600">${sucLabel}</td></tr>
         ${d.tipoEntrega === 'domicilio' && d.envio ? `
-        <tr><td style="padding:4px 0;color:#64748b">Dirección</td><td style="padding:4px 0;font-weight:600">${d.envio.direccion}</td></tr>
-        <tr><td style="padding:4px 0;color:#64748b">Ciudad</td><td style="padding:4px 0;font-weight:600">${d.envio.ciudad}</td></tr>
-        <tr><td style="padding:4px 0;color:#64748b">Teléfono</td><td style="padding:4px 0;font-weight:600">${d.envio.telefono}</td></tr>
+        <tr><td style="padding:4px 0;color:#64748b">Departamento</td><td style="padding:4px 0;font-weight:600">${d.envio.departamento || ''}</td></tr>
+        <tr><td style="padding:4px 0;color:#64748b">Municipio</td><td style="padding:4px 0;font-weight:600">${d.envio.municipio || ''}</td></tr>
+        <tr><td style="padding:4px 0;color:#64748b">Dirección</td><td style="padding:4px 0;font-weight:600">${d.envio.direccion || ''}</td></tr>
+        <tr><td style="padding:4px 0;color:#64748b">Teléfono</td><td style="padding:4px 0;font-weight:600">${d.envio.telefono || ''}</td></tr>
+        ${d.envio.telefono2 ? `<tr><td style="padding:4px 0;color:#64748b">Tel. adicional</td><td style="padding:4px 0;font-weight:600">${d.envio.telefono2}</td></tr>` : ''}
         ${d.envio.referencia ? `<tr><td style="padding:4px 0;color:#64748b">Referencia</td><td style="padding:4px 0;font-weight:600">${d.envio.referencia}</td></tr>` : ''}
-        <tr><td style="padding:4px 0;color:#64748b">Método de pago</td><td style="padding:4px 0;font-weight:600">${d.metodoPago === 'tarjeta' ? '💳 Tarjeta (simulado)' : '💵 Efectivo'}</td></tr>` : ''}
+        ${d.envio.indicaciones ? `<tr><td style="padding:4px 0;color:#64748b">Indicaciones</td><td style="padding:4px 0;font-weight:600">${d.envio.indicaciones}</td></tr>` : ''}
+        <tr><td style="padding:4px 0;color:#64748b">Método de pago</td><td style="padding:4px 0;font-weight:600">${d.metodoPago === 'tarjeta' ? '💳 Tarjeta' : '💵 Efectivo'}</td></tr>` : ''}
         ${d.email ? `<tr><td style="padding:4px 0;color:#64748b">Correo cliente</td><td style="padding:4px 0;font-weight:600">${d.email}</td></tr>` : ''}
       </table>
       <table style="width:100%;border-collapse:collapse;font-size:14px">
@@ -53,8 +65,11 @@ function sendOrderEmail(orderId, d) {
         </tr>
         ${rows}
         ${descuento}
+        ${d.tipoEntrega === 'domicilio' && d.envioCosto ? `
+        <tr><td colspan="3" style="padding:6px 10px;text-align:right">🚚 Envío a domicilio</td>
+            <td style="padding:6px 10px;text-align:right">$${(d.envioCosto).toFixed(2)}</td></tr>` : ''}
         <tr><td colspan="3" style="padding:10px;text-align:right;font-weight:700;font-size:16px;border-top:2px solid #0f172a">TOTAL</td>
-            <td style="padding:10px;text-align:right;font-weight:700;font-size:16px;border-top:2px solid #0f172a">$${finalTotal.toFixed(2)}</td></tr>
+            <td style="padding:10px;text-align:right;font-weight:700;font-size:16px;border-top:2px solid #0f172a">$${(d.tipoEntrega === 'domicilio' && d.totalConEnvio != null ? d.totalConEnvio : finalTotal).toFixed(2)}</td></tr>
       </table>
       <p style="margin-top:16px;color:#94a3b8;font-size:12px">ID del pedido: ${orderId}</p>
     </div>`;
@@ -305,22 +320,37 @@ function openCheckout() {
       <div class="odetail-item-price">$${(p.price * cart[id]).toFixed(2)}</div>
     </div>`;
   }).join('');
-  const rawTotal   = getCartRawTotal();
-  const finalTotal = getCartTotal();
+  const rawTotal    = getCartRawTotal();
+  const finalTotal  = getCartTotal();
+  const esDomicilio = getSavedProfile().sucursal === 'domicilio';
+  const envioCosto  = esDomicilio ? SHIPPING_COST : 0;
+  const grandTotal  = +(finalTotal + envioCosto).toFixed(2);
   const discountRow = selectedDiscount
     ? `<div class="odetail-subtotal" style="color:var(--green)">
          <span>🏷️ Descuento (${selectedDiscount.nombre} −${selectedDiscount.porcentaje}%)</span>
          <span>−$${(rawTotal - finalTotal).toFixed(2)}</span>
        </div>`
     : '';
+  // Subtotal de productos (se muestra si hay descuento o envío, para que el desglose quede claro)
+  const subtotalRow = (selectedDiscount || esDomicilio)
+    ? `<div class="odetail-subtotal"><span>Subtotal productos</span><span>$${rawTotal.toFixed(2)}</span></div>`
+    : '';
+  const subDescRow = (selectedDiscount && esDomicilio)
+    ? `<div class="odetail-subtotal"><span>Subtotal con descuento</span><span>$${finalTotal.toFixed(2)}</span></div>`
+    : '';
+  const envioRow = esDomicilio
+    ? `<div class="odetail-subtotal"><span>🚚 Envío a domicilio</span><span>$${envioCosto.toFixed(2)}</span></div>`
+    : '';
 
   document.getElementById('checkoutSummary').innerHTML = `
     <div class="osumtitle">Resumen del pedido</div>
     <div class="odetail-list" style="gap:4px">${items}
-      ${selectedDiscount ? `<div class="odetail-subtotal"><span>Subtotal</span><span>$${rawTotal.toFixed(2)}</span></div>` : ''}
+      ${subtotalRow}
       ${discountRow}
-      <div class="odetail-subtotal" ${selectedDiscount ? 'style="font-weight:700;color:var(--b600)"' : ''}>
-        <span>${selectedDiscount ? 'Total con descuento' : 'Subtotal'}</span><span>$${finalTotal.toFixed(2)}</span>
+      ${subDescRow}
+      ${envioRow}
+      <div class="odetail-subtotal" style="font-weight:700;color:var(--b600)">
+        <span>Total${esDomicilio ? ' con envío' : (selectedDiscount ? ' con descuento' : '')}</span><span>$${grandTotal.toFixed(2)}</span>
       </div>
     </div>`;
 
@@ -371,10 +401,13 @@ function toggleDeliveryFields(esDomicilio) {
   if (esDomicilio) {
     // Prefijar datos de envío guardados (si existen)
     const saved = getSavedProfile();
-    if (saved.shipAddress) document.getElementById('shipAddress').value = saved.shipAddress;
-    if (saved.shipPhone)   document.getElementById('shipPhone').value   = saved.shipPhone;
-    if (saved.shipCity)    document.getElementById('shipCity').value    = saved.shipCity;
-    if (saved.shipRef)     document.getElementById('shipRef').value     = saved.shipRef;
+    if (saved.shipPhone)      document.getElementById('shipPhone').value      = saved.shipPhone;
+    if (saved.shipPhone2)     document.getElementById('shipPhone2').value     = saved.shipPhone2;
+    if (saved.shipDepartment) document.getElementById('shipDepartment').value = saved.shipDepartment;
+    if (saved.shipCity)       document.getElementById('shipCity').value       = saved.shipCity;
+    if (saved.shipAddress)    document.getElementById('shipAddress').value    = saved.shipAddress;
+    if (saved.shipRef)        document.getElementById('shipRef').value        = saved.shipRef;
+    if (saved.shipNotes)      document.getElementById('shipNotes').value      = saved.shipNotes;
     selectPayment(selectedPayment); // re-aplicar estado visual del método de pago
   }
 }
@@ -418,22 +451,27 @@ async function placeOrder() {
   let envio = null;
   let metodoPago = null;
   if (esDomicilio) {
-    const direccion  = document.getElementById('shipAddress').value.trim();
-    const telefono   = document.getElementById('shipPhone').value.trim();
-    const ciudad     = document.getElementById('shipCity').value.trim();
-    const referencia = document.getElementById('shipRef').value.trim();
-    if (!direccion || !telefono || !ciudad) {
-      showToast('⚠️ Completa los datos de envío');
+    const telefono     = document.getElementById('shipPhone').value.trim();
+    const telefono2    = document.getElementById('shipPhone2').value.trim();
+    const departamento = document.getElementById('shipDepartment').value;
+    const municipio    = document.getElementById('shipCity').value.trim();
+    const direccion    = document.getElementById('shipAddress').value.trim();
+    const referencia   = document.getElementById('shipRef').value.trim();
+    const indicaciones = document.getElementById('shipNotes').value.trim();
+    if (!telefono || !departamento || !municipio || !direccion || !referencia) {
+      showToast('⚠️ Completa todos los datos de envío obligatorios');
       return;
     }
-    envio = { direccion, telefono, ciudad, referencia };
-    metodoPago = selectedPayment; // 'tarjeta' | 'efectivo' (pago simulado)
-    // Guardar la dirección en el perfil para futuros pedidos
+    envio = { nombre: name, telefono, telefono2, departamento, municipio, direccion, referencia, indicaciones };
+    metodoPago = selectedPayment; // 'tarjeta' | 'efectivo'
+    // Guardar los datos de envío en el perfil para futuros pedidos
     try {
       const key   = 'el_profile_' + currentUser.uid;
       const prof  = JSON.parse(localStorage.getItem(key) || '{}');
-      prof.shipAddress = direccion; prof.shipPhone = telefono;
-      prof.shipCity = ciudad;       prof.shipRef = referencia;
+      prof.shipPhone = telefono;       prof.shipPhone2 = telefono2;
+      prof.shipDepartment = departamento; prof.shipCity = municipio;
+      prof.shipAddress = direccion;    prof.shipRef = referencia;
+      prof.shipNotes = indicaciones;
       localStorage.setItem(key, JSON.stringify(prof));
     } catch (_) {}
   }
@@ -473,8 +511,14 @@ async function placeOrder() {
       discountPct:         selectedDiscount ? selectedDiscount.porcentaje: null,
       sucursal:    sucursal,
       tipoEntrega: esDomicilio ? 'domicilio' : 'pickup',
-      envio:       envio,        // {direccion, telefono, ciudad, referencia} o null
-      metodoPago:  metodoPago,   // 'tarjeta' | 'efectivo' | null (pago simulado)
+      envio:       envio,        // {nombre, telefono, telefono2, departamento, municipio, direccion, referencia, indicaciones} o null
+      // Costo de envío y total que paga el cliente (NO afectan stats: 'total' sigue siendo solo productos)
+      envioCosto:    esDomicilio ? SHIPPING_COST : 0,
+      totalConEnvio: +(((selectedDiscount ? finalTotal : +rawTotal.toFixed(2))) + (esDomicilio ? SHIPPING_COST : 0)).toFixed(2),
+      metodoPago:  metodoPago,   // 'tarjeta' | 'efectivo' | null
+      paymentStatus: esDomicilio ? (metodoPago === 'tarjeta' ? 'pending' : 'efectivo') : null,
+      trackingId:  null,         // lo asigna el admin; al asignarlo el pedido pasa a 'confirmado'
+      confirmedAt: null,
       status:      'pending',
       stockDeducted: true,
       createdAt:   firebase.firestore.FieldValue.serverTimestamp(),
@@ -493,6 +537,8 @@ async function placeOrder() {
       sucursal,
       tipoEntrega: esDomicilio ? 'domicilio' : 'pickup',
       envio,
+      envioCosto:    esDomicilio ? SHIPPING_COST : 0,
+      totalConEnvio: +(((selectedDiscount ? finalTotal : +rawTotal.toFixed(2))) + (esDomicilio ? SHIPPING_COST : 0)).toFixed(2),
       metodoPago,
       email: currentUser?.email || null
     }).catch(e => console.warn('No se pudo encolar el correo de aviso:', e));
@@ -560,7 +606,30 @@ async function placeOrder() {
       correctLevel: QRCode.CorrectLevel.H
     });
 
-    openModal('successModal');
+    // Mensaje según el tipo de entrega
+    const hintEl = document.getElementById('successHint');
+    if (hintEl) hintEl.textContent = esDomicilio
+      ? 'Te enviaremos el ID de rastreo cuando confirmemos tu pedido.'
+      : 'Preséntate en el laboratorio con este código o escanea el QR.';
+
+    // Pago con tarjeta a domicilio → ir a Stripe Checkout (test/sandbox).
+    if (esDomicilio && metodoPago === 'tarjeta') {
+      btn.textContent = 'Redirigiendo al pago...';
+      try {
+        await startStripeCheckout(docRef.id, {
+          code,
+          items,
+          envioCosto: SHIPPING_COST
+        });
+        return; // la página se redirige a Stripe; el pedido ya quedó pendiente
+      } catch (e) {
+        console.error('Stripe checkout:', e);
+        showToast('⚠️ No se pudo iniciar el pago con tarjeta. Tu pedido quedó pendiente.');
+        openModal('successModal');
+      }
+    } else {
+      openModal('successModal');
+    }
   } catch (err) {
     showToast('❌ Error al guardar el pedido: ' + err.message);
     console.error('placeOrder:', err);
@@ -568,6 +637,70 @@ async function placeOrder() {
     btn.disabled    = false;
     btn.textContent = 'Realizar Pedido ✓';
   }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  STRIPE CHECKOUT  (extensión "Run Payments with Stripe" · test/sandbox)
+// ════════════════════════════════════════════════════════════════
+// Crea una sesión de Checkout usando line_items con price_data (precios
+// dinámicos), por lo que NO hace falta migrar los productos a Stripe.
+// La extensión escucha la colección checkout_sessions, crea la sesión en
+// Stripe y devuelve 'url'; entonces redirigimos al checkout alojado de Stripe.
+function startStripeCheckout(orderId, d) {
+  return new Promise(async (resolve, reject) => {
+    if (!currentUser || !currentUser.uid) { reject(new Error('No hay sesión activa')); return; }
+    try {
+      const line_items = (d.items || []).map(i => ({
+        quantity: i.qty,
+        price_data: {
+          currency: 'usd',
+          unit_amount: Math.round((i.price || 0) * 100), // en centavos
+          product_data: { name: i.name }
+        }
+      }));
+      // Línea aparte para el costo de envío
+      if (d.envioCosto) {
+        line_items.push({
+          quantity: 1,
+          price_data: {
+            currency: 'usd',
+            unit_amount: Math.round(d.envioCosto * 100),
+            product_data: { name: 'Envío a domicilio' }
+          }
+        });
+      }
+
+      const base = location.origin;
+      const sessRef = await db
+        .collection(STRIPE_CUSTOMERS_COLLECTION).doc(currentUser.uid)
+        .collection('checkout_sessions').add({
+          mode: 'payment',
+          line_items,
+          success_url: base + '/?pago=ok&order='     + orderId,
+          cancel_url:  base + '/?pago=cancel&order='  + orderId,
+          metadata: { orderId: orderId, code: d.code || '' }
+        });
+
+      // La extensión rellena 'url' (o 'error') de forma asíncrona.
+      let settled = false;
+      const unsub = sessRef.onSnapshot(snap => {
+        const data = snap.data() || {};
+        if (data.error) {
+          settled = true; unsub();
+          reject(new Error(data.error.message || 'Error al crear la sesión de pago'));
+        } else if (data.url) {
+          settled = true; unsub();
+          window.location.assign(data.url); // → Stripe Checkout (test mode)
+          resolve();
+        }
+      }, err => { if (!settled) { settled = true; reject(err); } });
+
+      // Si en 25s no llegó la URL, asumimos que algo falló en la extensión.
+      setTimeout(() => {
+        if (!settled) { settled = true; try { unsub(); } catch (_) {} reject(new Error('Tiempo de espera agotado al iniciar el pago')); }
+      }, 25000);
+    } catch (e) { reject(e); }
+  });
 }
 
 function onSuccessClose() {

@@ -2,6 +2,40 @@
 // PICO · Mis pedidos y seguimiento por código
 // ════════════════════════════════════════════════════════════════
 
+// ── Helpers de presentación de pedidos (compartidos cliente/seguimiento) ──
+// Total a mostrar: para domicilio incluye el envío; en lo demás, el de productos.
+function orderDisplayTotal(o) {
+  if (o && o.tipoEntrega === 'domicilio' && typeof o.totalConEnvio === 'number') return o.totalConEnvio;
+  return (typeof o.totalConDescuento === 'number') ? o.totalConDescuento : (o.total || 0);
+}
+// Badge de estado (incluye el estado 'confirmado' del envío a domicilio).
+function orderStatusBadge(o) {
+  switch (o.status) {
+    case 'cancelled':  return { cls: 'sc', txt: '❌ Cancelado' };
+    case 'pending':    return { cls: 'sp', txt: '⏳ Pendiente' };
+    case 'confirmado': return { cls: 'si', txt: '📦 Confirmado' };
+    default:           return { cls: 'ss', txt: '✅ Entregado' };
+  }
+}
+// Línea con el grado/sección (pickup) o el tipo de entrega (domicilio).
+function orderEntregaMeta(o) {
+  return o.tipoEntrega === 'domicilio'
+    ? '<span>🚚 Envío a domicilio</span>'
+    : `<span>🎓 ${o.grade || ''} – ${o.section || ''}</span>`;
+}
+// Bloque del ID de rastreo (solo domicilio, cuando ya está asignado).
+function orderTrackingBlock(o) {
+  if (o.tipoEntrega !== 'domicilio' || !o.trackingId) return '';
+  return `<div style="margin-top:9px;padding:8px 12px;background:var(--b50);border:1.5px solid var(--b200);border-radius:9px;font-size:.8rem;color:var(--g700)">
+      📦 <b>ID de rastreo:</b> <span style="color:var(--b600);font-weight:700;letter-spacing:.03em">${o.trackingId}</span>
+    </div>`;
+}
+// Línea de envío dentro del desglose (solo domicilio).
+function orderEnvioLine(o) {
+  if (o.tipoEntrega !== 'domicilio' || !o.envioCosto) return '';
+  return `<div class="odetail-subtotal"><span>🚚 Envío</span><span>$${(o.envioCosto).toFixed(2)}</span></div>`;
+}
+
 // ═══════════════════════════════════════════════════
 //  MY ORDERS (Firestore)
 // ═══════════════════════════════════════════════════
@@ -26,7 +60,8 @@ function switchMyOrdersTab(tab) {
 function myOrdersQuery() {
   const base = db.collection('pedidos').where('userId', '==', currentUser.uid);
   if (myOrdersTab === 'active') {
-    return base.where('status', '==', 'pending').orderBy('createdAt', 'desc');
+    // 'pending' y 'confirmado' (envío con guía generada) cuentan como activos.
+    return base.where('status', 'in', ['pending', 'confirmado']).orderBy('createdAt', 'desc');
   }
   return base.where('status', 'in', ['delivered', 'sold', 'cancelled']).orderBy('createdAt', 'desc');
 }
@@ -114,22 +149,23 @@ function _renderMyOrdersList(el, myOrders) {
   el.innerHTML = myOrders.map(o => {
     const isCancelled  = o.status === 'cancelled';
     const isPending    = o.status === 'pending';
-    const canCancel    = isPending;
+    // El cliente NO puede cancelar pedidos a domicilio (solo el admin).
+    const canCancel    = isPending && o.tipoEntrega !== 'domicilio';
+    const badge        = orderStatusBadge(o);
     return `
     <div class="ocard" ${isCancelled ? 'style="opacity:.65;border-color:#fca5a5"' : ''}>
       <div class="ocard-hd">
         <span class="ocode">${o.code}</span>
-        <span class="sbadge ${isCancelled ? 'sc' : (isPending ? 'sp' : 'ss')}">
-          ${isCancelled ? '❌ Cancelado' : (isPending ? '⏳ Pendiente' : '✅ Entregado')}
-        </span>
+        <span class="sbadge ${badge.cls}">${badge.txt}</span>
       </div>
       <div class="ometa">
         <span>👤 ${o.name}</span>
-        <span>🎓 ${o.grade} – ${o.section}</span>
+        ${orderEntregaMeta(o)}
         <span>📅 ${fmtDate(o.createdAt)}</span>
-        <span>💰 $${(typeof o.totalConDescuento === 'number' ? o.totalConDescuento : (o.total || 0)).toFixed(2)}</span>
+        <span>💰 $${orderDisplayTotal(o).toFixed(2)}</span>
         ${o.deliveredAt ? `<span>📦 ${fmtDate(o.deliveredAt)}</span>` : ''}
       </div>
+      ${orderTrackingBlock(o)}
       <div style="margin-top:9px;padding-top:9px;border-top:1px solid var(--b50)">
         <div class="odetail-list" style="gap:4px">
           ${(o.items || []).map(i => `
@@ -140,9 +176,10 @@ function _renderMyOrdersList(el, myOrders) {
               </div>
               <div class="odetail-item-price">$${((i.price||0)*i.qty).toFixed(2)}</div>
             </div>`).join('')}
+          ${orderEnvioLine(o)}
           <div class="odetail-subtotal">
             <span>Total</span>
-            <span>$${(typeof o.totalConDescuento === 'number' ? o.totalConDescuento : (o.total||0)).toFixed(2)}</span>
+            <span>$${orderDisplayTotal(o).toFixed(2)}</span>
           </div>
         </div>
       </div>
@@ -169,6 +206,13 @@ async function customerCancelOrder(firestoreId, code, btn) {
   try {
     const snap = await db.collection('pedidos').doc(firestoreId).get();
     const orderData = snap.data() || {};
+    // Los pedidos a domicilio solo los cancela el admin.
+    if (orderData.tipoEntrega === 'domicilio') {
+      showToast('Los envíos a domicilio solo puede cancelarlos el administrador');
+      btn.disabled = false;
+      btn.textContent = '✕ Cancelar pedido';
+      return;
+    }
     // No se permite cancelar entregados
     if (orderData.status === 'delivered' || orderData.status === 'sold') {
       showToast('Este pedido ya fue entregado y no puede cancelarse');
@@ -192,7 +236,7 @@ async function customerCancelOrder(firestoreId, code, btn) {
     });
     // Ajustar contadores de pedidos en estadísticas (el cliente solo cancela pendientes)
     {
-      const sucC = orderData.sucursal === 'cdb' ? 'ColegioDonBosco' : 'ColegioExsal';
+      const sucC = (orderData.sucursal === 'cdb' || orderData.sucursal === 'domicilio') ? 'ColegioDonBosco' : 'ColegioExsal';
       const statUpdate = { 'pedidosCancelados': firebase.firestore.FieldValue.increment(1) };
       if (orderData.status === 'pending') {
         statUpdate['pedidosPendientes'] = firebase.firestore.FieldValue.increment(-1);
@@ -242,23 +286,23 @@ async function trackOrder() {
     const o = { firestoreId: snap.docs[0].id, ...snap.docs[0].data() };
     const isCancelled = o.status === 'cancelled';
     const isPending   = o.status === 'pending';
-    const isDelivered = o.status === 'delivered' || o.status === 'sold';
-    const canCancel   = isPending && currentUser && currentUser.uid === o.userId;
+    // El cliente NO puede cancelar pedidos a domicilio (solo el admin).
+    const canCancel   = isPending && o.tipoEntrega !== 'domicilio' && currentUser && currentUser.uid === o.userId;
+    const badge       = orderStatusBadge(o);
     el.innerHTML = `
       <div class="ocard" style="border-color:var(--b300);box-shadow:var(--sh2)" ${isCancelled ? 'style="opacity:.65"' : ''}>
         <div class="ocard-hd">
           <span class="ocode">${o.code}</span>
-          <span class="sbadge ${isCancelled ? 'sc' : (isPending ? 'sp' : 'ss')}">
-            ${isCancelled ? '❌ Cancelado' : (isPending ? '⏳ Pendiente' : '✅ Entregado')}
-          </span>
+          <span class="sbadge ${badge.cls}">${badge.txt}</span>
         </div>
         <div class="ometa">
           <span>👤 ${o.name}</span>
-          <span>🎓 ${o.grade} – ${o.section}</span>
+          ${orderEntregaMeta(o)}
           <span>📅 ${fmtDate(o.createdAt)}</span>
-          <span>💰 $${(typeof o.totalConDescuento === 'number' ? o.totalConDescuento : (o.total || 0)).toFixed(2)}</span>
+          <span>💰 $${orderDisplayTotal(o).toFixed(2)}</span>
           ${o.deliveredAt ? `<span>📦 ${fmtDate(o.deliveredAt)}</span>` : ''}
         </div>
+        ${orderTrackingBlock(o)}
         <div style="margin-top:9px;padding-top:9px;border-top:1px solid var(--b50)">
           <div class="odetail-list" style="gap:4px">
             ${(o.items || []).map(i => `
@@ -269,9 +313,10 @@ async function trackOrder() {
                 </div>
                 <div class="odetail-item-price">$${((i.price||0)*i.qty).toFixed(2)}</div>
               </div>`).join('')}
+            ${orderEnvioLine(o)}
             <div class="odetail-subtotal">
               <span>Total</span>
-              <span>$${(typeof o.totalConDescuento === 'number' ? o.totalConDescuento : (o.total||0)).toFixed(2)}</span>
+              <span>$${orderDisplayTotal(o).toFixed(2)}</span>
             </div>
           </div>
         </div>

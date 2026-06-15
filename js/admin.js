@@ -22,7 +22,8 @@ function startAdminListener() {
 function adminSectionQuery(section) {
   const base = db.collection('pedidos');
   if (section === 'active') {
-    return base.where('status', '==', 'pending').orderBy('createdAt', 'desc');
+    // Activos = pendientes + confirmados (domicilio con guía generada, aún no entregados).
+    return base.where('status', 'in', ['pending', 'confirmado']).orderBy('createdAt', 'desc');
   }
   // 'done' = entregados/vendidos + cancelados. Firestore no permite "in" + orderBy distinto
   // sin índice, así que usamos 'status' "in" con orderBy createdAt (requiere índice compuesto).
@@ -127,6 +128,8 @@ function renderAdminRows(bodyId, data) {
   tb.innerHTML = data.map(o => {
     const isCancelled = o.status === 'cancelled';
     const isPending   = o.status === 'pending';
+    const isConfirmado = o.status === 'confirmado';
+    const isDomicilio = o.tipoEntrega === 'domicilio';
     const statusColor = isCancelled ? '#fee2e2' : (isPending ? '#fef3c7' : '#d1fae5');
     const statusText  = isCancelled ? '#dc2626'  : (isPending ? '#d97706' : '#059669');
     return `
@@ -146,6 +149,8 @@ function renderAdminRows(bodyId, data) {
       <td>
         ${isCancelled
           ? `<span style="font-size:.72rem;color:var(--g300)">—</span>`
+          : isDomicilio
+          ? `<span style="background:#ede9fe;color:#7c3aed;border-radius:999px;padding:3px 10px;font-size:.72rem;font-weight:600;white-space:nowrap">🚚 Domicilio</span>`
           : `<select class="stsel" onchange="changeSucursal('${o.firestoreId}', this.value)"
               style="background:var(--b50);color:var(--b600)">
               <option value="" ${!o.sucursal ? 'selected' : ''}>Elegir...</option>
@@ -157,6 +162,12 @@ function renderAdminRows(bodyId, data) {
       <td>
         ${isCancelled
           ? `<span class="sbadge sc">❌ Cancelado</span>`
+          : isDomicilio
+          ? (isPending
+              ? `<span class="sbadge sp">⏳ Pendiente</span>`
+              : isConfirmado
+              ? `<span class="sbadge si">📦 Confirmado</span>`
+              : `<span class="sbadge ss">✅ Entregado</span>`)
           : `<select class="stsel" onchange="changeStatus('${o.firestoreId}', this.value)"
               style="background:${statusColor};color:${statusText}">
               <option value="pending" ${isPending ? 'selected' : ''}>⏳ Pendiente</option>
@@ -192,7 +203,7 @@ async function changeSucursal(firestoreId, val) {
 // Revierte una entrega: restaura stock, borra los registros de "ventas" del pedido
 // y resta las estadísticas SOLO si la entrega fue del mes actual. Deja el pedido como pendiente.
 async function revertDelivery(firestoreId, data) {
-  const sucursal = data.sucursal === 'cdb' ? 'cdb' : 'exsal';
+  const sucursal = (data.sucursal === 'cdb' || data.sucursal === 'domicilio') ? 'cdb' : 'exsal';
   const stockField = sucursal === 'cdb' ? 'stockCdb' : 'stockExsal';
   const statDocId = sucursal === 'cdb' ? 'ColegioDonBosco' : 'ColegioExsal';
 
@@ -294,7 +305,7 @@ async function changeStatus(firestoreId, val) {
           await db.collection('pedidos').doc(firestoreId).update({ status: 'pending', deliveredAt: null });
           return;
         }
-        const stockField = sucursal === 'cdb' ? 'stockCdb' : 'stockExsal';
+        const stockField = (sucursal === 'cdb' || sucursal === 'domicilio') ? 'stockCdb' : 'stockExsal';
         const stockBatch = db.batch();
         let costTotal = 0;
         let priceTotal = 0;
@@ -373,7 +384,7 @@ async function changeStatus(firestoreId, val) {
         });
 
         // ✅ Actualizar estadisticas acumuladas (igual que en inventario al registrar venta directa)
-        const statDocId = sucursal === 'cdb' ? 'ColegioDonBosco' : 'ColegioExsal';
+        const statDocId = (sucursal === 'cdb' || sucursal === 'domicilio') ? 'ColegioDonBosco' : 'ColegioExsal';
         stockBatch.set(db.collection('estadisticas').doc(statDocId), {
           'ventas':            firebase.firestore.FieldValue.increment(totalVentasEfectivo),
           'unidades vendidas': firebase.firestore.FieldValue.increment(totalUnidades),
@@ -423,7 +434,7 @@ async function adminCancelOrder(firestoreId, code) {
     });
     // Ajustar contadores de pedidos en estadísticas según el estado previo
     if (order) {
-      const sucC = order.sucursal === 'cdb' ? 'ColegioDonBosco' : 'ColegioExsal';
+      const sucC = (order.sucursal === 'cdb' || order.sucursal === 'domicilio') ? 'ColegioDonBosco' : 'ColegioExsal';
       const statUpdate = { 'pedidosCancelados': firebase.firestore.FieldValue.increment(1) };
       if (order.status === 'pending') {
         statUpdate['pedidosPendientes'] = firebase.firestore.FieldValue.increment(-1);
@@ -458,9 +469,86 @@ async function adminCancelOrder(firestoreId, code) {
   }
 }
 
+function copyToClipboard(text, btn) {
+  const done = () => {
+    if (btn) {
+      const prev = btn.innerHTML;
+      btn.innerHTML = '✓';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.innerHTML = prev; btn.classList.remove('copied'); }, 1200);
+    }
+    showToast('📋 Copiado al portapapeles');
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+  } else {
+    fallbackCopy(text, done);
+  }
+}
+
+function fallbackCopy(text, done) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    done();
+  } catch (e) {
+    showToast('❌ No se pudo copiar');
+  }
+}
+
+// Fila de dato de envío con botón para copiar al portapapeles (para crear la guía manualmente)
+function copyFieldRow(label, value) {
+  if (value === undefined || value === null || value === '') return '';
+  const safe = String(value).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+  return `
+    <div class="copy-row">
+      <div class="copy-row-main">
+        <div class="copy-row-label">${label}</div>
+        <div class="copy-row-value">${value}</div>
+      </div>
+      <button class="copy-btn" title="Copiar" onclick="copyToClipboard('${safe}', this)">📋</button>
+    </div>`;
+}
+
+// Asignar ID de rastreo → el pedido pasa a 'confirmado' y el cliente puede verlo
+async function setTrackingId(firestoreId) {
+  const input = document.getElementById('trackingInput');
+  const tid = (input?.value || '').trim();
+  if (!tid) { showToast('⚠️ Ingresa un ID de rastreo'); return; }
+  if (!confirm(`¿Confirmar el pedido con el ID de rastreo "${tid}"? El cliente podrá verlo.`)) return;
+  try {
+    await db.collection('pedidos').doc(firestoreId).update({
+      trackingId: tid,
+      status: 'confirmado',
+      confirmedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    const o = findLoadedOrder(firestoreId);
+    if (o) { o.trackingId = tid; o.status = 'confirmado'; }
+    closeModal('orderDetailModal');
+    refreshAdminAfterChange();
+    showToast('📦 Pedido confirmado — ID de rastreo asignado');
+  } catch (err) {
+    showToast('❌ Error: ' + err.message);
+  }
+}
+
+// Marcar un pedido a domicilio como entregado (reutiliza el flujo estándar de entrega)
+async function adminMarkDelivered(firestoreId) {
+  if (!confirm('¿Marcar este pedido como entregado?')) return;
+  closeModal('orderDetailModal');
+  await changeStatus(firestoreId, 'delivered');
+}
+
 function showOrderDetail(firestoreId) {
   const o = findLoadedOrder(firestoreId);
   if (!o) return;
+  const isDomicilio = o.tipoEntrega === 'domicilio';
   document.getElementById('orderDetailTitle').textContent = `📦 Pedido ${o.code || ''}`;
   const items = (o.items || []).map(i => `
     <div class="odetail-item">
@@ -470,16 +558,91 @@ function showOrderDetail(firestoreId) {
       </div>
       <div class="odetail-item-price">$${((i.price||0) * i.qty).toFixed(2)}</div>
     </div>`).join('');
+
+  // ── Bloque de envío a domicilio (datos + copiar + pago + rastreo + acciones) ──
+  let domicilioBlock = '';
+  if (isDomicilio) {
+    const e = o.envio || {};
+    const pagoLabel = o.metodoPago === 'tarjeta' ? '💳 Tarjeta' : '💵 Efectivo';
+    const pagoEstado = o.paymentStatus === 'pending' ? 'Pendiente de pago'
+                     : o.paymentStatus === 'paid'    ? 'Pagado'
+                     : o.paymentStatus === 'efectivo'? 'Contra entrega'
+                     : (o.paymentStatus || '—');
+
+    const copyRows = [
+      copyFieldRow('Nombre completo', e.nombre || o.name),
+      copyFieldRow('Teléfono', e.telefono),
+      copyFieldRow('Teléfono adicional', e.telefono2),
+      copyFieldRow('Departamento', e.departamento),
+      copyFieldRow('Municipio', e.municipio),
+      copyFieldRow('Dirección', e.direccion),
+      copyFieldRow('Punto de referencia', e.referencia),
+      copyFieldRow('Indicaciones', e.indicaciones)
+    ].join('');
+
+    // Acción según el estado del pedido
+    let accionBlock = '';
+    if (o.status === 'pending') {
+      accionBlock = `
+        <div class="odetail-track-box">
+          <label class="odetail-track-label">ID de rastreo</label>
+          <div class="odetail-track-row">
+            <input id="trackingInput" type="text" placeholder="Ej. PICO-123456" autocomplete="off">
+            <button class="odetail-confirm-btn" onclick="setTrackingId('${o.firestoreId}')">📦 Confirmar pedido</button>
+          </div>
+          <p class="odetail-track-hint">Al confirmar, el pedido pasa a <b>Confirmado</b> y el cliente verá el ID de rastreo.</p>
+        </div>`;
+    } else if (o.status === 'confirmado') {
+      accionBlock = `
+        <div class="odetail-track-box confirmed">
+          <div class="odetail-track-label">📦 ID de rastreo asignado</div>
+          <div class="odetail-track-id">
+            <span>${o.trackingId || '—'}</span>
+            <button class="copy-btn" title="Copiar" onclick="copyToClipboard('${(o.trackingId||'').replace(/'/g,"\\'")}', this)">📋</button>
+          </div>
+          <button class="odetail-deliver-btn" onclick="adminMarkDelivered('${o.firestoreId}')">✅ Marcar como entregado</button>
+        </div>`;
+    } else if (o.status === 'delivered' || o.status === 'sold') {
+      accionBlock = `
+        <div class="odetail-track-box confirmed">
+          <div class="odetail-track-label">✅ Entregado</div>
+          ${o.trackingId ? `<div class="odetail-track-id"><span>${o.trackingId}</span></div>` : ''}
+        </div>`;
+    }
+
+    domicilioBlock = `
+      <div class="odetail-domicilio">
+        <div class="odetail-section-title">🚚 Datos de envío</div>
+        ${copyRows}
+        <div class="odetail-pago">
+          <span><b>Método de pago:</b> ${pagoLabel}</span>
+          <span><b>Estado:</b> ${pagoEstado}</span>
+        </div>
+        ${accionBlock}
+      </div>`;
+  }
+
+  const subtotalProductos = (typeof o.totalConDescuento === 'number' ? o.totalConDescuento : (o.total || 0));
+  const envioRow = isDomicilio
+    ? `<div class="odetail-subtotal"><span>🚚 Envío a domicilio</span><span>$${(o.envioCosto || 0).toFixed(2)}</span></div>
+       <div class="odetail-subtotal" style="font-weight:700;border-top:2px solid var(--g200);padding-top:8px">
+         <span>Total con envío</span>
+         <span>$${(typeof o.totalConEnvio === 'number' ? o.totalConEnvio : subtotalProductos).toFixed(2)}</span>
+       </div>`
+    : '';
+
   document.getElementById('orderDetailBody').innerHTML = `
     <div style="font-size:.78rem;color:var(--g400);margin-bottom:10px">
-      <b style="color:var(--g700)">${o.name}</b> · ${o.grade} – ${o.section}<br>
+      <b style="color:var(--g700)">${o.name}</b>${isDomicilio ? '' : ` · ${o.grade} – ${o.section}`}<br>
       ${fmtDate(o.createdAt)}
     </div>
+    ${domicilioBlock}
     <div class="odetail-list">${items}</div>
     <div class="odetail-subtotal">
-      <span>Subtotal</span>
-      <span>$${(o.total||0).toFixed(2)}</span>
-    </div>`;
+      <span>Subtotal productos</span>
+      <span>$${subtotalProductos.toFixed(2)}</span>
+    </div>
+    ${envioRow}`;
   openModal('orderDetailModal');
 }
 
