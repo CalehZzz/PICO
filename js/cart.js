@@ -683,11 +683,40 @@ async function placeOrder() {
 // ════════════════════════════════════════════════════════════════
 // Crea una sesión de Checkout usando line_items con price_data (precios
 // dinámicos), por lo que NO hace falta migrar los productos a Stripe.
+// ── Pantalla de carga a pantalla completa mientras se inicia el pago con Stripe ──
+function showStripeLoadingOverlay() {
+  if (document.getElementById('stripe-loading-overlay')) return;
+  if (!document.getElementById('stripe-loading-style')) {
+    const st = document.createElement('style');
+    st.id = 'stripe-loading-style';
+    st.textContent = '@keyframes stripeSpin{to{transform:rotate(360deg)}}@keyframes stripeFade{from{opacity:0}to{opacity:1}}';
+    document.head.appendChild(st);
+  }
+  const ov = document.createElement('div');
+  ov.id = 'stripe-loading-overlay';
+  ov.setAttribute('role', 'alert');
+  ov.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;background:rgba(8,30,52,.88);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);animation:stripeFade .25s ease;padding:24px;text-align:center';
+  ov.innerHTML = `
+    <div style="width:62px;height:62px;border:5px solid rgba(255,255,255,.22);border-top-color:#fff;border-radius:50%;animation:stripeSpin .8s linear infinite"></div>
+    <div style="color:#fff;font-family:inherit">
+      <div style="font-size:1.18rem;font-weight:800;letter-spacing:.2px">Procesando pago en Stripe…</div>
+      <div style="font-size:.92rem;opacity:.82;margin-top:7px;max-width:340px;line-height:1.45">Te estamos redirigiendo a la pasarela segura de pago. No cierres ni recargues esta ventana.</div>
+    </div>`;
+  document.body.appendChild(ov);
+}
+function hideStripeLoadingOverlay() {
+  const ov = document.getElementById('stripe-loading-overlay');
+  if (ov) ov.remove();
+}
+
 // La extensión escucha la colección checkout_sessions, crea la sesión en
 // Stripe y devuelve 'url'; entonces redirigimos al checkout alojado de Stripe.
 function startStripeCheckout(orderId, d) {
   return new Promise(async (resolve, reject) => {
     if (!currentUser || !currentUser.uid) { reject(new Error('No hay sesión activa')); return; }
+    // Mostrar de inmediato la pantalla de carga: el cliente ya confirmó y va camino a Stripe.
+    showStripeLoadingOverlay();
+    const fail = (err) => { hideStripeLoadingOverlay(); reject(err); };
     try {
       const discPct = d.discountPct || 0;
       const discFactor = discPct ? (1 - discPct / 100) : 1;
@@ -742,7 +771,7 @@ function startStripeCheckout(orderId, d) {
         const data = snap.data() || {};
         if (data.error) {
           settled = true; unsub();
-          reject(new Error(data.error.message || 'Error al crear la sesión de pago'));
+          fail(new Error(data.error.message || 'Error al crear la sesión de pago'));
         } else if (data.url) {
           settled = true; unsub();
           // Guardamos el sessionId de Stripe en el pedido: la Cloud Function lo usa para
@@ -756,13 +785,13 @@ function startStripeCheckout(orderId, d) {
               resolve();
             });
         }
-      }, err => { if (!settled) { settled = true; reject(err); } });
+      }, err => { if (!settled) { settled = true; fail(err); } });
 
       // Si en 25s no llegó la URL, asumimos que algo falló en la extensión.
       setTimeout(() => {
-        if (!settled) { settled = true; try { unsub(); } catch (_) {} reject(new Error('Tiempo de espera agotado al iniciar el pago')); }
+        if (!settled) { settled = true; try { unsub(); } catch (_) {} fail(new Error('Tiempo de espera agotado al iniciar el pago')); }
       }, 25000);
-    } catch (e) { reject(e); }
+    } catch (e) { fail(e); }
   });
 }
 

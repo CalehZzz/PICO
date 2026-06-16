@@ -120,14 +120,15 @@ async function recordCardPaymentStats(orderId, stripePaymentId) {
 
     // 2) Estadísticas acumuladas. Modelo MEZCLADO con CDB (mismo stock):
     //    • El envío cobrado al cliente se suma a 'ventas' e 'ingresosPedidos'.
-    //    • La comisión Stripe se suma a 'costos' (principal) y a 'costosPedidos' (vista pedidos).
+    //    • La comisión Stripe se suma a 'costosPedidos' (vista pedidos) y a 'comisionesStripe'.
+    //      La comisión se suma a 'costos' (principal) al CONFIRMAR el pedido en el panel admin
+    //      (lado cliente, junto con el envío real) → no depende del despliegue de la función.
     //    • El costo de los PRODUCTOS ya está en 'costos' desde el reabastecimiento → no se re-suma.
     const statPayload = {
       'ventas':            admin.firestore.FieldValue.increment(round2(totalVentasEfectivo + envioCobrado)),
       'unidades vendidas': admin.firestore.FieldValue.increment(totalUnidades),
       'numero de ventas':  admin.firestore.FieldValue.increment(1),
       'ingresosPedidos':   admin.firestore.FieldValue.increment(round2(totalEfectivo + envioCobrado)),
-      'costos':            admin.firestore.FieldValue.increment(comisionStripe),
       'costosPedidos':     admin.firestore.FieldValue.increment(round2(productCost + comisionStripe)),
       'comisionesStripe':  admin.firestore.FieldValue.increment(comisionStripe)
       // NOTA: pedidosEntregados / pedidosPendientes NO se tocan aquí (eso ocurre al ENTREGAR).

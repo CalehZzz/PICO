@@ -281,9 +281,8 @@ async function revertDelivery(firestoreId, data) {
       statUpdate['unidades vendidas'] = firebase.firestore.FieldValue.increment(-totalUnidades);
       statUpdate['numero de ventas']  = firebase.firestore.FieldValue.increment(-1);
     }
-    // MERGE a 'costos': revertir comisión que se hubiera sumado al entregar (caso raro).
+    // La comisión ya no entra a 'costos' al entregar (entra al confirmar) → aquí solo el campo informativo.
     if (comisionStripe > 0) {
-      statUpdate['costos']            = firebase.firestore.FieldValue.increment(-(+comisionStripe.toFixed(2)));
       statUpdate['comisionesStripe']  = firebase.firestore.FieldValue.increment(-(+comisionStripe.toFixed(2)));
     }
     if (revIngresoEnvio > 0) {
@@ -449,6 +448,7 @@ async function changeStatus(firestoreId, val) {
           margenEnvio: +(envioCobrado - envioReal).toFixed(2),   // positivo = ganamos en el envío
           ingresoEnvioRegistrado: (esDom ? true : freshData.ingresoEnvioRegistrado || false),
           costoEnvioRegistrado:   (esDom ? true : freshData.costoEnvioRegistrado || false),
+          ...(comisionStripe > 0 ? { comisionCostoRegistrada: true } : {}),
           deliveredAt: firebase.firestore.FieldValue.serverTimestamp()
         });
 
@@ -558,8 +558,10 @@ async function adminCancelOrder(firestoreId, code) {
         statUpdate['numero de ventas']  = firebase.firestore.FieldValue.increment(-1);
         statUpdate['ingresosPedidos']   = firebase.firestore.FieldValue.increment(-(+((totalEfectivo + envioCobrado)).toFixed(2)));
         statUpdate['comisionesStripe']  = firebase.firestore.FieldValue.increment(-comision);
-        decCostos        += comision;          // MERGE: la comisión se sumó a 'costos' al pagar.
-        decCostosPedidos += productCost + comision;
+        // La comisión solo se restó de 'costos' (principal) si se registró al confirmar.
+        const comisionEnCostos = (order.comisionCostoRegistrada === true) ? comision : 0;
+        decCostos        += comisionEnCostos;
+        decCostosPedidos += productCost + comision;  // en 'costosPedidos' la comisión siempre estuvo (función)
         if (envioCobrado > 0) statUpdate['ingresosEnvio'] = firebase.firestore.FieldValue.increment(-(+envioCobrado.toFixed(2)));
 
         try {
@@ -683,8 +685,24 @@ async function setTrackingId(firestoreId) {
   try {
     const fresh = (await db.collection('pedidos').doc(firestoreId).get()).data() || {};
     const yaRegistrado = fresh.costoEnvioRegistrado === true;
+    const comisionYaEnCostos = fresh.comisionCostoRegistrada === true;
     const envioRealNum = +costoEnvioReal.toFixed(2);
+    const comisionNum = (typeof fresh.comisionStripe === 'number') ? +fresh.comisionStripe.toFixed(2) : 0;
     const statDocId = (fresh.sucursal === 'exsal') ? 'ColegioExsal' : 'ColegioDonBosco';
+
+    // Al CONFIRMAR el pedido registramos en 'costos' (principal) lo que aún no se haya registrado:
+    //   • el envío real (siempre, si no estaba)
+    //   • la comisión Stripe (solo tarjeta; se mezcla con CDB aquí, no en la función)
+    let addCostos = 0;
+    const pedFlags = {};
+    if (!yaRegistrado && envioRealNum > 0) {
+      addCostos += envioRealNum;
+      pedFlags.costoEnvioRegistrado = true;
+    }
+    if (!comisionYaEnCostos && comisionNum > 0) {
+      addCostos += comisionNum;
+      pedFlags.comisionCostoRegistrada = true;
+    }
 
     const batch = db.batch();
     batch.update(db.collection('pedidos').doc(firestoreId), {
@@ -693,22 +711,29 @@ async function setTrackingId(firestoreId) {
       status: 'confirmado',
       confirmedAt: firebase.firestore.FieldValue.serverTimestamp(),
       // El costo real ya quedó contabilizado → no se vuelve a sumar al entregar.
-      costoEnvioRegistrado: true
+      costoEnvioRegistrado: true,
+      ...pedFlags
     });
-    // Registrar el COSTO real del envío en el momento de asignarlo (no al entregar).
-    // Se mezcla con CDB: va a 'costos' (principal) y a 'costosPedidos'/'costosEnvio' (vista pedidos).
-    if (!yaRegistrado && envioRealNum > 0) {
-      batch.set(db.collection('estadisticas').doc(statDocId), {
-        'costos':        firebase.firestore.FieldValue.increment(envioRealNum),
-        'costosPedidos': firebase.firestore.FieldValue.increment(envioRealNum),
-        'costosEnvio':   firebase.firestore.FieldValue.increment(envioRealNum)
-      }, { merge: true });
+    // Mezcla con CDB: envío real + comisión → 'costos'; además detalle en 'costosPedidos'/'costosEnvio'.
+    if (addCostos > 0) {
+      const detalle = {
+        'costos': firebase.firestore.FieldValue.increment(+addCostos.toFixed(2))
+      };
+      if (pedFlags.costoEnvioRegistrado) {
+        detalle['costosPedidos'] = firebase.firestore.FieldValue.increment(envioRealNum);
+        detalle['costosEnvio']   = firebase.firestore.FieldValue.increment(envioRealNum);
+      }
+      batch.set(db.collection('estadisticas').doc(statDocId), detalle, { merge: true });
     }
     await batch.commit();
-    if (o) { o.trackingId = tid; o.costoEnvioReal = envioRealNum; o.status = 'confirmado'; o.costoEnvioRegistrado = true; }
+    if (o) {
+      o.trackingId = tid; o.costoEnvioReal = envioRealNum; o.status = 'confirmado';
+      o.costoEnvioRegistrado = true;
+      if (pedFlags.comisionCostoRegistrada) o.comisionCostoRegistrada = true;
+    }
     closeModal('orderDetailModal');
     refreshAdminAfterChange();
-    showToast('📦 Pedido confirmado — envío real registrado en costos');
+    showToast('📦 Pedido confirmado — envío real y comisión registrados en costos');
   } catch (err) {
     showToast('❌ Error: ' + err.message);
   }
