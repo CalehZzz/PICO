@@ -558,6 +558,8 @@ async function placeOrder() {
       paymentStatus: esDomicilio ? (metodoPago === 'tarjeta' ? 'pending' : 'efectivo') : null,
       comisionStripe: null,      // la calcula el servidor al confirmar el pago (solo tarjeta) — SOLO admin
       statsRecorded: false,      // estadísticas de venta registradas (tarjeta: al pagar / efectivo: al entregar)
+      ingresoEnvioRegistrado: false, // envío cobrado ya sumado a ventas/ingresos (tarjeta: al pagar / efectivo: al entregar)
+      costoEnvioRegistrado:   false, // envío real ya sumado a costos (al confirmar/asignar guía)
       trackingId:  null,         // lo asigna el admin; al asignarlo el pedido pasa a 'confirmado'
       confirmedAt: null,
       status:      'pending',
