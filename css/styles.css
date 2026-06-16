@@ -301,6 +301,10 @@ tr:hover td{background:var(--b50)}
   cursor:pointer;transition:all .15s;white-space:nowrap}
 .btn-cancel-order:hover{background:#fee2e2}
 .btn-cancel-order:disabled{opacity:.4;cursor:not-allowed}
+.btn-deliver-order{padding:5px 11px;border-radius:7px;border:1.5px solid #6ee7b7;
+  background:#fff;color:#059669;font-family:var(--font);font-size:.73rem;font-weight:600;
+  cursor:pointer;transition:all .15s;white-space:nowrap}
+.btn-deliver-order:hover{background:#d1fae5}
 
 /* ─── ORDER DETAIL MODAL ─── */
 .odetail-list{display:flex;flex-direction:column;gap:6px;margin:8px 0 12px}
