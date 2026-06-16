@@ -89,6 +89,11 @@ async function recordCardPaymentStats(orderId, stripePaymentId) {
     const baseCobro = typeof o.totalConEnvio === 'number' ? o.totalConEnvio : totalEfectivo;
     const comisionStripe = round2(baseCobro * STRIPE_FEE_PCT + STRIPE_FEE_FIXED);
 
+    // Envío cobrado al cliente (solo domicilio; los pedidos con tarjeta SIEMPRE son a domicilio).
+    // Se reconoce como INGRESO en el mismo momento del pago.
+    const esDom = o.tipoEntrega === 'domicilio';
+    const envioCobrado = esDom ? (typeof o.envioCosto === 'number' ? o.envioCosto : 0) : 0;
+
     const now = new Date();
     const mesKey = now.getFullYear() + '-' + String(now.getMonth()).padStart(2, '0');
 
@@ -113,22 +118,31 @@ async function recordCardPaymentStats(orderId, stripePaymentId) {
       ...(o.discountPct ? { descuentoAplicado: { nombre: o.discountName, porcentaje: o.discountPct } } : {})
     });
 
-    // 2) Estadísticas acumuladas (la comisión va en costosPedidos → baja la ganancia)
+    // 2) Estadísticas acumuladas. Modelo MEZCLADO con CDB (mismo stock):
+    //    • El envío cobrado al cliente se suma a 'ventas' e 'ingresosPedidos'.
+    //    • La comisión Stripe se suma a 'costos' (principal) y a 'costosPedidos' (vista pedidos).
+    //    • El costo de los PRODUCTOS ya está en 'costos' desde el reabastecimiento → no se re-suma.
     const statPayload = {
-      'ventas':            admin.firestore.FieldValue.increment(round2(totalVentasEfectivo)),
+      'ventas':            admin.firestore.FieldValue.increment(round2(totalVentasEfectivo + envioCobrado)),
       'unidades vendidas': admin.firestore.FieldValue.increment(totalUnidades),
       'numero de ventas':  admin.firestore.FieldValue.increment(1),
-      'ingresosPedidos':   admin.firestore.FieldValue.increment(round2(totalEfectivo)),
+      'ingresosPedidos':   admin.firestore.FieldValue.increment(round2(totalEfectivo + envioCobrado)),
+      'costos':            admin.firestore.FieldValue.increment(comisionStripe),
       'costosPedidos':     admin.firestore.FieldValue.increment(round2(productCost + comisionStripe)),
       'comisionesStripe':  admin.firestore.FieldValue.increment(comisionStripe)
       // NOTA: pedidosEntregados / pedidosPendientes NO se tocan aquí (eso ocurre al ENTREGAR).
     };
+    if (envioCobrado > 0) {
+      statPayload['ingresosEnvio'] = admin.firestore.FieldValue.increment(round2(envioCobrado));
+    }
     tx.set(db.collection('estadisticas').doc(statDocId), statPayload, { merge: true });
 
     // 3) Marcar el pedido como pagado y con estadísticas registradas
     tx.update(orderRef, {
       paymentStatus: 'paid',
       statsRecorded: true,
+      // El envío cobrado ya quedó registrado en ingresos/ventas → no se vuelve a sumar al entregar.
+      ingresoEnvioRegistrado: true,
       comisionStripe: comisionStripe,
       costTotalProductos: round2(productCost),
       paidAt: admin.firestore.FieldValue.serverTimestamp(),
