@@ -53,6 +53,9 @@ async function recordCardPaymentStats(orderId, stripePaymentId) {
 
     const sucursal = o.sucursal;
     const statDocId = (sucursal === 'cdb' || sucursal === 'domicilio') ? 'ColegioDonBosco' : 'ColegioExsal';
+    // Sucursal contable: 'domicilio' vive bajo CDB. La VENTA se guarda con esta sucursal para
+    // que aparezca en la lista de ventas del inventario (que solo filtra por 'exsal' | 'cdb').
+    const ventaSucursal = (sucursal === 'exsal') ? 'exsal' : 'cdb';
     const discFactor = o.discountPct ? ((100 - o.discountPct) / 100) : 1;
 
     let totalUnidades = 0, productCost = 0, priceTotal = 0, totalVentasEfectivo = 0;
@@ -100,7 +103,7 @@ async function recordCardPaymentStats(orderId, stripePaymentId) {
       costTotal: round2(productCost + comisionStripe),
       total: round2(totalVentasEfectivo),
       seller: 'stripe',
-      sucursal,
+      sucursal: ventaSucursal,
       date: now.toLocaleDateString('es'),
       timestamp: Date.now(),
       mes: mesKey,
