@@ -207,3 +207,122 @@ exports.onStripePaymentSucceeded = functions
     }
     return null;
   });
+
+// ════════════════════════════════════════════════════════════════
+//  3) Sincronización de productos con Stripe (catálogo + precios)
+//
+//  Disparador: onWrite de productos/{productId}.
+//   • Crear producto  → crea Product + Price en Stripe; guarda
+//     stripeProductId / stripePriceId / stripePriceAmount en el doc.
+//   • Editar precio    → los Price de Stripe son INMUTABLES, así que
+//     se crea un Price nuevo, se deja como default_price del producto
+//     y se archiva el anterior.
+//   • Editar nombre/desc → actualiza el Product en Stripe.
+//   • Borrar/purgar     → archiva (active:false) el Product en Stripe.
+//
+//  A prueba de bucles y de cambios irrelevantes (stock/restock):
+//  sale temprano si ya está sincronizado y no cambió name/desc/price.
+//  Requiere el secreto STRIPE_SECRET_KEY (ya configurado).
+// ════════════════════════════════════════════════════════════════
+exports.syncProductToStripe = functions
+  .runWith({ secrets: ['STRIPE_SECRET_KEY'] })
+  .firestore.document('productos/{productId}')
+  .onWrite(async (change, context) => {
+    const productId = context.params.productId;
+    const before = change.before.exists ? change.before.data() : null;
+    const after  = change.after.exists  ? change.after.data()  : null;
+    const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+
+    // ── BORRADO / PURGA: archivar el producto en Stripe ──
+    if (!after) {
+      const prodId = before && before.stripeProductId;
+      if (prodId) {
+        try { await stripe.products.update(prodId, { active: false }); }
+        catch (err) { console.error('No se pudo archivar el producto en Stripe', productId, err); }
+      }
+      return null;
+    }
+
+    // ── Salida temprana: ya sincronizado y sin cambios relevantes ──
+    // (Evita bucles tras nuestro propio write-back y evita trabajo en
+    //  cambios de stock/restock que no tocan name/desc/price.)
+    if (before && after.stripeProductId && after.stripePriceId &&
+        before.name === after.name &&
+        (before.desc || '') === (after.desc || '') &&
+        before.price === after.price &&
+        after.stripePriceAmount === after.price) {
+      return null;
+    }
+
+    const name  = (after.name || 'Producto').toString();
+    const desc  = (after.desc || '').toString();
+    const price = (typeof after.price === 'number') ? after.price : parseFloat(after.price);
+    if (isNaN(price) || price < 0) {
+      console.warn('Producto con precio inválido; no se sincroniza:', productId, after.price);
+      return null;
+    }
+    const amount = Math.round(price * 100); // centavos USD
+
+    try {
+      // ── 1) Asegurar que existe el Product en Stripe ──
+      let stripeProductId = after.stripeProductId || null;
+
+      // Recuperar el product de un precio migrado a mano (solo trae stripePriceId).
+      if (!stripeProductId && after.stripePriceId) {
+        try {
+          const existing = await stripe.prices.retrieve(after.stripePriceId);
+          if (existing && existing.product) {
+            stripeProductId = (typeof existing.product === 'string')
+              ? existing.product : existing.product.id;
+          }
+        } catch (e) { /* el precio viejo ya no existe; crearemos uno nuevo */ }
+      }
+
+      if (!stripeProductId) {
+        const product = await stripe.products.create({
+          name,
+          ...(desc ? { description: desc } : {}),
+          metadata: { firestoreId: productId }
+        });
+        stripeProductId = product.id;
+      } else if (before && (before.name !== after.name || (before.desc || '') !== (after.desc || ''))) {
+        // Actualizar nombre/descripción si cambiaron
+        await stripe.products.update(stripeProductId, {
+          name,
+          description: desc || null
+        });
+      }
+
+      // ── 2) Precio: crear uno nuevo si cambió el monto o aún no existe ──
+      // Los Price de Stripe son inmutables; "editar precio" = nuevo Price
+      // como default + archivar el anterior.
+      let stripePriceId = after.stripePriceId || null;
+      const needsPrice = !stripePriceId || (after.stripePriceAmount !== price);
+
+      if (needsPrice) {
+        const newPrice = await stripe.prices.create({
+          product: stripeProductId,
+          currency: 'usd',
+          unit_amount: amount
+        });
+        await stripe.products.update(stripeProductId, { default_price: newPrice.id });
+        if (stripePriceId && stripePriceId !== newPrice.id) {
+          try { await stripe.prices.update(stripePriceId, { active: false }); }
+          catch (err) { console.warn('No se pudo archivar el precio anterior', stripePriceId, err); }
+        }
+        stripePriceId = newPrice.id;
+      }
+
+      // ── 3) Guardar IDs en Firestore (solo si cambió algo: no re-dispara) ──
+      const patch = {};
+      if (after.stripeProductId   !== stripeProductId) patch.stripeProductId   = stripeProductId;
+      if (after.stripePriceId     !== stripePriceId)   patch.stripePriceId     = stripePriceId;
+      if (after.stripePriceAmount !== price)           patch.stripePriceAmount = price;
+      if (Object.keys(patch).length) {
+        await db.collection('productos').doc(productId).set(patch, { merge: true });
+      }
+    } catch (err) {
+      console.error('Error sincronizando producto con Stripe', productId, err);
+    }
+    return null;
+  });

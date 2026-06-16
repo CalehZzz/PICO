@@ -502,7 +502,7 @@ async function placeOrder() {
   const code  = genCode();
   const items = Object.keys(cart).map(id => {
     const p = products.find(x => x.id === id);
-    return { id, name: p.name, qty: cart[id], price: p.price, cost: p.cost, stripePriceId: p.stripePriceId || null };
+    return { id, name: p.name, qty: cart[id], price: p.price, cost: p.cost, stripePriceId: p.stripePriceId || null, stripePriceAmount: (typeof p.stripePriceAmount === 'number' ? p.stripePriceAmount : null) };
   });
   const rawTotal   = items.reduce((s, i) => s + i.qty * i.price, 0);
   const finalTotal = selectedDiscount
@@ -722,11 +722,14 @@ function startStripeCheckout(orderId, d) {
       const discFactor = discPct ? (1 - discPct / 100) : 1;
 
       // Construcción de line_items:
-      //  • Sin descuento y con producto migrado a Stripe → usamos su precio fijo (price: stripePriceId).
-      //  • Con descuento (o producto sin migrar) → usamos price_data con el monto exacto que se cobra,
-      //    así el cargo de Stripe coincide siempre con totalConEnvio.
+      //  • Sin descuento, producto migrado a Stripe Y con el monto sincronizado
+      //    igual al precio actual → usamos su precio fijo (price: stripePriceId).
+      //  • En cualquier otro caso (con descuento, sin migrar, o precio aún no
+      //    sincronizado en Stripe) → price_data con el monto exacto que se cobra,
+      //    así el cargo de Stripe coincide siempre con totalConEnvio y nunca se
+      //    cobra un precio viejo.
       const line_items = (d.items || []).map(i => {
-        if (!discPct && i.stripePriceId) {
+        if (!discPct && i.stripePriceId && i.stripePriceAmount === i.price) {
           return { quantity: i.qty, price: i.stripePriceId };
         }
         const unit = Math.round((i.price || 0) * discFactor * 100); // centavos, con descuento si aplica
