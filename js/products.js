@@ -7,14 +7,40 @@
 // ═══════════════════════════════════════════════════
 function detectCatEmoji(name, desc) {
   const n = ((name || '') + ' ' + (desc || '')).toLowerCase();
-  if (/resistencia|potenciometro|potenci/.test(n))             return { cat:'Resistencias',       e:'🔴' };
-  if (/capacitor|electrolit|ceramico|condensador/.test(n))     return { cat:'Capacitores',         e:'🔵' };
-  if (/transistor|mosfet|diodo|bjt|igbt/.test(n))             return { cat:'Transistores',         e:'⚫' };
-  if (/sensor|pir|dht|ultrason|ldr|llama|sonido|temp/.test(n))return { cat:'Sensores',             e:'🌡️' };
-  if (/arduino|esp32|esp8266|nodemcu|atmega|stm32/.test(n))   return { cat:'Microcontroladores',   e:'🟢' };
-  if (/\bled\b|neopixel|tira led|rgb led/.test(n))            return { cat:'LEDs',                 e:'💡' };
-  if (/header|jumper|conector|push|button|boton|jst/.test(n)) return { cat:'Conectores',           e:'🔌' };
-  return { cat:'Módulos', e:'⚙️' };
+
+  // El ORDEN importa: se evalúa de lo más específico a lo más genérico.
+  // Así un transistor que mencione "resistencia" en su texto NO cae en Resistencias.
+
+  // 1) Microcontroladores / placas de desarrollo
+  if (/\barduino\b|\besp32\b|\besp8266\b|nodemcu|atmega\d|attiny\d|stm32|raspberry|\bpic\s?1\d|microcontrolador/.test(n))
+    return { cat: 'Microcontroladores', e: '🟢' };
+
+  // 2) LEDs (antes de Transistores, para que "diodo emisor" no caiga en diodos)
+  if (/\bled\b|neopixel|ws2812|tira\s*led|diodo\s*emisor|7\s*segmentos/.test(n))
+    return { cat: 'LEDs', e: '💡' };
+
+  // 3) Transistores y diodos (números de parte muy específicos)
+  if (/\btransistor\b|\bmosfet\b|\bbjt\b|\bigbt\b|\bscr\b|\btriac\b|\bnpn\b|\bpnp\b|2n\d{3,4}|bc\d{3}|tip\d{2,3}|irfz?\d|irl\d|\bdiodo\b|\bzener\b|rectificador|1n\d{3,4}/.test(n))
+    return { cat: 'Transistores', e: '⚫' };
+
+  // 4) Sensores
+  if (/\bsensor\b|hc-?sr04|ultrason|\bdht1[12]?\b|\bldr\b|\bpir\b|mq-?\d|infrarrojo|hall|aceler[oó]metro|giroscop|mpu6050|temperatura|humedad|sensor de l[ií]nea|fotorresist|flama|\bllama\b|sonido/.test(n))
+    return { cat: 'Sensores', e: '🌡️' };
+
+  // 5) Capacitores
+  if (/\bcapacitor\b|condensador|electrol[ií]tic|cer[aá]mic|tantalio|\bmlcc\b|\d+\s*(uf|µf|nf|pf)\b/.test(n))
+    return { cat: 'Capacitores', e: '🔵' };
+
+  // 6) Resistencias (incluye potenciómetros y trimmers — resistencias variables)
+  if (/resistencia|resistor|\bohm|ohmio|potenci[oó]metro|trimmer|preset/.test(n))
+    return { cat: 'Resistencias', e: '🔴' };
+
+  // 7) Conectores / cables / protoboard / botones
+  if (/header|espad[ií]n|jumper|dupont|conector|caiman|caimanes|cocodrilo|protoboard|breadboard|push\s*button|pulsador|\bbot[oó]n\b|\bjst\b|bornera|terminal|socket|z[oó]calo|\bcable\b|interruptor|\bswitch\b/.test(n))
+    return { cat: 'Conectores', e: '🔌' };
+
+  // 8) Resto: módulos varios
+  return { cat: 'Módulos', e: '⚙️' };
 }
 
 // ═══════════════════════════════════════════════════

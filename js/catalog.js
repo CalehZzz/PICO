@@ -21,6 +21,8 @@ function renderProducts() {
                (p.desc || '').toLowerCase().includes(currentSearch);
     return mc && ms;
   });
+  // Ordenar: primero lo más popular/útil, luego alfabético.
+  currentFiltered.sort((a, b) => _pop(b) - _pop(a) || a.name.localeCompare(b.name, 'es'));
   _renderVisibleSlice();
 }
 
@@ -37,12 +39,11 @@ function goToPage(page) {
 function _renderVisibleSlice() {
   const grid   = document.getElementById('productsGrid');
   const noRes  = document.getElementById('noResults');
-  const pager  = document.getElementById('paginationControls');
 
   if (!currentFiltered.length) {
     grid.innerHTML = '';
     noRes.classList.remove('hidden');
-    pager.classList.add('hidden');
+    _updatePagers(false);
     return;
   }
   noRes.classList.add('hidden');
@@ -77,15 +78,33 @@ function _renderVisibleSlice() {
     </div>`;
   }).join('');
 
-  // Controles de paginación
-  if (totalPages <= 1) {
-    pager.classList.add('hidden');
-  } else {
-    pager.classList.remove('hidden');
-    document.getElementById('pageInfo').textContent = `Página ${currentPage} de ${totalPages}`;
-    document.getElementById('prevPageBtn').disabled = currentPage <= 1;
-    document.getElementById('nextPageBtn').disabled = currentPage >= totalPages;
-  }
+  // Controles de paginación (arriba y abajo)
+  _updatePagers(true, currentPage, totalPages);
+}
+
+// Actualiza ambos paginadores (superior e inferior) a la vez.
+function _updatePagers(show, page, totalPages) {
+  ['', 'Top'].forEach(sfx => {
+    const wrap = document.getElementById('paginationControls' + sfx);
+    if (!wrap) return;
+    if (!show || totalPages <= 1) { wrap.classList.add('hidden'); return; }
+    wrap.classList.remove('hidden');
+    const input = document.getElementById('pageInput' + sfx);
+    const total = document.getElementById('pageTotal' + sfx);
+    const prev  = document.getElementById('prevPageBtn' + sfx);
+    const next  = document.getElementById('nextPageBtn' + sfx);
+    if (input) { input.value = page; input.max = totalPages; }
+    if (total) total.textContent = totalPages;
+    if (prev) prev.disabled = page <= 1;
+    if (next) next.disabled = page >= totalPages;
+  });
+}
+
+// Ir a la página escrita en el input (se limita al rango válido en goToPage).
+function goToPageFromInput(el) {
+  const v = parseInt(el.value, 10);
+  if (isNaN(v)) { el.value = currentPage; return; }
+  goToPage(v);
 }
 
 function renderAddZoneHTML(id, noStock) {
@@ -106,10 +125,13 @@ function renderAddZoneHTML(id, noStock) {
 }
 
 function updateAddZone(id) {
-  const el = document.getElementById('addZone_' + id);
-  if (!el) return;
   const s = stockMap[id] !== undefined ? stockMap[id] : 0;
-  el.innerHTML = renderAddZoneHTML(id, s === 0);
+  const html = renderAddZoneHTML(id, s === 0);
+  const el = document.getElementById('addZone_' + id);
+  if (el) el.innerHTML = html;
+  // Mantener sincronizado el selector dentro del modal de detalle (si está abierto).
+  const elM = document.getElementById('addZoneModal_' + id);
+  if (elM) elM.innerHTML = html;
 }
 
 function filterCat(cat, btn) {
@@ -188,11 +210,51 @@ function openProductDetail(id) {
     `<div class="pd-desc-h">Descripción</div>` +
     descHtml;
 
-  foot.innerHTML = noStock
-    ? `<button class="btn-sec" onclick="closeModal('productDetailModal')">Cerrar</button>` +
-      `<button class="btn-pri" disabled style="opacity:.5;cursor:not-allowed">Sin stock</button>`
-    : `<button class="btn-sec" onclick="closeModal('productDetailModal')">Cerrar</button>` +
-      `<button class="btn-pri" onclick="addToCart('${p.id}')">🛒 Agregar al carrito</button>`;
+  foot.innerHTML =
+    `<button class="btn-sec" onclick="closeModal('productDetailModal')">Cerrar</button>` +
+    `<div class="add-zone pd-add" id="addZoneModal_${p.id}">${renderAddZoneHTML(p.id, noStock)}</div>`;
 
   openModal('productDetailModal');
+}
+
+// ═══════════════════════════════════════════════════
+//  POPULARIDAD  (orden del catálogo: lo más útil primero)
+//  Peso mayor = aparece antes. Se cachea en el producto.
+// ═══════════════════════════════════════════════════
+function productPopularity(p) {
+  const n = ((p.name || '') + ' ' + (p.desc || '')).toLowerCase();
+  const RULES = [
+    [100, /\barduino\b/],
+    [98,  /protoboard|breadboard|board de prueba/],
+    [96,  /\b(caiman|caimanes|cocodrilo|lagarto)\b|alligator/],
+    [95,  /jumper|dupont|cables?\s*(macho|hembra|de conexi|jumper)/],
+    [94,  /potenci[oó]metro/],
+    [92,  /mult[ií]metro|t[eé]ster|\btester\b/],
+    [90,  /\besp32\b|\besp8266\b|nodemcu/],
+    [88,  /resistencia|resistor|\bohm|ohmio/],
+    [86,  /\bled\b|diodo\s*emisor/],
+    [85,  /push\s*button|pulsador|\bbot[oó]n\b|t[aá]ctil/],
+    [84,  /\bservo\b|sg90|mg90/],
+    [83,  /\bsensor\b|hc-?sr04|ultrason|dht1[12]|\bldr\b|\bpir\b|sensor de l[ií]nea|infrarrojo/],
+    [80,  /capacitor|condensador|electrol[ií]tic|cer[aá]mic/],
+    [78,  /transistor|mosfet|2n2222|bc54[0-9]|tip\d{2,3}|\bnpn\b|\bpnp\b/],
+    [76,  /\bbuzzer\b|zumbador/],
+    [74,  /\brel[eé]\b|\brelay\b/],
+    [72,  /lcd\s*16|\boled\b|7\s*segmentos|display/],
+    [70,  /regulador|lm7805|ams1117|fuente/],
+    [68,  /bater[ií]a|porta\s*pila|18650|\b9v\b/],
+    [66,  /\bdiodo\b|1n400[0-9]|1n4148|zener|rectificador/],
+    [64,  /header|espad[ií]n|tira de pines|bornera|terminal/],
+    [60,  /interruptor|\bswitch\b|dip\s*switch/],
+  ];
+  let best = 0;
+  for (let i = 0; i < RULES.length; i++) {
+    if (RULES[i][1].test(n) && RULES[i][0] > best) best = RULES[i][0];
+  }
+  return best;
+}
+
+function _pop(p) {
+  if (p._pop === undefined) p._pop = productPopularity(p);
+  return p._pop;
 }
