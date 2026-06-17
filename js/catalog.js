@@ -136,10 +136,37 @@ function updateAddZone(id) {
 
 function filterCat(cat, btn) {
   currentCat = cat;
-  document.querySelectorAll('.fbtn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
+  document.querySelectorAll('.filter-item').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  // Reflejar el filtro activo en el botón "Filtrar por"
+  const label = document.getElementById('filterBtnLabel');
+  if (label) label.textContent = (cat === 'Todos') ? 'Filtrar por' : cat;
+  const fbtn = document.getElementById('filterBtn');
+  if (fbtn) fbtn.classList.toggle('is-filtered', cat !== 'Todos');
+  closeFilterMenu();
   renderProducts();
 }
+
+// Abre/cierra el menú de "Filtrar por"
+function toggleFilterMenu(e) {
+  if (e) e.stopPropagation();
+  const dd = document.getElementById('filterDropdown');
+  if (!dd) return;
+  const open = dd.classList.toggle('open');
+  const btn = document.getElementById('filterBtn');
+  if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+function closeFilterMenu() {
+  const dd = document.getElementById('filterDropdown');
+  if (dd) dd.classList.remove('open');
+  const btn = document.getElementById('filterBtn');
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+// Cerrar el menú al tocar fuera de él
+document.addEventListener('click', function (e) {
+  const dd = document.getElementById('filterDropdown');
+  if (dd && !dd.contains(e.target)) closeFilterMenu();
+});
 
 function filterProducts() {
   currentSearch = document.getElementById('searchInput').value.toLowerCase();
