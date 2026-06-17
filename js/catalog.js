@@ -56,15 +56,17 @@ function _renderVisibleSlice() {
     const s       = stockMap[p.id] !== undefined ? stockMap[p.id] : p.stock;
     const noStock = s === 0;
     return `<div class="pcard" style="animation-delay:${Math.min(i, 11) * .03}s">
-      <div class="pimg">
+      <div class="pimg pimg-clickable" onclick="openProductDetail('${p.id}')">
         ${p.img ? `<img class="pimg-photo" src="${p.img}" alt="${p.name}" loading="lazy" onerror="this.style.display='none'">` : ''}
         <span class="ptag">${p.cat}</span>
         <span class="pstock ${stockClass(s)}">${stockLabel(s)}</span>
         <span class="pimg-emoji"${p.img ? ' style="display:none"' : ''}>${p.e}</span>
       </div>
       <div class="pbody">
-        <div class="pname">${p.name}</div>
-        <div class="pdesc">${p.desc}</div>
+        <div class="pclick" onclick="openProductDetail('${p.id}')">
+          <div class="pname">${p.name}</div>
+          <div class="pdesc">${p.desc}</div>
+        </div>
         <div class="pfooter">
           <span class="pprice">$${p.price.toFixed(2)}</span>
           <div class="add-zone" id="addZone_${p.id}">
@@ -120,4 +122,77 @@ function filterCat(cat, btn) {
 function filterProducts() {
   currentSearch = document.getElementById('searchInput').value.toLowerCase();
   renderProducts();
+}
+
+// ═══════════════════════════════════════════════════
+//  DETALLE DE PRODUCTO  (modal — imagen y descripción completas)
+//  NO se muestran datos privados (costos, IDs de Stripe, etc.)
+// ═══════════════════════════════════════════════════
+function _pdEsc(str) {
+  return String(str == null ? '' : str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Crea el modal una sola vez y lo reutiliza.
+function _ensureProductDetailModal() {
+  let m = document.getElementById('productDetailModal');
+  if (m) return m;
+  m = document.createElement('div');
+  m.className = 'moverlay';
+  m.id = 'productDetailModal';
+  m.innerHTML =
+    '<div class="modal">' +
+      '<div class="mhd">' +
+        '<h2>🔎 Detalle del producto</h2>' +
+        '<button class="xbtn" onclick="closeModal(\'productDetailModal\')">✕</button>' +
+      '</div>' +
+      '<div class="mbody" id="productDetailBody"></div>' +
+      '<div class="mfoot" id="productDetailFoot"></div>' +
+    '</div>';
+  document.body.appendChild(m);
+  // Cerrar al tocar el fondo (fuera del modal)
+  m.addEventListener('click', function (e) {
+    if (e.target === m) closeModal('productDetailModal');
+  });
+  return m;
+}
+
+function openProductDetail(id) {
+  const p = products.find(x => x.id === id);
+  if (!p) return;
+
+  _ensureProductDetailModal();
+  const body = document.getElementById('productDetailBody');
+  const foot = document.getElementById('productDetailFoot');
+
+  const s       = stockMap[p.id] !== undefined ? stockMap[p.id] : p.stock;
+  const noStock = s === 0;
+
+  const imgHtml = p.img
+    ? `<img src="${_pdEsc(p.img)}" alt="${_pdEsc(p.name)}" onerror="this.style.display='none';this.parentNode.innerHTML='${_pdEsc(p.e || '📦')}'">`
+    : _pdEsc(p.e || '📦');
+
+  const descHtml = (p.desc && p.desc.trim())
+    ? `<div class="pd-desc">${_pdEsc(p.desc)}</div>`
+    : `<div class="pd-desc-empty">Este producto no tiene descripción.</div>`;
+
+  body.innerHTML =
+    `<div class="pd-img">${imgHtml}</div>` +
+    `<div class="pd-tags">` +
+      `<span class="pd-tag">${_pdEsc(p.cat)}</span>` +
+      `<span class="pd-tag ${stockClass(s)}" style="background:transparent">${_pdEsc(stockLabel(s))}</span>` +
+    `</div>` +
+    `<div class="pd-name">${_pdEsc(p.name)}</div>` +
+    `<div class="pd-price">$${p.price.toFixed(2)}</div>` +
+    `<div class="pd-desc-h">Descripción</div>` +
+    descHtml;
+
+  foot.innerHTML = noStock
+    ? `<button class="btn-sec" onclick="closeModal('productDetailModal')">Cerrar</button>` +
+      `<button class="btn-pri" disabled style="opacity:.5;cursor:not-allowed">Sin stock</button>`
+    : `<button class="btn-sec" onclick="closeModal('productDetailModal')">Cerrar</button>` +
+      `<button class="btn-pri" onclick="addToCart('${p.id}')">🛒 Agregar al carrito</button>`;
+
+  openModal('productDetailModal');
 }
