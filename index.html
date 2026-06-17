@@ -51,10 +51,27 @@
       <div class="ni">⚡</div>
       <p>Cargando productos...</p>
     </div>
+    <div id="paginationControlsTop" class="pager pager-top hidden">
+      <button id="prevPageBtnTop" class="page-arrow" onclick="goToPage(currentPage - 1)" aria-label="Página anterior">‹</button>
+      <span class="page-info-text">Página
+        <input id="pageInputTop" type="number" min="1" class="page-input" inputmode="numeric"
+          onchange="goToPageFromInput(this)"
+          onkeydown="if(event.key==='Enter'){goToPageFromInput(this);this.blur();}"
+          onfocus="this.select()" aria-label="Número de página">
+        de <span id="pageTotalTop">1</span>
+      </span>
+      <button id="nextPageBtnTop" class="page-arrow" onclick="goToPage(currentPage + 1)" aria-label="Página siguiente">›</button>
+    </div>
     <div class="pgrid" id="productsGrid" style="display:none"></div>
-    <div id="paginationControls" class="hidden" style="display:flex;align-items:center;justify-content:center;gap:14px;padding:26px 0 4px;flex-wrap:wrap">
+    <div id="paginationControls" class="pager pager-bottom hidden">
       <button id="prevPageBtn" class="page-arrow" onclick="goToPage(currentPage - 1)" aria-label="Página anterior">‹</button>
-      <span id="pageInfo" style="font-size:.88rem;font-weight:700;color:var(--g700);min-width:90px;text-align:center"></span>
+      <span class="page-info-text">Página
+        <input id="pageInput" type="number" min="1" class="page-input" inputmode="numeric"
+          onchange="goToPageFromInput(this)"
+          onkeydown="if(event.key==='Enter'){goToPageFromInput(this);this.blur();}"
+          onfocus="this.select()" aria-label="Número de página">
+        de <span id="pageTotal">1</span>
+      </span>
       <button id="nextPageBtn" class="page-arrow" onclick="goToPage(currentPage + 1)" aria-label="Página siguiente">›</button>
     </div>
     <div id="noResults" class="nores hidden">
