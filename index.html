@@ -29,23 +29,32 @@
       <span class="cat-title">Catálogo de Componentes</span>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <button id="sucursalBadge" onclick="reopenSucursalGate()" title="Cambiar sucursal"
-          style="display:flex;align-items:center;gap:6px;padding:8px 13px;border-radius:9px;border:1.5px solid var(--b200);background:var(--b50);color:var(--b600);font-family:var(--font);font-size:.8rem;font-weight:600;cursor:pointer;transition:all .16s;white-space:nowrap"></button>
+          style="display:flex;align-items:center;gap:6px;padding:9px 14px;border-radius:11px;border:none;background:var(--white);color:var(--b600);font-family:var(--font);font-size:.8rem;font-weight:600;cursor:pointer;box-shadow:var(--sh1);transition:all .16s;white-space:nowrap"></button>
         <div class="search-wrap">
           <span style="color:var(--g300)">🔍</span>
           <input type="text" id="searchInput" placeholder="Buscar producto..." oninput="filterProducts()">
         </div>
       </div>
     </div>
-    <div class="filters">
-      <button class="fbtn active" onclick="filterCat('Todos',this)">Todos</button>
-      <button class="fbtn" onclick="filterCat('Resistencias',this)">Resistencias</button>
-      <button class="fbtn" onclick="filterCat('Capacitores',this)">Capacitores</button>
-      <button class="fbtn" onclick="filterCat('Transistores',this)">Transistores</button>
-      <button class="fbtn" onclick="filterCat('Sensores',this)">Sensores</button>
-      <button class="fbtn" onclick="filterCat('Microcontroladores',this)">Microcontroladores</button>
-      <button class="fbtn" onclick="filterCat('LEDs',this)">LEDs</button>
-      <button class="fbtn" onclick="filterCat('Conectores',this)">Conectores</button>
-      <button class="fbtn" onclick="filterCat('Módulos',this)">Módulos</button>
+    <div class="filter-bar">
+      <div class="filter-dd" id="filterDropdown">
+        <button class="filter-btn" id="filterBtn" type="button" onclick="toggleFilterMenu(event)" aria-haspopup="true" aria-expanded="false">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="10" y1="18" x2="14" y2="18"/></svg>
+          <span id="filterBtnLabel">Filtrar por</span>
+          <svg class="filter-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="filter-menu" id="filterMenu" role="menu">
+          <button class="filter-item active" type="button" role="menuitemradio" onclick="filterCat('Todos',this)">Todos<svg class="filter-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></button>
+          <button class="filter-item" type="button" role="menuitemradio" onclick="filterCat('Resistencias',this)">Resistencias<svg class="filter-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></button>
+          <button class="filter-item" type="button" role="menuitemradio" onclick="filterCat('Capacitores',this)">Capacitores<svg class="filter-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></button>
+          <button class="filter-item" type="button" role="menuitemradio" onclick="filterCat('Transistores',this)">Transistores<svg class="filter-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></button>
+          <button class="filter-item" type="button" role="menuitemradio" onclick="filterCat('Sensores',this)">Sensores<svg class="filter-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></button>
+          <button class="filter-item" type="button" role="menuitemradio" onclick="filterCat('Microcontroladores',this)">Microcontroladores<svg class="filter-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></button>
+          <button class="filter-item" type="button" role="menuitemradio" onclick="filterCat('LEDs',this)">LEDs<svg class="filter-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></button>
+          <button class="filter-item" type="button" role="menuitemradio" onclick="filterCat('Conectores',this)">Conectores<svg class="filter-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></button>
+          <button class="filter-item" type="button" role="menuitemradio" onclick="filterCat('Módulos',this)">Módulos<svg class="filter-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></button>
+        </div>
+      </div>
     </div>
     <div id="loadingProducts" class="nores">
       <div class="ni">⚡</div>
