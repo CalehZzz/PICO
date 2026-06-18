@@ -1,23 +1,28 @@
 // ════════════════════════════════════════════════════════════════
-// PICO · Cloud Functions
+// PICO · Cloud Functions  ·  PASARELA: WOMPI EL SALVADOR
 //
-//  Objetivo: cuando un pedido con TARJETA se paga en Stripe, registrar las
-//  estadísticas de venta (ventas, ingresos, costos) + la comisión de Stripe
-//  (2.9% + $0.30) como costo. El stock ya se descontó al crear el pedido.
+//  Objetivo: cuando un pedido a domicilio con TARJETA se paga vía Wompi,
+//  registrar las estadísticas de venta (ventas, ingresos, costos) + la
+//  comisión de Wompi (3.5% fijo, SIN cargo fijo) como costo. El stock ya
+//  se descontó al crear el pedido (lado cliente, atómico).
 //
-//  ¿Por qué verificamos con Stripe? Porque la extensión no siempre crea el
-//  documento de pago en customers/{uid}/payments. Así que al volver del
-//  checkout marcamos el pedido (paymentReturnAck) y aquí RETRIEVE-amos la
-//  sesión en Stripe para confirmar que payment_status === 'paid' antes de
-//  tocar cualquier estadística. Nunca confiamos en el cliente.
+//  Flujo (ENLACE DE PAGO · la tarjeta se captura EN WOMPI, nunca en PICO):
+//   1) crearEnlaceWompi (callable): el servidor autentica con Wompi (OAuth
+//      client_credentials), llama a POST /EnlacePago con
+//      identificadorEnlaceComercio = orderId y monto = total del pedido, y
+//      devuelve 'urlEnlace' (la pantalla de pago alojada por Wompi).
+//   2) El navegador se redirige a urlEnlace; el cliente paga en Wompi.
+//   3) CONFIRMACIÓN (nunca confiamos en el cliente):
+//        • wompiWebhook (HTTP)  → principal. Wompi nos hace POST al terminar;
+//          trae EnlacePago.IdentificadorEnlaceComercio (= orderId).
+//        • confirmWompiOnAck (onUpdate) → respaldo, al volver del checkout
+//          re-consultamos la transacción en Wompi por si el webhook falla.
+//      Ambos re-consultan GET /TransaccionCompra/{id} y solo registran
+//      estadísticas si la transacción está APROBADA y el monto coincide.
 //
-//  Dos disparadores, ambos idempotentes (usan el mismo helper):
-//   1) confirmStripeOnAck  → onUpdate de pedidos/{id} (verifica con Stripe).
-//   2) onStripePaymentSucceeded → backup, por si la extensión SÍ sincroniza
-//      el pago en customers/{uid}/payments/{id}.
-//
-//  Requiere el secreto STRIPE_SECRET_KEY (Secret Manager):
-//     firebase functions:secrets:set STRIPE_SECRET_KEY
+//  Secretos requeridos (Secret Manager):
+//     firebase functions:secrets:set WOMPI_APP_ID
+//     firebase functions:secrets:set WOMPI_API_SECRET
 // ════════════════════════════════════════════════════════════════
 
 const functions = require('firebase-functions');
@@ -26,14 +31,87 @@ const admin = require('firebase-admin');
 admin.initializeApp();
 const db = admin.firestore();
 
-const STRIPE_FEE_PCT = 0.029;   // 2.9%
-const STRIPE_FEE_FIXED = 0.30;  // + $0.30
+// ── Configuración Wompi ──
+const WOMPI_ID_BASE  = 'https://id.wompi.sv';   // OAuth (token)
+const WOMPI_API_BASE = 'https://api.wompi.sv';  // API de pagos
+const WOMPI_FEE_PCT  = 0.035;                    // 3.5% fijo, SIN cargo fijo
+const SHIPPING_COST  = 3.49;                     // costo de envío a domicilio (debe coincidir con el cliente)
+const SECRETS = ['WOMPI_APP_ID', 'WOMPI_API_SECRET'];
 
 function round2(n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
 
-// ── Helper compartido: registra estadísticas de venta de un pedido con tarjeta ──
-// Idempotente: si el pedido ya tiene statsRecorded o paymentStatus 'paid', no hace nada.
-async function recordCardPaymentStats(orderId, stripePaymentId) {
+// ════════════════════════════════════════════════════════════════
+//  Autenticación OAuth 2.0 (Client Credentials) con caché en memoria
+// ════════════════════════════════════════════════════════════════
+let _tokenCache = { value: null, exp: 0 };
+
+async function getWompiToken() {
+  const now = Date.now();
+  if (_tokenCache.value && now < _tokenCache.exp) return _tokenCache.value;
+
+  const body = new URLSearchParams({
+    grant_type:    'client_credentials',
+    client_id:     process.env.WOMPI_APP_ID,
+    client_secret: process.env.WOMPI_API_SECRET,
+    audience:      'wompi_api'
+  });
+
+  const res = await fetch(WOMPI_ID_BASE + '/connect/token', {
+    method:  'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error('Wompi token error ' + res.status + ': ' + txt);
+  }
+  const data = await res.json();
+  // Renovamos 60s antes de que expire para evitar usar un token al borde.
+  _tokenCache = {
+    value: data.access_token,
+    exp:   now + ((data.expires_in || 3600) - 60) * 1000
+  };
+  return _tokenCache.value;
+}
+
+async function wompiApi(path, { method = 'GET', token, json } = {}) {
+  const t = token || await getWompiToken();
+  const res = await fetch(WOMPI_API_BASE + path, {
+    method,
+    headers: {
+      'authorization': 'Bearer ' + t,
+      'content-type':  'application/json'
+    },
+    ...(json ? { body: JSON.stringify(json) } : {})
+  });
+  const text = await res.text();
+  let parsed = null;
+  try { parsed = text ? JSON.parse(text) : null; } catch (_) { parsed = text; }
+  if (!res.ok) {
+    const err = new Error('Wompi API ' + method + ' ' + path + ' → ' + res.status);
+    err.status = res.status; err.body = parsed;
+    throw err;
+  }
+  return parsed;
+}
+
+// ¿La transacción consultada está aprobada? (defensivo ante variaciones de shape)
+function isApproved(tx) {
+  if (!tx) return false;
+  if (tx.esAprobada === true) return true;
+  const r = (tx.resultadoTransaccion || tx.ResultadoTransaccion || '').toString().toLowerCase();
+  return r.includes('aprobada') || r.includes('exitosa');
+}
+function txAmount(tx) {
+  const m = (tx && (tx.monto ?? tx.Monto));
+  return typeof m === 'number' ? m : parseFloat(m);
+}
+
+// ════════════════════════════════════════════════════════════════
+//  Helper compartido: registra estadísticas de venta de un pedido con tarjeta
+//  Idempotente: si el pedido ya tiene statsRecorded o paymentStatus 'paid', no hace nada.
+// ════════════════════════════════════════════════════════════════
+async function recordCardPaymentStats(orderId, wompiTxId) {
   const orderRef = db.collection('pedidos').doc(orderId);
 
   await db.runTransaction(async (tx) => {
@@ -85,12 +163,11 @@ async function recordCardPaymentStats(orderId, stripePaymentId) {
       ? o.totalConDescuento
       : round2(priceTotal * discFactor);
 
-    // Comisión de Stripe sobre el total realmente cobrado (productos con descuento + envío)
+    // Comisión de Wompi sobre el total realmente cobrado (productos con descuento + envío)
     const baseCobro = typeof o.totalConEnvio === 'number' ? o.totalConEnvio : totalEfectivo;
-    const comisionStripe = round2(baseCobro * STRIPE_FEE_PCT + STRIPE_FEE_FIXED);
+    const comisionWompi = round2(baseCobro * WOMPI_FEE_PCT);   // 3.5% fijo, sin cargo fijo
 
     // Envío cobrado al cliente (solo domicilio; los pedidos con tarjeta SIEMPRE son a domicilio).
-    // Se reconoce como INGRESO en el mismo momento del pago.
     const esDom = o.tipoEntrega === 'domicilio';
     const envioCobrado = esDom ? (typeof o.envioCosto === 'number' ? o.envioCosto : 0) : 0;
 
@@ -104,10 +181,10 @@ async function recordCardPaymentStats(orderId, stripePaymentId) {
       items: ventaItems,
       qty: totalUnidades,
       costProductos: round2(productCost),
-      comisionStripe: comisionStripe,
-      costTotal: round2(productCost + comisionStripe),
+      comisionWompi: comisionWompi,
+      costTotal: round2(productCost + comisionWompi),
       total: round2(totalVentasEfectivo),
-      seller: 'stripe',
+      seller: 'wompi',
       sucursal: ventaSucursal,
       date: now.toLocaleDateString('es'),
       timestamp: Date.now(),
@@ -118,20 +195,17 @@ async function recordCardPaymentStats(orderId, stripePaymentId) {
       ...(o.discountPct ? { descuentoAplicado: { nombre: o.discountName, porcentaje: o.discountPct } } : {})
     });
 
-    // 2) Estadísticas acumuladas. Modelo MEZCLADO con CDB (mismo stock):
+    // 2) Estadísticas acumuladas (modelo MEZCLADO con CDB · mismo stock):
     //    • El envío cobrado al cliente se suma a 'ventas' e 'ingresosPedidos'.
-    //    • La comisión Stripe se suma a 'costosPedidos' (vista pedidos) y a 'comisionesStripe'.
-    //      La comisión se suma a 'costos' (principal) al CONFIRMAR el pedido en el panel admin
-    //      (lado cliente, junto con el envío real) → no depende del despliegue de la función.
+    //    • La comisión Wompi se suma a 'costosPedidos' y a 'comisionesWompi'.
     //    • El costo de los PRODUCTOS ya está en 'costos' desde el reabastecimiento → no se re-suma.
     const statPayload = {
       'ventas':            admin.firestore.FieldValue.increment(round2(totalVentasEfectivo + envioCobrado)),
       'unidades vendidas': admin.firestore.FieldValue.increment(totalUnidades),
       'numero de ventas':  admin.firestore.FieldValue.increment(1),
       'ingresosPedidos':   admin.firestore.FieldValue.increment(round2(totalEfectivo + envioCobrado)),
-      'costosPedidos':     admin.firestore.FieldValue.increment(round2(productCost + comisionStripe)),
-      'comisionesStripe':  admin.firestore.FieldValue.increment(comisionStripe)
-      // NOTA: pedidosEntregados / pedidosPendientes NO se tocan aquí (eso ocurre al ENTREGAR).
+      'costosPedidos':     admin.firestore.FieldValue.increment(round2(productCost + comisionWompi)),
+      'comisionesWompi':   admin.firestore.FieldValue.increment(comisionWompi)
     };
     if (envioCobrado > 0) {
       statPayload['ingresosEnvio'] = admin.firestore.FieldValue.increment(round2(envioCobrado));
@@ -142,12 +216,11 @@ async function recordCardPaymentStats(orderId, stripePaymentId) {
     tx.update(orderRef, {
       paymentStatus: 'paid',
       statsRecorded: true,
-      // El envío cobrado ya quedó registrado en ingresos/ventas → no se vuelve a sumar al entregar.
       ingresoEnvioRegistrado: true,
-      comisionStripe: comisionStripe,
+      comisionWompi: comisionWompi,
       costTotalProductos: round2(productCost),
       paidAt: admin.firestore.FieldValue.serverTimestamp(),
-      ...(stripePaymentId ? { stripePaymentId } : {})
+      ...(wompiTxId ? { wompiTxId } : {})
     });
   });
 
@@ -155,174 +228,253 @@ async function recordCardPaymentStats(orderId, stripePaymentId) {
 }
 
 // ════════════════════════════════════════════════════════════════
-//  1) Confirmación al volver del checkout (verifica con Stripe)
+//  1) crearEnlaceWompi  (callable)
+//     Crea un ENLACE DE PAGO en Wompi y devuelve la URL de la pantalla de
+//     pago alojada por Wompi. El cliente ingresa su tarjeta EN WOMPI, no en
+//     nuestro sitio (la tarjeta nunca toca nuestro servidor → PCI SAQ-A).
+//     El monto se toma del pedido en Firestore, nunca del cliente.
 // ════════════════════════════════════════════════════════════════
-exports.confirmStripeOnAck = functions
-  .runWith({ secrets: ['STRIPE_SECRET_KEY'] })
+exports.crearEnlaceWompi = functions
+  .runWith({ secrets: SECRETS })
+  .https.onCall(async (data, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError('unauthenticated', 'Debes iniciar sesión.');
+    }
+    const uid = context.auth.uid;
+    const orderId = (data && data.orderId || '').toString();
+    if (!orderId) {
+      throw new functions.https.HttpsError('invalid-argument', 'Falta orderId.');
+    }
+
+    const orderRef = db.collection('pedidos').doc(orderId);
+    const snap = await orderRef.get();
+    if (!snap.exists) {
+      throw new functions.https.HttpsError('not-found', 'Pedido no encontrado.');
+    }
+    const o = snap.data();
+    if (o.uid && o.uid !== uid) {
+      throw new functions.https.HttpsError('permission-denied', 'Este pedido no es tuyo.');
+    }
+    if (o.metodoPago !== 'tarjeta') {
+      throw new functions.https.HttpsError('failed-precondition', 'El pedido no es de tarjeta.');
+    }
+    if (o.paymentStatus === 'paid' || o.statsRecorded === true) {
+      throw new functions.https.HttpsError('failed-precondition', 'El pedido ya fue pagado.');
+    }
+
+    // ── Recalcular el monto del lado SERVIDOR (autoritativo) ──
+    // No confiamos en 'totalConEnvio' del pedido: un usuario podría haberlo editado
+    // en Firestore. Releemos los precios reales desde 'productos' y el descuento real
+    // desde 'descuentos', y sumamos el envío con la constante del servidor.
+    const items = Array.isArray(o.items) ? o.items : [];
+    if (!items.length) {
+      throw new functions.https.HttpsError('failed-precondition', 'El pedido no tiene productos.');
+    }
+    const prodSnaps = await Promise.all(
+      items.map(it => db.collection('productos').doc(String(it.id)).get())
+    );
+    let subtotal = 0;
+    for (let k = 0; k < items.length; k++) {
+      const psnap = prodSnaps[k];
+      if (!psnap.exists) {
+        throw new functions.https.HttpsError('failed-precondition', 'Un producto del pedido ya no existe.');
+      }
+      const price = Number(psnap.data().price);
+      const qty = Math.max(1, parseInt(items[k].qty, 10) || 0);
+      if (!(price >= 0)) {
+        throw new functions.https.HttpsError('failed-precondition', 'Precio de producto inválido.');
+      }
+      subtotal += price * qty;
+    }
+
+    // Descuento: releer el porcentaje real desde 'descuentos' (no confiar en el pedido)
+    let pct = 0;
+    if (o.discountId) {
+      try {
+        const dSnap = await db.collection('descuentos').doc(String(o.discountId)).get();
+        if (dSnap.exists) {
+          const p = Number(dSnap.data().porcentaje);
+          if (p > 0 && p <= 100) pct = p;
+        }
+      } catch (_) {}
+    }
+    const conDescuento = pct ? subtotal * (1 - pct / 100) : subtotal;
+    const envioCosto = (o.tipoEntrega === 'domicilio') ? SHIPPING_COST : 0;
+    const monto = round2(conDescuento + envioCosto);
+
+    if (!monto || monto <= 0) {
+      throw new functions.https.HttpsError('failed-precondition', 'Monto del pedido inválido.');
+    }
+
+    // Si el monto guardado no coincide con el recalculado, "sanamos" el pedido con el
+    // valor autoritativo para que el webhook (que compara contra totalConEnvio) cuadre.
+    if (typeof o.totalConEnvio !== 'number' || Math.abs(o.totalConEnvio - monto) > 0.01) {
+      console.warn('Monto del pedido', orderId, 'corregido de', o.totalConEnvio, 'a', monto);
+      await orderRef.update({
+        total: round2(subtotal),
+        totalConDescuento: pct ? round2(conDescuento) : null,
+        discountPct: pct || null,
+        totalConEnvio: monto,
+        montoVerificadoServidor: true
+      }).catch(e => console.warn('No se pudo sanar el monto:', e));
+    }
+
+    const base = (data && data.origin) ? data.origin.toString() : 'https://picosv.com';
+    const webhookUrl = process.env.WOMPI_WEBHOOK_URL ||
+      ('https://us-central1-' + process.env.GCLOUD_PROJECT + '.cloudfunctions.net/wompiWebhook');
+
+    const nProductos = Array.isArray(o.items) ? o.items.reduce((s, i) => s + (i.qty || 1), 0) : 1;
+    const nombreProducto = 'Pedido PICO ' + (o.code || orderId) +
+      (nProductos > 1 ? (' (' + nProductos + ' productos)') : '');
+
+    const payload = {
+      // ↓ Este identificador vuelve a nosotros en el WEBHOOK y en la URL de retorno.
+      identificadorEnlaceComercio: orderId,
+      monto: round2(monto),
+      nombreProducto: nombreProducto.slice(0, 500),
+      formaPago: {
+        permitirTarjetaCreditoDebido: true,
+        permitirPagoConPuntoAgricola: false,
+        permitirPagoEnCuotasAgricola: false,
+        permitirPagoEnBitcoin: false,
+        permitePagoQuickPay: false
+      },
+      configuracion: {
+        urlRedirect: base + '/?pago=ok&order=' + orderId,   // a dónde vuelve el cliente tras pagar
+        urlRetorno:  base + '/?pago=cancel&order=' + orderId, // botón "regresar" de la pantalla de Wompi
+        esMontoEditable: false,
+        esCantidadEditable: false,
+        cantidadPorDefecto: 1,
+        urlWebhook: webhookUrl,            // confirmación principal (obligatorio tener webhook o email)
+        notificarTransaccionCliente: true  // Wompi le envía el comprobante al cliente
+      },
+      limitesDeUso: {
+        // El enlace es de un solo uso: 1 pago exitoso lo cierra.
+        cantidadMaximaPagosExitosos: 1
+      }
+    };
+
+    let resp;
+    try {
+      resp = await wompiApi('/EnlacePago', { method: 'POST', json: payload });
+    } catch (err) {
+      console.error('Error creando enlace Wompi para', orderId, err.status, err.body);
+      throw new functions.https.HttpsError('internal', 'No se pudo iniciar el pago con Wompi.');
+    }
+
+    const url = resp && (resp.urlEnlace || resp.UrlEnlace);
+    const idEnlace = resp && (resp.idEnlace ?? resp.IdEnlace);
+    if (!url) {
+      console.error('Respuesta Wompi sin urlEnlace:', resp);
+      throw new functions.https.HttpsError('internal', 'Wompi no devolvió la URL de pago.');
+    }
+
+    await orderRef.update({
+      wompiEnlaceId: (idEnlace ?? null),
+      wompiEnlaceCreatedAt: admin.firestore.FieldValue.serverTimestamp()
+    }).catch(e => console.warn('No se pudo guardar wompiEnlaceId:', e));
+
+    return { url, idEnlace: (idEnlace ?? null) };
+  });
+
+// ════════════════════════════════════════════════════════════════
+//  2) wompiWebhook  (HTTP)  ·  CONFIRMACIÓN PRINCIPAL
+//     Wompi hace POST aquí al terminar la transacción. Re-consultamos la
+//     transacción en el API (autoritativo) antes de tocar estadísticas.
+// ════════════════════════════════════════════════════════════════
+exports.wompiWebhook = functions
+  .runWith({ secrets: SECRETS })
+  .https.onRequest(async (req, res) => {
+    if (req.method !== 'POST') { res.status(405).send('Method Not Allowed'); return; }
+    try {
+      const body = req.body || {};
+      const idTx = body.IdTransaccion || body.idTransaccion ||
+                   (body.transaccionCompra && body.transaccionCompra.idTransaccion);
+      if (!idTx) { console.warn('Webhook sin IdTransaccion'); res.status(200).send('ok'); return; }
+
+      // Re-consultar la transacción en Wompi (no confiamos en el cuerpo del webhook)
+      const tx = await wompiApi('/TransaccionCompra/' + idTx);
+      if (!isApproved(tx)) {
+        console.log('Webhook: transacción no aprobada', idTx);
+        res.status(200).send('ok'); return;
+      }
+
+      // Localizar el pedido. Con Enlace de Pago, nuestro orderId vuelve en
+      // EnlacePago.IdentificadorEnlaceComercio. Dejamos respaldos por si acaso.
+      const enlace = body.EnlacePago || body.enlacePago || {};
+      let orderId = enlace.IdentificadorEnlaceComercio || enlace.identificadorEnlaceComercio || null;
+      if (!orderId && body.datosAdicionales && body.datosAdicionales.orderId) {
+        orderId = body.datosAdicionales.orderId;
+      }
+      if (!orderId) {
+        // Último recurso: buscar por el idEnlace si vino en el cuerpo.
+        const idEnlace = enlace.Id ?? enlace.id ?? null;
+        if (idEnlace != null) {
+          const q = await db.collection('pedidos').where('wompiEnlaceId', '==', idEnlace).limit(1).get();
+          if (!q.empty) orderId = q.docs[0].id;
+        }
+      }
+      if (!orderId) { console.warn('Webhook: no se encontró pedido para', idTx); res.status(200).send('ok'); return; }
+
+      // Guardamos el idTransaccion en el pedido (referencia / respaldo)
+      await db.collection('pedidos').doc(orderId)
+        .update({ wompiTxId: idTx })
+        .catch(() => {});
+
+      // Validar que el monto cobrado coincida con el del pedido (anti-fraude)
+      const orderSnap = await db.collection('pedidos').doc(orderId).get();
+      if (orderSnap.exists) {
+        const expected = orderSnap.data().totalConEnvio;
+        const got = txAmount(tx);
+        if (typeof expected === 'number' && typeof got === 'number' && Math.abs(expected - got) > 0.01) {
+          console.error('Webhook: monto no coincide', orderId, 'esperado', expected, 'recibido', got);
+          res.status(200).send('ok'); return;
+        }
+      }
+
+      await recordCardPaymentStats(orderId, idTx);
+      res.status(200).send('ok');
+    } catch (err) {
+      console.error('Error en wompiWebhook:', err.status || '', err.body || err);
+      // Respondemos 200 para que Wompi no reintente en bucle ante errores no recuperables.
+      res.status(200).send('ok');
+    }
+  });
+
+// ════════════════════════════════════════════════════════════════
+//  3) confirmWompiOnAck  (onUpdate)  ·  CONFIRMACIÓN DE RESPALDO
+//     Al volver del checkout el cliente marca paymentReturnAck=true; aquí
+//     re-consultamos la transacción en Wompi por si el webhook no llegó.
+// ════════════════════════════════════════════════════════════════
+exports.confirmWompiOnAck = functions
+  .runWith({ secrets: SECRETS })
   .firestore.document('pedidos/{orderId}')
   .onUpdate(async (change, context) => {
     const after = change.after.data() || {};
     const orderId = context.params.orderId;
 
-    // Solo nos interesa: tarjeta, marcado de retorno, aún no pagado/registrado
     if (after.metodoPago !== 'tarjeta') return null;
     if (after.paymentReturnAck !== true) return null;
     if (after.paymentStatus === 'paid' || after.statsRecorded === true) return null;
-    if (!after.stripeSessionId) {
-      console.warn('Pedido sin stripeSessionId, no se puede verificar:', orderId);
+    if (!after.wompiTxId) {
+      console.warn('Pedido sin wompiTxId, no se puede verificar:', orderId);
       return null;
     }
-
     try {
-      const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-      const session = await stripe.checkout.sessions.retrieve(after.stripeSessionId);
-      if (session.payment_status !== 'paid') {
-        console.log('La sesión aún no está pagada:', orderId, session.payment_status);
+      const tx = await wompiApi('/TransaccionCompra/' + after.wompiTxId);
+      if (!isApproved(tx)) {
+        console.log('Respaldo: transacción aún no aprobada:', orderId);
         return null;
       }
-      const pid = (session.payment_intent && typeof session.payment_intent === 'string')
-        ? session.payment_intent : null;
-      await recordCardPaymentStats(orderId, pid);
+      const expected = after.totalConEnvio;
+      const got = txAmount(tx);
+      if (typeof expected === 'number' && typeof got === 'number' && Math.abs(expected - got) > 0.01) {
+        console.error('Respaldo: monto no coincide', orderId);
+        return null;
+      }
+      await recordCardPaymentStats(orderId, after.wompiTxId);
     } catch (err) {
-      console.error('Error verificando/registrando el pago del pedido', orderId, err);
-    }
-    return null;
-  });
-
-// ════════════════════════════════════════════════════════════════
-//  2) Backup: si la extensión SÍ sincroniza el pago en Firestore
-// ════════════════════════════════════════════════════════════════
-exports.onStripePaymentSucceeded = functions
-  .firestore.document('customers/{uid}/payments/{paymentId}')
-  .onWrite(async (change, context) => {
-    const after = change.after.exists ? change.after.data() : null;
-    if (!after) return null;
-    if (after.status !== 'succeeded') return null;
-    const orderId = (after.metadata && after.metadata.orderId) || null;
-    if (!orderId) return null;
-    try {
-      await recordCardPaymentStats(orderId, context.params.paymentId);
-    } catch (err) {
-      console.error('Error (backup) registrando pago del pedido', orderId, err);
-    }
-    return null;
-  });
-
-// ════════════════════════════════════════════════════════════════
-//  3) Sincronización de productos con Stripe (catálogo + precios)
-//
-//  Disparador: onWrite de productos/{productId}.
-//   • Crear producto  → crea Product + Price en Stripe; guarda
-//     stripeProductId / stripePriceId / stripePriceAmount en el doc.
-//   • Editar precio    → los Price de Stripe son INMUTABLES, así que
-//     se crea un Price nuevo, se deja como default_price del producto
-//     y se archiva el anterior.
-//   • Editar nombre/desc → actualiza el Product en Stripe.
-//   • Borrar/purgar     → archiva (active:false) el Product en Stripe.
-//
-//  A prueba de bucles y de cambios irrelevantes (stock/restock):
-//  sale temprano si ya está sincronizado y no cambió name/desc/price.
-//  Requiere el secreto STRIPE_SECRET_KEY (ya configurado).
-// ════════════════════════════════════════════════════════════════
-exports.syncProductToStripe = functions
-  .runWith({ secrets: ['STRIPE_SECRET_KEY'] })
-  .firestore.document('productos/{productId}')
-  .onWrite(async (change, context) => {
-    const productId = context.params.productId;
-    const before = change.before.exists ? change.before.data() : null;
-    const after  = change.after.exists  ? change.after.data()  : null;
-    const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-
-    // ── BORRADO / PURGA: archivar el producto en Stripe ──
-    if (!after) {
-      const prodId = before && before.stripeProductId;
-      if (prodId) {
-        try { await stripe.products.update(prodId, { active: false }); }
-        catch (err) { console.error('No se pudo archivar el producto en Stripe', productId, err); }
-      }
-      return null;
-    }
-
-    // ── Salida temprana: ya sincronizado y sin cambios relevantes ──
-    // (Evita bucles tras nuestro propio write-back y evita trabajo en
-    //  cambios de stock/restock que no tocan name/desc/price.)
-    if (before && after.stripeProductId && after.stripePriceId &&
-        before.name === after.name &&
-        (before.desc || '') === (after.desc || '') &&
-        before.price === after.price &&
-        after.stripePriceAmount === after.price) {
-      return null;
-    }
-
-    const name  = (after.name || 'Producto').toString();
-    const desc  = (after.desc || '').toString();
-    const price = (typeof after.price === 'number') ? after.price : parseFloat(after.price);
-    if (isNaN(price) || price < 0) {
-      console.warn('Producto con precio inválido; no se sincroniza:', productId, after.price);
-      return null;
-    }
-    const amount = Math.round(price * 100); // centavos USD
-
-    try {
-      // ── 1) Asegurar que existe el Product en Stripe ──
-      let stripeProductId = after.stripeProductId || null;
-
-      // Recuperar el product de un precio migrado a mano (solo trae stripePriceId).
-      if (!stripeProductId && after.stripePriceId) {
-        try {
-          const existing = await stripe.prices.retrieve(after.stripePriceId);
-          if (existing && existing.product) {
-            stripeProductId = (typeof existing.product === 'string')
-              ? existing.product : existing.product.id;
-          }
-        } catch (e) { /* el precio viejo ya no existe; crearemos uno nuevo */ }
-      }
-
-      if (!stripeProductId) {
-        const product = await stripe.products.create({
-          name,
-          ...(desc ? { description: desc } : {}),
-          metadata: { firestoreId: productId }
-        });
-        stripeProductId = product.id;
-      } else if (before && (before.name !== after.name || (before.desc || '') !== (after.desc || ''))) {
-        // Actualizar nombre/descripción si cambiaron
-        await stripe.products.update(stripeProductId, {
-          name,
-          description: desc || null
-        });
-      }
-
-      // ── 2) Precio: crear uno nuevo si cambió el monto o aún no existe ──
-      // Los Price de Stripe son inmutables; "editar precio" = nuevo Price
-      // como default + archivar el anterior.
-      let stripePriceId = after.stripePriceId || null;
-      const needsPrice = !stripePriceId || (after.stripePriceAmount !== price);
-
-      if (needsPrice) {
-        const newPrice = await stripe.prices.create({
-          product: stripeProductId,
-          currency: 'usd',
-          unit_amount: amount
-        });
-        await stripe.products.update(stripeProductId, { default_price: newPrice.id });
-        if (stripePriceId && stripePriceId !== newPrice.id) {
-          try { await stripe.prices.update(stripePriceId, { active: false }); }
-          catch (err) { console.warn('No se pudo archivar el precio anterior', stripePriceId, err); }
-        }
-        stripePriceId = newPrice.id;
-      }
-
-      // ── 3) Guardar IDs en Firestore (solo si cambió algo: no re-dispara) ──
-      const patch = {};
-      if (after.stripeProductId   !== stripeProductId) patch.stripeProductId   = stripeProductId;
-      if (after.stripePriceId     !== stripePriceId)   patch.stripePriceId     = stripePriceId;
-      if (after.stripePriceAmount !== price)           patch.stripePriceAmount = price;
-      if (Object.keys(patch).length) {
-        await db.collection('productos').doc(productId).set(patch, { merge: true });
-      }
-    } catch (err) {
-      console.error('Error sincronizando producto con Stripe', productId, err);
+      console.error('Error verificando/registrando pago (respaldo) del pedido', orderId, err.status || err);
     }
     return null;
   });

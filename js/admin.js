@@ -265,15 +265,15 @@ async function revertDelivery(firestoreId, data) {
     // Ingreso por envío: solo se revierte si se registró AL ENTREGAR (efectivo).
     const revIngresoEnvio = (esDom && !statsAtPayment && data.ingresoEnvioRegistrado === true) ? envioCobrado : 0;
     limpiarIngresoEnvio = revIngresoEnvio > 0;
-    // Comisión Stripe: solo se sumó al entregar si la venta NO se contó al pagar (caso raro).
-    const comisionStripe = (!statsAtPayment && typeof data.comisionStripe === 'number') ? data.comisionStripe : 0;
+    // Comisión Wompi: solo se sumó al entregar si la venta NO se contó al pagar (caso raro).
+    const comisionWompi = (!statsAtPayment && typeof data.comisionWompi === 'number') ? data.comisionWompi : 0;
 
     // Productos: solo se revierten si se contabilizaron al ENTREGAR (efectivo).
     const revProdIngreso = statsAtPayment ? 0 : totalEfectivo;
     const revProdCosto   = statsAtPayment ? 0 : costTotal;
 
     statUpdate['ingresosPedidos'] = firebase.firestore.FieldValue.increment(-(+((revProdIngreso + revIngresoEnvio)).toFixed(2)));
-    statUpdate['costosPedidos']   = firebase.firestore.FieldValue.increment(-(+((revProdCosto + comisionStripe)).toFixed(2)));
+    statUpdate['costosPedidos']   = firebase.firestore.FieldValue.increment(-(+((revProdCosto + comisionWompi)).toFixed(2)));
 
     if (!statsAtPayment) {
       // 'ventas' incluye productos + envío cobrado (lo que entró al entregar en efectivo)
@@ -282,8 +282,8 @@ async function revertDelivery(firestoreId, data) {
       statUpdate['numero de ventas']  = firebase.firestore.FieldValue.increment(-1);
     }
     // La comisión ya no entra a 'costos' al entregar (entra al confirmar) → aquí solo el campo informativo.
-    if (comisionStripe > 0) {
-      statUpdate['comisionesStripe']  = firebase.firestore.FieldValue.increment(-(+comisionStripe.toFixed(2)));
+    if (comisionWompi > 0) {
+      statUpdate['comisionesWompi']  = firebase.firestore.FieldValue.increment(-(+comisionWompi.toFixed(2)));
     }
     if (revIngresoEnvio > 0) {
       statUpdate['ingresosEnvio'] = firebase.firestore.FieldValue.increment(-(+revIngresoEnvio.toFixed(2)));
@@ -423,7 +423,7 @@ async function changeStatus(firestoreId, val) {
         // ── Envío (solo domicilio) · modelo MEZCLADO con CDB ──
         //   • El envío cobrado al cliente entra a INGRESOS y a 'ventas'.
         //   • El envío real ya se registró al ASIGNARLO (setTrackingId) → aquí no se repite.
-        //   • La comisión Stripe ya se sumó al PAGAR (Cloud Function) → aquí no se repite.
+        //   • La comisión Wompi ya se sumó al PAGAR (Cloud Function) → aquí no se repite.
         const esDom = freshData.tipoEntrega === 'domicilio';
         const envioCobrado = esDom ? (typeof freshData.envioCosto === 'number' ? freshData.envioCosto : 0) : 0;
         const envioReal    = esDom ? (typeof freshData.costoEnvioReal === 'number' ? freshData.costoEnvioReal : 0) : 0;
@@ -433,8 +433,8 @@ async function changeStatus(firestoreId, val) {
         // El costo real del envío normalmente ya se registró al confirmar. Fallback por si no.
         const costoEnvioYa = freshData.costoEnvioRegistrado === true;
         const addCostoEnvio = (esDom && !costoEnvioYa) ? envioReal : 0;
-        // Comisión Stripe: si la venta ya se contabilizó al pagar, allí ya se sumó → aquí no se repite.
-        const comisionStripe = (!alreadyCounted && typeof freshData.comisionStripe === 'number') ? freshData.comisionStripe : 0;
+        // Comisión Wompi: si la venta ya se contabilizó al pagar, allí ya se sumó → aquí no se repite.
+        const comisionWompi = (!alreadyCounted && typeof freshData.comisionWompi === 'number') ? freshData.comisionWompi : 0;
 
         // Guardar trazabilidad en el pedido
         stockBatch.update(db.collection('pedidos').doc(firestoreId), {
@@ -448,7 +448,7 @@ async function changeStatus(firestoreId, val) {
           margenEnvio: +(envioCobrado - envioReal).toFixed(2),   // positivo = ganamos en el envío
           ingresoEnvioRegistrado: (esDom ? true : freshData.ingresoEnvioRegistrado || false),
           costoEnvioRegistrado:   (esDom ? true : freshData.costoEnvioRegistrado || false),
-          ...(comisionStripe > 0 ? { comisionCostoRegistrada: true } : {}),
+          ...(comisionWompi > 0 ? { comisionCostoRegistrada: true } : {}),
           deliveredAt: firebase.firestore.FieldValue.serverTimestamp()
         });
 
@@ -460,7 +460,7 @@ async function changeStatus(firestoreId, val) {
           // INGRESOS = productos (si no se contó ya) + envío cobrado (si no se registró ya)
           'ingresosPedidos':   firebase.firestore.FieldValue.increment(+(((alreadyCounted ? 0 : totalEfectivo)) + addIngresoEnvio).toFixed(2)),
           // COSTOS pedidos = costo productos (si no se contó ya) + envío real pendiente + comisión pendiente
-          'costosPedidos':     firebase.firestore.FieldValue.increment(+(((alreadyCounted ? 0 : costTotal)) + addCostoEnvio + comisionStripe).toFixed(2))
+          'costosPedidos':     firebase.firestore.FieldValue.increment(+(((alreadyCounted ? 0 : costTotal)) + addCostoEnvio + comisionWompi).toFixed(2))
         };
         if (!alreadyCounted) {
           statPayload['ventas']            = firebase.firestore.FieldValue.increment(+(totalVentasEfectivo + addIngresoEnvio).toFixed(2));
@@ -471,11 +471,11 @@ async function changeStatus(firestoreId, val) {
           statPayload['ventas'] = firebase.firestore.FieldValue.increment(+addIngresoEnvio.toFixed(2));
         }
         // 'costos' (principal) = SOLO base (inventario/restock + gastos). El envío real va a
-        // 'costosEnvio' y la comisión a 'comisionesStripe'; el acumulado los suma en el panel.
+        // 'costosEnvio' y la comisión a 'comisionesWompi'; el acumulado los suma en el panel.
         // Campos dedicados (transparencia)
         if (addIngresoEnvio > 0) statPayload['ingresosEnvio'] = firebase.firestore.FieldValue.increment(+addIngresoEnvio.toFixed(2));
         if (addCostoEnvio   > 0) statPayload['costosEnvio']   = firebase.firestore.FieldValue.increment(+addCostoEnvio.toFixed(2));
-        if (comisionStripe  > 0) statPayload['comisionesStripe'] = firebase.firestore.FieldValue.increment(+comisionStripe.toFixed(2));
+        if (comisionWompi  > 0) statPayload['comisionesWompi'] = firebase.firestore.FieldValue.increment(+comisionWompi.toFixed(2));
         stockBatch.set(db.collection('estadisticas').doc(statDocId), statPayload, { merge: true });
 
         await stockBatch.commit();
@@ -546,7 +546,7 @@ async function adminCancelOrder(firestoreId, code) {
         }
         const totalEfectivo = typeof order.totalConDescuento === 'number'
           ? order.totalConDescuento : +(priceTotal * discFactor).toFixed(2);
-        const comision = typeof order.comisionStripe === 'number' ? order.comisionStripe : 0;
+        const comision = typeof order.comisionWompi === 'number' ? order.comisionWompi : 0;
         // Envío cobrado que se sumó a ventas/ingresos al pagar (tarjeta = domicilio).
         const envioCobrado = (order.ingresoEnvioRegistrado === true)
           ? (typeof order.envioCosto === 'number' ? order.envioCosto : 0) : 0;
@@ -555,7 +555,7 @@ async function adminCancelOrder(firestoreId, code) {
         statUpdate['unidades vendidas'] = firebase.firestore.FieldValue.increment(-totalUnidades);
         statUpdate['numero de ventas']  = firebase.firestore.FieldValue.increment(-1);
         statUpdate['ingresosPedidos']   = firebase.firestore.FieldValue.increment(-(+((totalEfectivo + envioCobrado)).toFixed(2)));
-        statUpdate['comisionesStripe']  = firebase.firestore.FieldValue.increment(-comision);
+        statUpdate['comisionesWompi']  = firebase.firestore.FieldValue.increment(-comision);
         // 'costos' (principal) NO contiene la comisión → no se toca aquí.
         decCostosPedidos += productCost + comision;  // en 'costosPedidos' la comisión siempre estuvo (función)
         if (envioCobrado > 0) statUpdate['ingresosEnvio'] = firebase.firestore.FieldValue.increment(-(+envioCobrado.toFixed(2)));
@@ -686,7 +686,7 @@ async function setTrackingId(firestoreId) {
 
     // Al CONFIRMAR registramos el envío real en 'costosEnvio' (y detalle en 'costosPedidos').
     // 'costos' (principal) queda SOLO con base (inventario/gastos); el envío se suma en el panel.
-    // La comisión Stripe ya vive en 'comisionesStripe' (la registra la función al pagar).
+    // La comisión Wompi ya vive en 'comisionesWompi' (la registra la función al pagar).
     const pedFlags = {};
     const registrarEnvio = (!yaRegistrado && envioRealNum > 0);
     if (registrarEnvio) pedFlags.costoEnvioRegistrado = true;
@@ -766,13 +766,13 @@ function showOrderDetail(firestoreId) {
     // Acción según el estado del pedido
     let accionBlock = '';
     if (o.status === 'pending') {
-      // Con tarjeta, solo se puede confirmar/enviar una vez Stripe confirmó el pago.
+      // Con tarjeta, solo se puede confirmar/enviar una vez se confirmó el pago.
       const esperaPago = o.metodoPago === 'tarjeta' && o.paymentStatus !== 'paid';
       if (esperaPago) {
         accionBlock = `
         <div class="odetail-track-box">
           <div class="odetail-track-label">⏳ Esperando confirmación de pago</div>
-          <p class="odetail-track-hint">Este pedido se paga con tarjeta. Cuando Stripe confirme el pago,
+          <p class="odetail-track-hint">Este pedido se paga con tarjeta. Cuando se confirme el pago,
           podrás ingresar el costo del envío y asignar el ID de rastreo.</p>
         </div>`;
       } else {
@@ -837,10 +837,10 @@ function showOrderDetail(firestoreId) {
        </div>`
     : '';
 
-  const comisionRow = (typeof o.comisionStripe === 'number' && o.comisionStripe > 0)
+  const comisionRow = (typeof o.comisionWompi === 'number' && o.comisionWompi > 0)
     ? `<div class="odetail-subtotal" style="color:var(--g400)">
-         <span>💳 Comisión Stripe (2.9% + $0.30) · solo admin</span>
-         <span>-$${o.comisionStripe.toFixed(2)}</span>
+         <span>💳 Comisión Wompi (3.5%) · solo admin</span>
+         <span>-$${o.comisionWompi.toFixed(2)}</span>
        </div>`
     : '';
 

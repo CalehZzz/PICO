@@ -7,9 +7,8 @@
 // el stock se comporten igual que un pedido normal.
 const SHIPPING_COST = 3.49;
 
-// Nombre de la colección de clientes que usa la extensión "Run Payments with Stripe".
-// La extensión oficial usa 'customers'. Si configuraste otro nombre, cámbialo aquí.
-const STRIPE_CUSTOMERS_COLLECTION = 'customers';
+// Pagos con tarjeta vía Wompi El Salvador (Enlace de Pago · la tarjeta se ingresa en Wompi).
+// La creación del enlace de pago ocurre en la Cloud Function 'crearEnlaceWompi'.
 
 // ═══════════════════════════════════════════════════
 //  CART  (con persistencia en localStorage)
@@ -474,6 +473,7 @@ async function placeOrder() {
     }
     envio = { nombre: name, telefono, telefono2, departamento, municipio, direccion, referencia, indicaciones };
     metodoPago = selectedPayment; // 'tarjeta' | 'efectivo'
+    // Con Enlace de Pago la tarjeta se ingresa EN WOMPI, no aquí. No recogemos datos de tarjeta.
     // Guardar los datos de envío en el perfil para futuros pedidos
     try {
       const key   = 'el_profile_' + currentUser.uid;
@@ -502,15 +502,15 @@ async function placeOrder() {
   const code  = genCode();
   const items = Object.keys(cart).map(id => {
     const p = products.find(x => x.id === id);
-    return { id, name: p.name, qty: cart[id], price: p.price, cost: p.cost, stripePriceId: p.stripePriceId || null, stripePriceAmount: (typeof p.stripePriceAmount === 'number' ? p.stripePriceAmount : null) };
+    return { id, name: p.name, qty: cart[id], price: p.price, cost: p.cost };
   });
   const rawTotal   = items.reduce((s, i) => s + i.qty * i.price, 0);
   const finalTotal = selectedDiscount
     ? +(rawTotal * (1 - selectedDiscount.porcentaje / 100)).toFixed(2)
     : +rawTotal.toFixed(2);
 
-  // Capturamos el % de descuento ANTES de resetear selectedDiscount (se usa más abajo en Stripe).
-  const stripeDiscPct = selectedDiscount ? selectedDiscount.porcentaje : 0;
+  // Capturamos el % de descuento ANTES de resetear selectedDiscount (se usa más abajo en el pago).
+  const pagoDiscPct = selectedDiscount ? selectedDiscount.porcentaje : 0;
 
   try {
     const stockField = (sucursal === 'cdb' || sucursal === 'domicilio') ? 'stockCdb' : 'stockExsal';
@@ -556,7 +556,7 @@ async function placeOrder() {
       totalConEnvio: +(((selectedDiscount ? finalTotal : +rawTotal.toFixed(2))) + (esDomicilio ? SHIPPING_COST : 0)).toFixed(2),
       metodoPago:  metodoPago,   // 'tarjeta' | 'efectivo' | null
       paymentStatus: esDomicilio ? (metodoPago === 'tarjeta' ? 'pending' : 'efectivo') : null,
-      comisionStripe: null,      // la calcula el servidor al confirmar el pago (solo tarjeta) — SOLO admin
+      comisionWompi: null,       // la calcula el servidor al confirmar el pago (solo tarjeta) — SOLO admin
       statsRecorded: false,      // estadísticas de venta registradas (tarjeta: al pagar / efectivo: al entregar)
       ingresoEnvioRegistrado: false, // envío cobrado ya sumado a ventas/ingresos (tarjeta: al pagar / efectivo: al entregar)
       costoEnvioRegistrado:   false, // envío real ya sumado a costos (al confirmar/asignar guía)
@@ -645,20 +645,15 @@ async function placeOrder() {
       ? 'Te enviaremos el ID de rastreo cuando confirmemos tu pedido.'
       : 'Preséntate en el laboratorio con este código o escanea el QR.';
 
-    // Pago con tarjeta a domicilio → ir a Stripe Checkout (test/sandbox).
+    // Pago con tarjeta a domicilio → crear enlace de pago Wompi y redirigir.
     if (esDomicilio && metodoPago === 'tarjeta') {
       btn.textContent = 'Redirigiendo al pago...';
       try {
-        await startStripeCheckout(docRef.id, {
-          code,
-          items,
-          envioCosto: SHIPPING_COST,
-          discountPct: stripeDiscPct
-        });
-        return; // la página se redirige a Stripe; el pedido ya quedó pendiente
+        await startWompiCheckout(docRef.id);
+        return; // la página se redirige a Wompi; el pedido quedó pendiente
       } catch (e) {
-        console.error('Stripe checkout:', e);
-        showToast('⚠️ No se pudo iniciar el pago con tarjeta. Tu pedido quedó pendiente.');
+        console.error('Wompi checkout:', e);
+        showToast('⚠️ ' + (e && e.message ? e.message : 'No se pudo iniciar el pago con tarjeta.') + ' Tu pedido quedó pendiente.');
         openModal('successModal');
       }
     } else {
@@ -679,123 +674,53 @@ async function placeOrder() {
 }
 
 // ════════════════════════════════════════════════════════════════
-//  STRIPE CHECKOUT  (extensión "Run Payments with Stripe" · test/sandbox)
+//  PAGO CON TARJETA · WOMPI EL SALVADOR (Enlace de Pago)
 // ════════════════════════════════════════════════════════════════
-// Crea una sesión de Checkout usando line_items con price_data (precios
-// dinámicos), por lo que NO hace falta migrar los productos a Stripe.
-// ── Pantalla de carga a pantalla completa mientras se inicia el pago con Stripe ──
-function showStripeLoadingOverlay() {
-  if (document.getElementById('stripe-loading-overlay')) return;
-  if (!document.getElementById('stripe-loading-style')) {
+// La Cloud Function 'crearEnlaceWompi' crea un enlace de pago y devuelve la
+// URL de la pantalla de pago alojada por Wompi. El cliente ingresa su tarjeta
+// EN WOMPI (nunca en PICO). La confirmación del pago es 100% del lado servidor
+// (webhook + verificación), nunca se confía en el cliente.
+
+// ── Pantalla de carga a pantalla completa mientras se inicia el pago ──
+function showWompiLoadingOverlay() {
+  if (document.getElementById('wompi-loading-overlay')) return;
+  if (!document.getElementById('wompi-loading-style')) {
     const st = document.createElement('style');
-    st.id = 'stripe-loading-style';
-    st.textContent = '@keyframes stripeSpin{to{transform:rotate(360deg)}}@keyframes stripeFade{from{opacity:0}to{opacity:1}}';
+    st.id = 'wompi-loading-style';
+    st.textContent = '@keyframes wompiSpin{to{transform:rotate(360deg)}}@keyframes wompiFade{from{opacity:0}to{opacity:1}}';
     document.head.appendChild(st);
   }
   const ov = document.createElement('div');
-  ov.id = 'stripe-loading-overlay';
+  ov.id = 'wompi-loading-overlay';
   ov.setAttribute('role', 'alert');
-  ov.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;background:rgba(8,30,52,.88);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);animation:stripeFade .25s ease;padding:24px;text-align:center';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;background:rgba(8,30,52,.88);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);animation:wompiFade .25s ease;padding:24px;text-align:center';
   ov.innerHTML = `
-    <div style="width:62px;height:62px;border:5px solid rgba(255,255,255,.22);border-top-color:#fff;border-radius:50%;animation:stripeSpin .8s linear infinite"></div>
+    <div style="width:62px;height:62px;border:5px solid rgba(255,255,255,.22);border-top-color:#fff;border-radius:50%;animation:wompiSpin .8s linear infinite"></div>
     <div style="color:#fff;font-family:inherit">
-      <div style="font-size:1.18rem;font-weight:800;letter-spacing:.2px">Procesando pago en Stripe…</div>
+      <div style="font-size:1.18rem;font-weight:800;letter-spacing:.2px">Procesando pago en Wompi…</div>
       <div style="font-size:.92rem;opacity:.82;margin-top:7px;max-width:340px;line-height:1.45">Te estamos redirigiendo a la pasarela segura de pago. No cierres ni recargues esta ventana.</div>
     </div>`;
   document.body.appendChild(ov);
 }
-function hideStripeLoadingOverlay() {
-  const ov = document.getElementById('stripe-loading-overlay');
+function hideWompiLoadingOverlay() {
+  const ov = document.getElementById('wompi-loading-overlay');
   if (ov) ov.remove();
 }
 
-// La extensión escucha la colección checkout_sessions, crea la sesión en
-// Stripe y devuelve 'url'; entonces redirigimos al checkout alojado de Stripe.
-function startStripeCheckout(orderId, d) {
-  return new Promise(async (resolve, reject) => {
-    if (!currentUser || !currentUser.uid) { reject(new Error('No hay sesión activa')); return; }
-    // Mostrar de inmediato la pantalla de carga: el cliente ya confirmó y va camino a Stripe.
-    showStripeLoadingOverlay();
-    const fail = (err) => { hideStripeLoadingOverlay(); reject(err); };
-    try {
-      const discPct = d.discountPct || 0;
-      const discFactor = discPct ? (1 - discPct / 100) : 1;
-
-      // Construcción de line_items:
-      //  • Sin descuento, producto migrado a Stripe Y con el monto sincronizado
-      //    igual al precio actual → usamos su precio fijo (price: stripePriceId).
-      //  • En cualquier otro caso (con descuento, sin migrar, o precio aún no
-      //    sincronizado en Stripe) → price_data con el monto exacto que se cobra,
-      //    así el cargo de Stripe coincide siempre con totalConEnvio y nunca se
-      //    cobra un precio viejo.
-      const line_items = (d.items || []).map(i => {
-        if (!discPct && i.stripePriceId && i.stripePriceAmount === i.price) {
-          return { quantity: i.qty, price: i.stripePriceId };
-        }
-        const unit = Math.round((i.price || 0) * discFactor * 100); // centavos, con descuento si aplica
-        return {
-          quantity: i.qty,
-          price_data: {
-            currency: 'usd',
-            unit_amount: unit,
-            product_data: { name: i.name }
-          }
-        };
-      });
-      // Línea aparte para el costo de envío (siempre dinámica)
-      if (d.envioCosto) {
-        line_items.push({
-          quantity: 1,
-          price_data: {
-            currency: 'usd',
-            unit_amount: Math.round(d.envioCosto * 100),
-            product_data: { name: 'Envío a domicilio' }
-          }
-        });
-      }
-
-      const base = location.origin;
-      const sessRef = await db
-        .collection(STRIPE_CUSTOMERS_COLLECTION).doc(currentUser.uid)
-        .collection('checkout_sessions').add({
-          mode: 'payment',
-          line_items,
-          success_url: base + '/?pago=ok&order='     + orderId,
-          cancel_url:  base + '/?pago=cancel&order='  + orderId,
-          // metadata en la sesión y en el PaymentIntent: así el webhook (Cloud Function)
-          // recibe el orderId en customers/{uid}/payments/{id}.metadata.orderId y descuenta stock.
-          metadata: { orderId: orderId, code: d.code || '' },
-          payment_intent_data: { metadata: { orderId: orderId, code: d.code || '' } }
-        });
-
-      // La extensión rellena 'url' (o 'error') de forma asíncrona.
-      let settled = false;
-      const unsub = sessRef.onSnapshot(snap => {
-        const data = snap.data() || {};
-        if (data.error) {
-          settled = true; unsub();
-          fail(new Error(data.error.message || 'Error al crear la sesión de pago'));
-        } else if (data.url) {
-          settled = true; unsub();
-          // Guardamos el sessionId de Stripe en el pedido: la Cloud Function lo usa para
-          // VERIFICAR el pago con Stripe al regresar del checkout y recién ahí registrar estadísticas.
-          const sid = data.sessionId || data.id || null;
-          db.collection('pedidos').doc(orderId)
-            .update({ stripeSessionId: sid })
-            .catch(e => console.warn('No se pudo guardar stripeSessionId:', e))
-            .finally(() => {
-              window.location.assign(data.url); // → Stripe Checkout (test mode)
-              resolve();
-            });
-        }
-      }, err => { if (!settled) { settled = true; fail(err); } });
-
-      // Si en 25s no llegó la URL, asumimos que algo falló en la extensión.
-      setTimeout(() => {
-        if (!settled) { settled = true; try { unsub(); } catch (_) {} fail(new Error('Tiempo de espera agotado al iniciar el pago')); }
-      }, 25000);
-    } catch (e) { fail(e); }
-  });
+// Crea el enlace de pago vía Cloud Function y redirige a la pantalla de Wompi.
+async function startWompiCheckout(orderId) {
+  if (!currentUser || !currentUser.uid) throw new Error('No hay sesión activa');
+  showWompiLoadingOverlay();
+  try {
+    const fn = firebase.functions().httpsCallable('crearEnlaceWompi');
+    const res = await fn({ orderId, origin: location.origin });
+    const url = res && res.data && res.data.url;
+    if (!url) { hideWompiLoadingOverlay(); throw new Error('Wompi no devolvió la URL de pago'); }
+    window.location.assign(url); // → pantalla de pago alojada por Wompi
+  } catch (e) {
+    hideWompiLoadingOverlay();
+    throw new Error(e && e.message ? e.message : 'No se pudo iniciar el pago con Wompi');
+  }
 }
 
 function onSuccessClose() {

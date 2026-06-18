@@ -1,14 +1,13 @@
 {
   "name": "functions",
-  "description": "Cloud Functions de PICO (confirmación de pago Stripe → estadísticas + comisión)",
+  "description": "Cloud Functions de PICO (confirmación de pago Wompi → estadísticas + comisión)",
   "engines": {
     "node": "20"
   },
   "main": "index.js",
   "dependencies": {
     "firebase-admin": "^11.11.1",
-    "firebase-functions": "^4.9.0",
-    "stripe": "^14.25.0"
+    "firebase-functions": "^4.9.0"
   },
   "private": true
 }

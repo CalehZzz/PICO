@@ -175,7 +175,7 @@ function filterProducts() {
 
 // ═══════════════════════════════════════════════════
 //  DETALLE DE PRODUCTO  (modal — imagen y descripción completas)
-//  NO se muestran datos privados (costos, IDs de Stripe, etc.)
+//  NO se muestran datos privados (costos, etc.)
 // ═══════════════════════════════════════════════════
 function _pdEsc(str) {
   return String(str == null ? '' : str)
