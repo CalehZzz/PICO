@@ -61,11 +61,33 @@ function toggleProfileSections(sucursal) {
   if (shipping) shipping.style.display = esDom ? '' : 'none';
 }
 
+// Al cambiar la sucursal en el perfil: si un usuario normal elige domicilio,
+// mostramos "Próximamente" y revertimos la selección (domicilio es solo admin).
+function onProfileSucursalChange(value) {
+  if (value === 'domicilio' && !isAdmin) {
+    showComingSoon();
+    const sel = document.getElementById('profileSucursal');
+    const prev = (getSavedProfile().sucursal && getSavedProfile().sucursal !== 'domicilio')
+      ? getSavedProfile().sucursal : '';
+    if (sel) sel.value = prev;
+    toggleProfileSections(prev);
+    return;
+  }
+  toggleProfileSections(value);
+}
+
 function saveProfile() {
   const grade    = document.getElementById('profileGrade').value;
   const section  = document.getElementById('profileSection').value;
   const sucursal = document.getElementById('profileSucursal').value;
   if (!sucursal) { showToast('⚠️ Elegí cómo querés recibir tus pedidos'); return; }
+  // Envío a domicilio aún no disponible para usuarios normales (sí para admin).
+  if (sucursal === 'domicilio' && !isAdmin) {
+    showComingSoon();
+    document.getElementById('profileSucursal').value = selectedSucursal || '';
+    toggleProfileSections(selectedSucursal || '');
+    return;
+  }
 
   // Partimos del perfil existente para NO borrar datos ya guardados (envío, etc.)
   const prof = getSavedProfile();
