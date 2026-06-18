@@ -29,34 +29,89 @@
     <div class="profile-card">
       <div id="profileInfo"></div>
       <hr class="divider" style="margin:0 0 20px">
-      <p style="font-size:.88rem;font-weight:600;color:var(--g700);margin-bottom:4px">📚 Datos académicos</p>
-      <p style="font-size:.78rem;color:var(--g400);margin-bottom:16px">Se completarán automáticamente al confirmar un pedido.</p>
-      <div class="frow">
-        <div>
-          <label class="flabel">Grado</label>
-          <select id="profileGrade" class="fselect">
-            <option value="">Seleccionar...</option>
-            <option>1° Bachillerato</option>
-            <option>2° Bachillerato</option>
-            <option>3° Bachillerato</option>
-          </select>
-        </div>
-        <div>
-          <label class="flabel">Sección</label>
-          <select id="profileSection" class="fselect">
-            <option value="">Seleccionar...</option>
-            <option>A</option><option>B</option><option>C</option>
-            <option>D</option><option>E</option><option>F</option>
-            <option>G</option><option>H</option><option>I</option>
-          </select>
-        </div>
-      </div>
-      <label class="flabel">Sucursal</label>
-      <select id="profileSucursal" class="fselect">
+
+      <label class="flabel">¿Cómo querés recibir tus pedidos?</label>
+      <select id="profileSucursal" class="fselect" onchange="toggleProfileSections(this.value)">
         <option value="">Seleccionar...</option>
         <option value="cdb">🏫 CDB</option>
         <option value="exsal">🏢 EXSAL</option>
+        <option value="domicilio">🚚 Envío a domicilio</option>
       </select>
+
+      <!-- DATOS ACADÉMICOS (retiro en sucursal) -->
+      <div id="profileAcademic">
+        <p style="font-size:.88rem;font-weight:600;color:var(--g700);margin:16px 0 4px">📚 Datos académicos <span style="font-weight:400;color:var(--g400)">(opcional)</span></p>
+        <p style="font-size:.78rem;color:var(--g400);margin-bottom:16px">Se completan automáticamente al confirmar un pedido para retiro en sucursal.</p>
+        <div class="frow">
+          <div>
+            <label class="flabel">Grado</label>
+            <select id="profileGrade" class="fselect">
+              <option value="">Seleccionar...</option>
+              <option>1° Bachillerato</option>
+              <option>2° Bachillerato</option>
+              <option>3° Bachillerato</option>
+            </select>
+          </div>
+          <div>
+            <label class="flabel">Sección</label>
+            <select id="profileSection" class="fselect">
+              <option value="">Seleccionar...</option>
+              <option>A</option><option>B</option><option>C</option>
+              <option>D</option><option>E</option><option>F</option>
+              <option>G</option><option>H</option><option>I</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- DATOS DE ENVÍO (domicilio) -->
+      <div id="profileShipping" style="display:none">
+        <p style="font-size:.88rem;font-weight:600;color:var(--g700);margin:16px 0 4px">🚚 Datos de envío <span style="font-weight:400;color:var(--g400)">(opcional)</span></p>
+        <p style="font-size:.78rem;color:var(--g400);margin-bottom:16px">Guardá tu dirección una vez y se autocompletará en tus próximos pedidos a domicilio.</p>
+        <div class="frow">
+          <div>
+            <label class="flabel">Teléfono</label>
+            <input type="tel" id="profileShipPhone" class="finput" placeholder="7000-0000" inputmode="tel">
+          </div>
+          <div>
+            <label class="flabel">Teléfono adicional</label>
+            <input type="tel" id="profileShipPhone2" class="finput" placeholder="7000-0000" inputmode="tel">
+          </div>
+        </div>
+        <div class="frow">
+          <div>
+            <label class="flabel">Departamento</label>
+            <select id="profileShipDepartment" class="fselect">
+              <option value="">Seleccionar...</option>
+              <option>Ahuachapán</option>
+              <option>Santa Ana</option>
+              <option>Sonsonate</option>
+              <option>Chalatenango</option>
+              <option>La Libertad</option>
+              <option>San Salvador</option>
+              <option>Cuscatlán</option>
+              <option>La Paz</option>
+              <option>Cabañas</option>
+              <option>San Vicente</option>
+              <option>Usulután</option>
+              <option>San Miguel</option>
+              <option>Morazán</option>
+              <option>La Unión</option>
+            </select>
+          </div>
+          <div>
+            <label class="flabel">Municipio</label>
+            <input type="text" id="profileShipCity" class="finput" placeholder="Ej. Soyapango">
+          </div>
+        </div>
+        <label class="flabel">Dirección</label>
+        <input type="text" id="profileShipAddress" class="finput" placeholder="Calle, número, colonia, pasaje...">
+        <label class="flabel">Punto de referencia</label>
+        <input type="text" id="profileShipRef" class="finput" placeholder="Portón negro, frente a la tienda...">
+        <label class="flabel">Indicaciones (opcional)</label>
+        <input type="text" id="profileShipNotes" class="finput" placeholder="Instrucciones para la entrega...">
+      </div>
+
       <button class="btn-auth" onclick="saveProfile()">Guardar cambios</button>
       <button onclick="doLogout()" style="width:100%;margin-top:10px;padding:11px;border-radius:9px;border:1.5px solid #fca5a5;background:#fff;color:#dc2626;font-family:var(--font);font-size:.87rem;font-weight:700;cursor:pointer;transition:all .16s" onmouseover="this.style.background='#fee2e2'" onmouseout="this.style.background='#fff'">👋 Cerrar Sesión</button>
     </div>

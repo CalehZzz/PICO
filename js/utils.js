@@ -117,8 +117,6 @@ function showComingSoon() {
 }
 
 function chooseGateSucursal(suc) {
-  // Envío a domicilio aún no disponible para usuarios normales (sí para admin).
-  if (suc === 'domicilio' && !isAdmin) { showComingSoon(); return; }
   selectedSucursal = suc;
   localStorage.setItem(SUCURSAL_KEY, suc);
   // Sincronizar con el perfil del usuario logueado (si lo hay)
