@@ -5,7 +5,7 @@
 // ═══════════════════════════════════════════════════
 //  AUTH STATE LISTENER
 // ═══════════════════════════════════════════════════
-auth.onAuthStateChanged(user => {
+auth.onAuthStateChanged(async user => {
   if (user) {
     currentUser = {
       uid:      user.uid,
@@ -13,10 +13,18 @@ auth.onAuthStateChanged(user => {
       name:     user.displayName || user.email.split('@')[0],
       photoURL: user.photoURL || null
     };
-    // Admin = autenticado con email + contraseña
-    isAdmin = user.providerData.some(p => p.providerId === 'password');
+    // Rol de administrador REAL: custom claim en el token (admin === true).
+    // Lo define la Cloud Function 'setAdminRole' y lo aplican las reglas de Firestore.
+    try {
+      const tokenResult = await user.getIdTokenResult();
+      isAdmin = tokenResult.claims.admin === true;
+    } catch (_) {
+      isAdmin = false;
+    }
     // Sincronizar la sucursal elegida en el gate con el perfil del usuario
     if (selectedSucursal) syncSucursalToProfile(selectedSucursal);
+    // Cargar el perfil guardado en la nube (cross-device) y fusionarlo con el caché local
+    loadProfileFromCloud();
     updateNavAuth();
     // Recargar siempre al iniciar sesión para que el stockMap incluya pedidos pendientes
     loadProducts();
@@ -45,6 +53,7 @@ auth.onAuthStateChanged(user => {
     currentUser = null;
     isAdmin     = false;
     if (adminUnsubscribe) { adminUnsubscribe(); adminUnsubscribe = null; }
+    if (typeof unsubAdmins !== 'undefined' && unsubAdmins) { unsubAdmins(); unsubAdmins = null; }
     if (unsubDescuentos)  { unsubDescuentos();  unsubDescuentos  = null; }
     if (unsubUserDiscount){ unsubUserDiscount();unsubUserDiscount= null; }
     allDescuentos    = [];

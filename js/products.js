@@ -112,7 +112,11 @@ async function loadProducts() {
                      : null;
     products = [];
     rawProducts.forEach(d => {
-      const { cat, e } = detectCatEmoji(d.name, d.desc);
+      const det = detectCatEmoji(d.name, d.desc);
+      // Categoría: si el admin la asignó explícitamente, se usa esa;
+      // si no, se cae al detector automático (compatibilidad con productos viejos).
+      const cat = (d.categoria && String(d.categoria).trim()) ? String(d.categoria).trim() : det.cat;
+      const e   = det.e;
       let s;
       if (stockField) {
         // Stock real de la sucursal seleccionada
@@ -131,6 +135,8 @@ async function loadProducts() {
         cost:  typeof d.cost  === 'number' ? d.cost  : 0,
         desc:  d.desc  || '',
         img:   d.imageUrl || '',
+        // Orden manual decidido por el admin (menor = aparece primero). null = automático.
+        orden: (typeof d.orden === 'number' && isFinite(d.orden)) ? d.orden : null,
         stock: s, cat, e
       });
       stockMap[d.id] = s;
@@ -141,6 +147,7 @@ async function loadProducts() {
     // momento de crear el pedido, así que NO se vuelve a restar aquí (evita doble descuento).
 
     if (hasGrid) { loadEl.style.display = 'none'; gridEl.style.display = ''; }
+    buildCategoryFilter();   // construir el filtro con las categorías reales del catálogo
     renderProducts();
     // Re-renderizar carrito ahora que products ya está cargado (fix: al init loadCart corre antes que Firestore)
     updateCartUI();

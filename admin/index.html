@@ -11,6 +11,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-functions-compat.js"></script>
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
 <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96.png">
@@ -29,6 +30,23 @@
       <h2>PICO</h2>
       <button class="nbtn nbtn-ghost" onclick="doLogout()" style="color:var(--g400)">← Cerrar sesión</button>
     </div>
+    <!-- ── ADMINISTRADORES (rol real vía custom claims) ── -->
+    <div class="atable-wrap" style="margin-bottom:24px">
+      <div class="atable-hd" style="align-items:flex-start;flex-direction:column;gap:6px">
+        <h3>🛡️ Administradores</h3>
+        <p style="font-size:.8rem;color:var(--g400);margin:0">Otorga o quita el rol de administrador por correo. El usuario debe haber iniciado sesión en PICO al menos una vez. El cambio se aplica la próxima vez que esa persona inicie sesión.</p>
+      </div>
+      <div style="padding:16px 20px 20px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+          <input type="email" id="adminRoleEmail" class="finput" placeholder="correo@ejemplo.com" style="flex:1;min-width:200px" autocomplete="off">
+          <button class="btn-pri" style="flex:none" onclick="setUserAdmin(true)">Hacer admin</button>
+          <button class="btn-sec" style="flex:none" onclick="setUserAdmin(false)">Quitar admin</button>
+        </div>
+        <div id="adminRoleMsg" style="font-size:.82rem;margin-bottom:12px;min-height:1em"></div>
+        <div id="adminsListSection"><p style="font-size:.82rem;color:var(--g400)">Cargando administradores...</p></div>
+      </div>
+    </div>
+
     <!-- ── ASIGNACIÓN DE DESCUENTOS POR CLIENTE ── -->
     <div class="atable-wrap" style="margin-bottom:24px">
       <div class="atable-hd" style="align-items:flex-start;flex-direction:column;gap:6px">

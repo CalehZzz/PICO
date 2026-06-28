@@ -168,4 +168,6 @@ function syncSucursalToProfile(suc) {
   const saved = JSON.parse(localStorage.getItem(key) || '{}');
   saved.sucursal = suc;
   localStorage.setItem(key, JSON.stringify(saved));
+  // Reflejar también en la nube (cross-device). No bloquea.
+  if (typeof saveProfileToCloud === 'function') saveProfileToCloud({ sucursal: suc });
 }

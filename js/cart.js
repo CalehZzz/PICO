@@ -309,6 +309,8 @@ function updateCartUI() {
 
   // Barra de progreso de envío + recomendaciones (solo entrega a domicilio)
   renderShippingProgress();
+  // Línea explícita del envío que se paga AHORA + total con envío (solo domicilio)
+  renderCartShippingLine();
 
   const el = document.getElementById('cartItems');
   if (!Object.keys(cart).length) {
@@ -433,6 +435,32 @@ function renderShipRecs(gap) {
 function shipRecAdd(id) {
   if (cart[id]) cartInc(id);
   else          addToCart(id);
+}
+
+// Línea clara del envío que se paga AHORA + total con envío (solo domicilio).
+// Aparece en el pie del carrito, debajo del subtotal, para que no haya dudas
+// de cuánto se cobra de envío en este momento.
+function renderCartShippingLine() {
+  const el = document.getElementById('cartShippingLine');
+  if (!el) return;
+  const esDomicilio = selectedSucursal === 'domicilio';
+  const subtotal    = getCartTotal();
+  if (!esDomicilio || subtotal <= 0) { el.style.display = 'none'; el.innerHTML = ''; return; }
+
+  const envio         = getShippingCost(subtotal);
+  const totalConEnvio = +(subtotal + envio).toFixed(2);
+  const esGratis      = envio === 0;
+
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div class="cship-line">
+      <span class="cship-line-lbl">🚚 Envío actual</span>
+      <span class="cship-line-val ${esGratis ? 'free' : ''}">${esGratis ? '¡GRATIS!' : '$' + envio.toFixed(2)}</span>
+    </div>
+    <div class="cship-line cship-total-line">
+      <span class="cship-line-lbl">Total con envío</span>
+      <span class="cship-line-val total">$${totalConEnvio.toFixed(2)}</span>
+    </div>`;
 }
 
 function openCart()  {
@@ -625,6 +653,12 @@ async function placeOrder() {
       prof.shipAddress = direccion;    prof.shipRef = referencia;
       prof.shipNotes = indicaciones;
       localStorage.setItem(key, JSON.stringify(prof));
+      // Guardar también en la nube (cross-device)
+      if (typeof saveProfileToCloud === 'function') saveProfileToCloud({
+        shipPhone: telefono, shipPhone2: telefono2,
+        shipDepartment: departamento, shipCity: municipio,
+        shipAddress: direccion, shipRef: referencia, shipNotes: indicaciones
+      });
     } catch (_) {}
   }
 

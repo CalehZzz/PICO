@@ -10,6 +10,50 @@ function getSavedProfile() {
   return JSON.parse(localStorage.getItem('el_profile_' + currentUser.uid) || '{}');
 }
 
+// ═══════════════════════════════════════════════════
+//  PERFIL EN LA NUBE (Firestore: perfiles/{uid})
+//  Se guarda across-devices. localStorage queda como caché rápido y
+//  síncrono; Firestore es la fuente de verdad.
+// ═══════════════════════════════════════════════════
+function profileDocRef() {
+  return currentUser ? db.collection('perfiles').doc(currentUser.uid) : null;
+}
+
+// Lee el perfil de la nube al iniciar sesión y lo fusiona con el caché local.
+// Migra perfiles antiguos que solo existían en localStorage.
+async function loadProfileFromCloud() {
+  if (!currentUser) return;
+  const key = 'el_profile_' + currentUser.uid;
+  let local = {};
+  try { local = JSON.parse(localStorage.getItem(key) || '{}'); } catch (_) {}
+  try {
+    const snap = await profileDocRef().get();
+    if (snap.exists) {
+      const cloud = snap.data() || {};
+      // La nube es la fuente de verdad; lo local solo llena huecos.
+      const merged = { ...local, ...cloud };
+      // La sucursal elegida en el gate ESTA sesión tiene prioridad.
+      if (selectedSucursal) merged.sucursal = selectedSucursal;
+      localStorage.setItem(key, JSON.stringify(merged));
+    } else if (Object.keys(local).length) {
+      // Migración: perfil viejo solo-local → subirlo a la nube.
+      await profileDocRef().set(local, { merge: true });
+    }
+  } catch (e) {
+    console.warn('No se pudo cargar el perfil desde la nube:', e);
+  }
+  // Refrescar UI si estamos en la página de perfil
+  if (document.body.dataset.page === 'profile') renderProfile();
+}
+
+// Guarda (merge) campos del perfil en la nube. No bloquea la UI.
+function saveProfileToCloud(prof) {
+  const ref = profileDocRef();
+  if (!ref) return Promise.resolve();
+  return ref.set(prof, { merge: true })
+    .catch(e => console.warn('No se pudo guardar el perfil en la nube:', e));
+}
+
 function renderProfile() {
   if (!currentUser) { showPage('catalog'); return; }
   const initials   = currentUser.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -84,6 +128,8 @@ function saveProfile() {
   prof.shipNotes      = val('profileShipNotes');
 
   localStorage.setItem('el_profile_' + currentUser.uid, JSON.stringify(prof));
+  // Guardar también en la nube (cross-device)
+  saveProfileToCloud(prof);
 
   // Si cambió la sucursal desde el perfil, reflejarlo en el gate y recargar el stock
   if (sucursal && sucursal !== selectedSucursal) {

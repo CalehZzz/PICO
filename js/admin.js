@@ -83,11 +83,88 @@ function refreshAdminAfterChange() {
 function renderAdminPanel() {
   if (!isAdmin) return;
   renderAdminDiscountSection();
+  startAdminsListener();
   // Reiniciar a la primera página de cada sección y cargar
   adminPaging.active = { page: 0, cursors: [], docs: [], atEnd: false, loading: false };
   adminPaging.done   = { page: 0, cursors: [], docs: [], atEnd: false, loading: false };
   loadAdminSection('active');
   loadAdminSection('done');
+}
+
+// ═══════════════════════════════════════════════════
+//  GESTIÓN DE ADMINISTRADORES (rol real · custom claims)
+//  El rol se otorga/quita con la Cloud Function 'setAdminRole'.
+//  La colección 'admins/{uid}' es solo un espejo para listarlos aquí.
+// ═══════════════════════════════════════════════════
+let unsubAdmins = null;
+
+function startAdminsListener() {
+  if (!isAdmin || unsubAdmins) return;
+  unsubAdmins = db.collection('admins').orderBy('since', 'asc').onSnapshot(
+    snap => {
+      const list = [];
+      snap.forEach(d => list.push({ uid: d.id, ...d.data() }));
+      renderAdminsList(list);
+    },
+    err => {
+      console.warn('admins listener:', err);
+      const el = document.getElementById('adminsListSection');
+      if (el) el.innerHTML = '<p style="font-size:.82rem;color:var(--g400)">No se pudo cargar la lista de administradores.</p>';
+    }
+  );
+}
+
+function renderAdminsList(list) {
+  const el = document.getElementById('adminsListSection');
+  if (!el) return;
+  if (!list.length) {
+    el.innerHTML = '<p style="font-size:.82rem;color:var(--g400)">Aún no hay administradores en la lista.</p>';
+    return;
+  }
+  el.innerHTML = list.map(a => {
+    const safeEmail = _pdEsc(a.email || a.uid);
+    const onclickEmail = _pdEsc(a.email || '').replace(/'/g, "\\'");
+    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;border:1px solid var(--g100);border-radius:9px;margin-bottom:7px">
+      <div style="min-width:0">
+        <div style="font-weight:600;color:var(--g900);font-size:.88rem;overflow:hidden;text-overflow:ellipsis">${safeEmail}</div>
+        ${a.since ? `<div style="font-size:.72rem;color:var(--g400)">desde ${new Date(a.since).toLocaleDateString('es-SV')}</div>` : ''}
+      </div>
+      <button class="nbtn nbtn-ghost" style="color:#ef4444;flex:none" onclick="quickRemoveAdmin('${onclickEmail}')">Quitar</button>
+    </div>`;
+  }).join('');
+}
+
+async function setUserAdmin(makeAdmin) {
+  const input = document.getElementById('adminRoleEmail');
+  const msg   = document.getElementById('adminRoleMsg');
+  if (!input || !msg) return;
+  const email = (input.value || '').trim().toLowerCase();
+  if (!email) { msg.style.color = '#ef4444'; msg.textContent = 'Escribe un correo.'; return; }
+  msg.style.color = 'var(--g400)';
+  msg.textContent = 'Procesando...';
+  try {
+    const fn  = firebase.functions().httpsCallable('setAdminRole');
+    const res = await fn({ email, makeAdmin });
+    msg.style.color = 'var(--green)';
+    msg.textContent = makeAdmin
+      ? `✓ ${email} ahora es administrador. Deberá volver a iniciar sesión para que se aplique.`
+      : `✓ Se quitó el rol de administrador a ${email}.`;
+    input.value = '';
+    // Si me cambié el rol a mí mismo, refresco mi token para que aplique de inmediato
+    if (currentUser && email === (currentUser.email || '').toLowerCase() && auth.currentUser) {
+      await auth.currentUser.getIdToken(true);
+    }
+  } catch (e) {
+    msg.style.color = '#ef4444';
+    msg.textContent = '⚠️ ' + (e && e.message ? e.message : 'No se pudo completar la acción.');
+  }
+}
+
+function quickRemoveAdmin(email) {
+  if (!email) return;
+  const input = document.getElementById('adminRoleEmail');
+  if (input) input.value = email;
+  setUserAdmin(false);
 }
 
 // Renderiza la página actual de una sección (con filtro de texto opcional sobre lo cargado)

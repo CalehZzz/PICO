@@ -219,6 +219,16 @@ nav{position:sticky;top:0;z-index:200;background:rgba(239,246,255,.72);backdrop-
   display:flex;align-items:center;justify-content:center;transition:background .15s}
 .ship-rec:hover .ship-rec-add{background:var(--b600)}
 
+/* ─── Línea de envío actual + total con envío (pie del carrito) ─── */
+#cartShippingLine{margin-bottom:14px}
+.cship-line{display:flex;justify-content:space-between;align-items:center;padding:4px 0}
+.cship-line-lbl{font-size:.85rem;color:var(--g500)}
+.cship-line-val{font-size:.92rem;font-weight:700;color:var(--g900)}
+.cship-line-val.free{color:var(--green)}
+.cship-total-line{margin-top:6px;padding-top:9px;border-top:1.5px dashed var(--b100)}
+.cship-total-line .cship-line-lbl{font-weight:600;color:var(--g700)}
+.cship-line-val.total{font-size:1.18rem;color:var(--b600);letter-spacing:-.02em}
+
 /* ─── AUTH SIDEBAR ─── */
 .auth-overlay{position:fixed;inset:0;z-index:500;pointer-events:none}
 .auth-overlay.open{pointer-events:all}
@@ -283,9 +293,18 @@ nav{position:sticky;top:0;z-index:200;background:rgba(239,246,255,.72);backdrop-
   line-height:1.25;margin-bottom:6px}
 .pd-price{font-size:1.5rem;font-weight:800;color:var(--b600);letter-spacing:-.02em;margin-bottom:16px}
 .pd-desc-h{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;
-  color:var(--g400);margin-bottom:6px}
+  color:var(--g400);margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;gap:8px}
 .pd-desc{font-size:.9rem;color:var(--g700);line-height:1.65;white-space:pre-wrap;word-break:break-word}
 .pd-desc-empty{font-size:.85rem;color:var(--g400);font-style:italic}
+.pd-edit-btn{display:inline-flex;align-items:center;gap:4px;background:var(--b50);border:1px solid var(--b200);
+  color:var(--b600);font-family:var(--font);font-size:.7rem;font-weight:700;text-transform:none;letter-spacing:0;
+  padding:3px 9px;border-radius:999px;cursor:pointer;transition:all .15s}
+.pd-edit-btn:hover{background:var(--b100)}
+.pd-desc-edit{width:100%;font-family:var(--font);font-size:.9rem;color:var(--g700);line-height:1.55;
+  border:1.5px solid var(--b200);border-radius:10px;padding:10px 12px;resize:vertical;outline:none;
+  background:var(--white);transition:border-color .15s}
+.pd-desc-edit:focus{border-color:var(--b400);box-shadow:0 0 0 3px rgba(96,165,250,.15)}
+.pd-desc-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
 .pd-add{flex:0 0 auto;justify-content:flex-end}
 .pd-add .add-btn{width:46px;height:46px;font-size:1.4rem;border-radius:12px}
 .pd-add .qty-spin{padding:5px 8px;border-radius:12px;gap:6px}

@@ -478,3 +478,77 @@ exports.confirmWompiOnAck = functions
     }
     return null;
   });
+
+
+// ════════════════════════════════════════════════════════════════
+//  ROL DE ADMINISTRADOR  (Custom Claims)
+//
+//  El rol "admin" se guarda como custom claim en el token del usuario
+//  (admin === true). Es la fuente de verdad y se verifica en las reglas
+//  de Firestore con request.auth.token.admin == true.
+//
+//  setAdminRole (callable): otorga o quita el rol a un usuario por correo.
+//   - Solo puede llamarla alguien que YA es admin...
+//   - ...EXCEPTO los correos en BOOTSTRAP_ADMINS, que pueden usarla para
+//     crear el PRIMER admin (resuelve el problema del huevo y la gallina).
+//
+//  Espeja además el admin en la colección 'admins/{uid}' para poder
+//  listarlos en la interfaz (la fuente de verdad sigue siendo el claim).
+// ════════════════════════════════════════════════════════════════
+
+// 👉 PON AQUÍ TU CORREO para poder crear el primer administrador.
+//    Después de tener tu primer admin, puedes vaciar esta lista y volver a desplegar.
+const BOOTSTRAP_ADMINS = [
+  // 'tucorreo@ejemplo.com',
+];
+
+exports.setAdminRole = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Debes iniciar sesión.');
+  }
+  const callerEmail      = String(context.auth.token.email || '').toLowerCase();
+  const callerIsAdmin    = context.auth.token.admin === true;
+  const bootstrapList    = BOOTSTRAP_ADMINS.map(e => String(e).toLowerCase());
+  const callerIsBootstrap = bootstrapList.includes(callerEmail);
+
+  if (!callerIsAdmin && !callerIsBootstrap) {
+    throw new functions.https.HttpsError('permission-denied', 'Solo un administrador puede gestionar roles.');
+  }
+
+  const email = String((data && data.email) || '').trim().toLowerCase();
+  // makeAdmin: true (otorgar) por defecto; false para quitar el rol
+  const makeAdmin = !(data && data.makeAdmin === false);
+  if (!email) {
+    throw new functions.https.HttpsError('invalid-argument', 'Falta el correo del usuario.');
+  }
+
+  let userRecord;
+  try {
+    userRecord = await admin.auth().getUserByEmail(email);
+  } catch (e) {
+    throw new functions.https.HttpsError('not-found',
+      'No existe un usuario con ese correo. Pídele que inicie sesión en PICO al menos una vez.');
+  }
+
+  // Evitar que un admin se quite el rol a sí mismo por accidente
+  if (!makeAdmin && userRecord.uid === context.auth.uid) {
+    throw new functions.https.HttpsError('failed-precondition',
+      'No puedes quitarte el rol de administrador a ti mismo.');
+  }
+
+  const existing = userRecord.customClaims || {};
+  await admin.auth().setCustomUserClaims(userRecord.uid, { ...existing, admin: makeAdmin });
+
+  // Espejo para listar admins en la UI
+  const ref = db.collection('admins').doc(userRecord.uid);
+  if (makeAdmin) {
+    await ref.set({ email, since: Date.now(), by: callerEmail }, { merge: true });
+  } else {
+    await ref.delete().catch(() => {});
+  }
+
+  // Forzar refresco de tokens del usuario afectado (para que el claim aplique pronto)
+  await admin.auth().revokeRefreshTokens(userRecord.uid).catch(() => {});
+
+  return { ok: true, uid: userRecord.uid, email, admin: makeAdmin };
+});
