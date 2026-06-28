@@ -499,7 +499,7 @@ exports.confirmWompiOnAck = functions
 // 👉 PON AQUÍ TU CORREO para poder crear el primer administrador.
 //    Después de tener tu primer admin, puedes vaciar esta lista y volver a desplegar.
 const BOOTSTRAP_ADMINS = [
-  // 'calebrenebr@gmail.com',
+   'calebrenebr@gmail.com',
 ];
 
 exports.setAdminRole = functions.https.onCall(async (data, context) => {
