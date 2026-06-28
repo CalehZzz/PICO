@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /perfil/
+Disallow: /mis-pedidos/
+
+Sitemap: https://picosv.com/sitemap.xml
