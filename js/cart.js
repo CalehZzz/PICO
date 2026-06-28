@@ -2,10 +2,51 @@
 // PICO · Carrito y checkout
 // ════════════════════════════════════════════════════════════════
 
-// Costo fijo de envío a domicilio (USD). Se SUMA al total que paga el cliente,
-// pero NO se mezcla con 'total'/'totalConDescuento' para que las estadísticas y
-// el stock se comporten igual que un pedido normal.
-const SHIPPING_COST = 3.49;
+// Tarifa de envío a domicilio POR TRAMOS, según el subtotal de productos (lo que
+// paga el cliente por los productos, ya con descuento aplicado). El envío se SUMA al
+// total, pero NO se mezcla con 'total'/'totalConDescuento' para que las estadísticas
+// y el stock se comporten igual que un pedido normal.
+//
+//   subtotal  <  $13         → $3.49
+//   $13 ≤ subtotal <  $20     → $2.49
+//   $20 ≤ subtotal <  $24     → $1.99
+//   subtotal  ≥  $24         → GRATIS ($0)
+//
+// (Los umbrales se eligieron en $13 / $20 / $24 para no solapar el centavo de
+//  $19.99 ↔ $20.00. Si querés que el salto a $1.99 sea exactamente en $19.99,
+//  cambiá el 'min' del tercer tramo a 19.99.)
+const SHIPPING_TIERS = [
+  { min: 0,  cost: 3.49 },
+  { min: 13, cost: 2.49 },
+  { min: 20, cost: 1.99 },
+  { min: 24, cost: 0    }
+];
+// Umbral para envío gratis (último tramo). Se usa para la barra de progreso.
+const FREE_SHIPPING_AT = SHIPPING_TIERS[SHIPPING_TIERS.length - 1].min; // 24
+// Costo base (tramo más bajo). Se conserva el nombre por compatibilidad.
+const SHIPPING_COST = SHIPPING_TIERS[0].cost;
+
+// Costo de envío que paga el cliente para un subtotal de productos dado.
+function getShippingCost(subtotal) {
+  let cost = SHIPPING_TIERS[0].cost;
+  for (const t of SHIPPING_TIERS) if (subtotal >= t.min) cost = t.cost;
+  return cost;
+}
+
+// Información del progreso de envío para un subtotal: costo actual, siguiente meta
+// (umbral + costo de ese tramo) y cuánto falta para alcanzarla.
+function getShippingProgress(subtotal) {
+  const currentCost = getShippingCost(subtotal);
+  const next = SHIPPING_TIERS.find(t => t.min > subtotal) || null; // próximo umbral
+  return {
+    subtotal,
+    currentCost,
+    isFree:    currentCost === 0,
+    nextMin:   next ? next.min  : null,
+    nextCost:  next ? next.cost : null,
+    remaining: next ? +(next.min - subtotal).toFixed(2) : 0
+  };
+}
 
 // Pagos con tarjeta vía Wompi El Salvador (Enlace de Pago · la tarjeta se ingresa en Wompi).
 // La creación del enlace de pago ocurre en la Cloud Function 'crearEnlaceWompi'.
@@ -266,6 +307,9 @@ function updateCartUI() {
     totalEl.textContent = '$' + total.toFixed(2);
   }
 
+  // Barra de progreso de envío + recomendaciones (solo entrega a domicilio)
+  renderShippingProgress();
+
   const el = document.getElementById('cartItems');
   if (!Object.keys(cart).length) {
     el.innerHTML = `<div class="empty-cart"><div class="icon">🛒</div><p>Tu carrito está vacío</p></div>`;
@@ -291,6 +335,104 @@ function updateCartUI() {
       <button class="rmbtn" onclick="removeFromCart('${id}')">🗑️</button>
     </div>`;
   }).join('');
+}
+
+// ═══════════════════════════════════════════════════
+//  BARRA DE PROGRESO DE ENVÍO + RECOMENDACIONES
+// ═══════════════════════════════════════════════════
+// Muestra, dentro del carrito, una barra que se va llenando hacia el envío gratis
+// ($24) y, según el tramo actual, recomienda productos en stock para alcanzar el
+// siguiente nivel de envío. Solo aplica a entrega a domicilio (en retiro CDB/EXSAL
+// no se cobra envío).
+function renderShippingProgress() {
+  const el = document.getElementById('cartShipProgress');
+  if (!el) return;
+
+  const esDomicilio = selectedSucursal === 'domicilio';
+  const subtotal    = getCartTotal(); // total de productos con descuento → define el tramo
+  if (!esDomicilio || subtotal <= 0) { el.innerHTML = ''; el.style.display = 'none'; return; }
+  el.style.display = 'block';
+
+  const pg  = getShippingProgress(subtotal);
+  const pct = Math.max(0, Math.min(100, (subtotal / FREE_SHIPPING_AT) * 100));
+
+  // Mensaje principal según el tramo
+  let headline;
+  if (pg.isFree) {
+    headline = `<span class="ship-free">🎉 ¡Ya tenés envío <b>GRATIS</b>!</span>`;
+  } else if (pg.nextCost === 0) {
+    headline = `Te falta <b>$${pg.remaining.toFixed(2)}</b> para <b class="ship-hl">envío GRATIS</b>`;
+  } else {
+    headline = `Te falta <b>$${pg.remaining.toFixed(2)}</b> para bajar el envío a <b class="ship-hl">$${pg.nextCost.toFixed(2)}</b>`;
+  }
+
+  // Marcadores (dots) en los umbrales de cada tramo
+  const marks = SHIPPING_TIERS
+    .filter(t => t.min > 0)
+    .map(t => {
+      const left    = Math.min(100, (t.min / FREE_SHIPPING_AT) * 100);
+      const reached = subtotal >= t.min;
+      return `<span class="ship-mark ${reached ? 'reached' : ''}" style="left:${left}%"></span>`;
+    }).join('');
+
+  // Recomendaciones para alcanzar el siguiente tramo
+  const recsHtml = pg.nextMin ? renderShipRecs(pg.remaining) : '';
+
+  el.innerHTML = `
+    <div class="ship-progress">
+      <div class="ship-top">
+        <span class="ship-ico">🚚</span>
+        <span class="ship-msg">${headline}</span>
+        <span class="ship-cost ${pg.isFree ? 'free' : ''}">${pg.isFree ? 'GRATIS' : '$' + pg.currentCost.toFixed(2)}</span>
+      </div>
+      <div class="ship-track">
+        <div class="ship-fill" style="width:${pct}%"></div>
+        ${marks}
+      </div>
+      ${recsHtml}
+    </div>`;
+}
+
+// Sugiere hasta 3 productos en stock para alcanzar el siguiente tramo de envío.
+function renderShipRecs(gap) {
+  if (!Array.isArray(products) || !products.length || gap <= 0) return '';
+  // Disponibles: con stock libre (descontando lo que ya está en el carrito).
+  const avail = products.filter(p => {
+    const stock  = stockMap[p.id] || 0;
+    const inCart = cart[p.id]     || 0;
+    return (stock - inCart) > 0 && p.price > 0;
+  });
+  if (!avail.length) return '';
+  // 1) Los que cruzan el umbral de un solo golpe (precio ≥ falta), del más barato al más caro.
+  const crossers = avail.filter(p => p.price >= gap).sort((a, b) => a.price - b.price);
+  // 2) Rellenadores (precio < falta), del más caro al más barato (acercan más rápido).
+  const fillers  = avail.filter(p => p.price <  gap).sort((a, b) => b.price - a.price);
+  const recs = [...crossers, ...fillers].slice(0, 3);
+  if (!recs.length) return '';
+
+  const chips = recs.map(p => {
+    const thumb = p.img
+      ? `<span class="ship-rec-thumb" style="padding:0"><img src="${p.img}" alt="" onerror="this.parentElement.innerHTML='${p.e || '⚡'}'"></span>`
+      : `<span class="ship-rec-thumb">${p.e || '⚡'}</span>`;
+    const nameShort = p.name.length > 20 ? p.name.slice(0, 19) + '…' : p.name;
+    return `<button class="ship-rec" onclick="shipRecAdd('${p.id}')" title="Agregar ${p.name} · $${p.price.toFixed(2)}">
+        ${thumb}
+        <span class="ship-rec-info">
+          <span class="ship-rec-name">${nameShort}</span>
+          <span class="ship-rec-price">$${p.price.toFixed(2)}</span>
+        </span>
+        <span class="ship-rec-add">+</span>
+      </button>`;
+  }).join('');
+
+  return `<div class="ship-recs-lbl">💡 Agregá y ahorrá en envío</div>
+          <div class="ship-recs">${chips}</div>`;
+}
+
+// Agregar (o incrementar) un producto recomendado desde la barra de envío.
+function shipRecAdd(id) {
+  if (cart[id]) cartInc(id);
+  else          addToCart(id);
 }
 
 function openCart()  {
@@ -332,7 +474,7 @@ function openCheckout() {
   const rawTotal    = getCartRawTotal();
   const finalTotal  = getCartTotal();
   const esDomicilio = getSavedProfile().sucursal === 'domicilio';
-  const envioCosto  = esDomicilio ? SHIPPING_COST : 0;
+  const envioCosto  = esDomicilio ? getShippingCost(finalTotal) : 0;
   const grandTotal  = +(finalTotal + envioCosto).toFixed(2);
   const discountRow = selectedDiscount
     ? `<div class="odetail-subtotal" style="color:var(--green)">
@@ -512,6 +654,9 @@ async function placeOrder() {
   // Capturamos el % de descuento ANTES de resetear selectedDiscount (se usa más abajo en el pago).
   const pagoDiscPct = selectedDiscount ? selectedDiscount.porcentaje : 0;
 
+  // Costo de envío por tramos (según el subtotal con descuento). Solo a domicilio.
+  const shipCost = esDomicilio ? getShippingCost(finalTotal) : 0;
+
   try {
     const stockField = (sucursal === 'cdb' || sucursal === 'domicilio') ? 'stockCdb' : 'stockExsal';
 
@@ -551,9 +696,9 @@ async function placeOrder() {
       tipoEntrega: esDomicilio ? 'domicilio' : 'pickup',
       envio:       envio,        // {nombre, telefono, telefono2, departamento, municipio, direccion, referencia, indicaciones} o null
       // Costo de envío y total que paga el cliente (NO afectan stats: 'total' sigue siendo solo productos)
-      envioCosto:    esDomicilio ? SHIPPING_COST : 0,
+      envioCosto:    shipCost,
       costoEnvioReal: null,      // lo ingresa el admin al confirmar (costo real del courier) — SOLO admin
-      totalConEnvio: +(((selectedDiscount ? finalTotal : +rawTotal.toFixed(2))) + (esDomicilio ? SHIPPING_COST : 0)).toFixed(2),
+      totalConEnvio: +(((selectedDiscount ? finalTotal : +rawTotal.toFixed(2))) + shipCost).toFixed(2),
       metodoPago:  metodoPago,   // 'tarjeta' | 'efectivo' | null
       paymentStatus: esDomicilio ? (metodoPago === 'tarjeta' ? 'pending' : 'efectivo') : null,
       comisionWompi: null,       // la calcula el servidor al confirmar el pago (solo tarjeta) — SOLO admin
@@ -581,8 +726,8 @@ async function placeOrder() {
       sucursal,
       tipoEntrega: esDomicilio ? 'domicilio' : 'pickup',
       envio,
-      envioCosto:    esDomicilio ? SHIPPING_COST : 0,
-      totalConEnvio: +(((selectedDiscount ? finalTotal : +rawTotal.toFixed(2))) + (esDomicilio ? SHIPPING_COST : 0)).toFixed(2),
+      envioCosto:    shipCost,
+      totalConEnvio: +(((selectedDiscount ? finalTotal : +rawTotal.toFixed(2))) + shipCost).toFixed(2),
       metodoPago,
       email: currentUser?.email || null
     }).catch(e => console.warn('No se pudo encolar el correo de aviso:', e));
@@ -596,7 +741,7 @@ async function placeOrder() {
       discountPct:  selectedDiscount ? selectedDiscount.porcentaje : null,
       sucursal,
       tipoEntrega: esDomicilio ? 'domicilio' : 'pickup',
-      envioCosto: esDomicilio ? SHIPPING_COST : 0,
+      envioCosto: shipCost,
       email: currentUser?.email || null
     }).catch(e => console.warn('No se pudo crear/enviar la factura del pedido:', e));
 

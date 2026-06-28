@@ -28,7 +28,8 @@ nav{position:sticky;top:0;z-index:200;background:rgba(239,246,255,.72);backdrop-
   display:flex;align-items:center;justify-content:space-between;
   box-shadow:none}
 .brand{display:flex;align-items:center;gap:9px;cursor:pointer}
-.brand-icon{height:34px;width:auto;border-radius:8px;object-fit:contain;display:block;
+/* Sin border-radius: el logo llega hasta las esquinas y el redondeo lo recortaba. */
+.brand-icon{height:36px;width:auto;border-radius:0;object-fit:contain;display:block;
   background:transparent;box-shadow:none}
 .brand-name{font-size:1.05rem;font-weight:700;color:var(--b600);letter-spacing:-.02em}
 .nav-right{display:flex;align-items:center;gap:7px;flex-wrap:nowrap}
@@ -172,6 +173,51 @@ nav{position:sticky;top:0;z-index:200;background:rgba(239,246,255,.72);backdrop-
 .empty-cart{text-align:center;padding:48px 20px;color:var(--g300)}
 .empty-cart .icon{font-size:3rem;margin-bottom:10px}
 .empty-cart p{font-size:.85rem}
+
+/* ─── Barra de progreso de envío (dentro del carrito) ─── */
+.ship-progress-wrap{margin-bottom:14px}
+.ship-progress{background:linear-gradient(135deg,var(--b50),#f0f9ff);
+  border:1px solid var(--b100);border-radius:13px;padding:12px 13px 13px}
+.ship-top{display:flex;align-items:center;gap:8px;margin-bottom:11px}
+.ship-ico{font-size:1.05rem;line-height:1;flex-shrink:0}
+.ship-msg{flex:1;font-size:.77rem;color:var(--g700);line-height:1.32}
+.ship-msg b{color:var(--g900);font-weight:700}
+.ship-msg .ship-hl{color:var(--b600)}
+.ship-msg .ship-free{color:var(--green);font-size:.82rem}
+.ship-msg .ship-free b{color:var(--green)}
+.ship-cost{flex-shrink:0;font-size:.72rem;font-weight:700;color:var(--b600);
+  background:var(--white);border:1px solid var(--b200);border-radius:999px;
+  padding:3px 9px;white-space:nowrap}
+.ship-cost.free{color:var(--green);border-color:#a7f3d0;background:#ecfdf5}
+.ship-track{position:relative;height:8px;border-radius:999px;background:var(--b100);
+  overflow:visible}
+.ship-fill{height:100%;border-radius:999px;
+  background:linear-gradient(90deg,var(--b400),var(--b600));
+  transition:width .5s cubic-bezier(.4,0,.2,1);box-shadow:0 1px 5px rgba(37,99,235,.32)}
+.ship-mark{position:absolute;top:50%;width:9px;height:9px;border-radius:50%;
+  background:var(--white);border:2px solid var(--b200);
+  transform:translate(-50%,-50%);z-index:2;transition:all .35s}
+.ship-mark.reached{background:var(--green);border-color:var(--green);
+  box-shadow:0 0 0 3px rgba(16,185,129,.18)}
+.ship-recs-lbl{font-size:.71rem;font-weight:600;color:var(--g500);margin:13px 0 7px}
+.ship-recs{display:flex;gap:7px;overflow-x:auto;padding-bottom:3px;scrollbar-width:none}
+.ship-recs::-webkit-scrollbar{display:none}
+.ship-rec{display:flex;align-items:center;gap:7px;flex-shrink:0;max-width:172px;
+  background:var(--white);border:1px solid var(--b100);border-radius:10px;
+  padding:5px 7px 5px 5px;cursor:pointer;transition:all .15s;font-family:var(--font)}
+.ship-rec:hover{border-color:var(--b300);box-shadow:var(--sh1);transform:translateY(-1px)}
+.ship-rec:active{transform:translateY(0)}
+.ship-rec-thumb{width:30px;height:30px;flex-shrink:0;display:flex;align-items:center;
+  justify-content:center;background:var(--b50);border-radius:7px;font-size:1rem;overflow:hidden}
+.ship-rec-thumb img{width:100%;height:100%;object-fit:cover;border-radius:7px}
+.ship-rec-info{display:flex;flex-direction:column;min-width:0;line-height:1.2}
+.ship-rec-name{font-size:.71rem;font-weight:600;color:var(--g900);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;max-width:95px}
+.ship-rec-price{font-size:.7rem;color:var(--b600);font-weight:600}
+.ship-rec-add{margin-left:1px;width:20px;height:20px;flex-shrink:0;border-radius:6px;
+  background:var(--b500);color:#fff;font-size:.98rem;font-weight:700;line-height:1;
+  display:flex;align-items:center;justify-content:center;transition:background .15s}
+.ship-rec:hover .ship-rec-add{background:var(--b600)}
 
 /* ─── AUTH SIDEBAR ─── */
 .auth-overlay{position:fixed;inset:0;z-index:500;pointer-events:none}

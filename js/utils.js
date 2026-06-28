@@ -30,6 +30,18 @@ function showPage(name) {
   location.href = url;
 }
 
+// Comportamiento del logo del encabezado:
+//   • Si YA estamos en la página principal (catálogo) → recarga la página.
+//   • Si estamos en cualquier otra página → redirige a la principal.
+function goHomeFromLogo() {
+  const enPrincipal = normPath(location.pathname) === normPath(PAGE_URLS.catalog);
+  if (enPrincipal) {
+    location.reload();                 // ya en la principal → refrescar
+  } else {
+    location.href = PAGE_URLS.catalog; // otra página → ir a la principal
+  }
+}
+
 // Dispatcher de inicialización según la página actual (data-page en <body>).
 // Se llama desde onAuthStateChanged, cuando ya se conoce el estado de sesión.
 function initPageAfterAuth() {
