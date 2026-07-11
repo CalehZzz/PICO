@@ -116,16 +116,82 @@ async function fixStockTotal() {
 }
 
 // ═══════════════════════════════════════════════════
-//  GATE DE SUCURSAL (obligatorio antes de usar la app)
+//  SELECTOR DE ENTREGA (modal de entrada, obligatorio)
+//  Valores de entrega:
+//    'domicilio' → Envío a domicilio
+//    'cdb'       → Retiro en sucursal · Colegio Don Bosco
+//    'udb'       → Retiro en sucursal · Universidad Don Bosco
+//  "Otros" (escribir institución) → se atiende como 'domicilio' y se guarda la
+//  institución para avisar por correo al equipo. Inventario ÚNICO: la entrega
+//  NO cambia el stock, por eso ya no se vacía el carrito al cambiarla.
 // ═══════════════════════════════════════════════════
+const OTROS_KEY = 'pico_otros_institucion_v1';
+
 function showSucursalGate() {
   const m = document.getElementById('sucursalGateModal');
+  if (!m) return;
+  // Reiniciar el sub-panel de retiro cada vez que se abre
+  const panel = document.getElementById('gatePickupPanel');
+  const sel   = document.getElementById('gatePickupSelect');
+  const otros = document.getElementById('gateOtrosWrap');
+  if (panel) panel.style.display = 'none';
+  if (sel)   sel.value = '';
+  if (otros) otros.style.display = 'none';
   m.classList.add('open');
   document.body.style.overflow = 'hidden';
 }
-// Muestra el aviso de "Próximamente" para el envío a domicilio.
-function showComingSoon() {
-  openModal('comingSoonModal');
+
+// Etiqueta PÚBLICA (cliente): nunca nombra la institución.
+function entregaPublicLabel(suc) {
+  return (suc === 'domicilio') ? '🚚 Envío a domicilio' : '🏫 Retiro en sucursal';
+}
+// Etiqueta INTERNA (dueño/admin): sí nombra la institución.
+function sucursalInternalLabel(suc) {
+  switch (suc) {
+    case 'domicilio': return '🚚 Envío a domicilio';
+    case 'cdb':       return 'Colegio Don Bosco';
+    case 'udb':       return 'Universidad Don Bosco';
+    case 'exsal':     return 'EXSAL (histórico)';
+    default:          return 'Retiro en sucursal';
+  }
+}
+
+// El usuario elige "Retiro en sucursal": revela el sub-selector de institución.
+function gateShowPickup() {
+  const panel = document.getElementById('gatePickupPanel');
+  if (panel) panel.style.display = 'block';
+}
+// Cambia el sub-selector: muestra el campo de texto solo si es "Otros".
+function gatePickupSelectChange(v) {
+  const otros = document.getElementById('gateOtrosWrap');
+  if (otros) otros.style.display = (v === 'otros') ? 'block' : 'none';
+}
+// Botón "Envío a domicilio" del modal de entrada.
+function gateChooseDomicilio() {
+  try { localStorage.removeItem(OTROS_KEY); } catch (_) {}
+  syncOtrosToProfile('');
+  chooseGateSucursal('domicilio');
+}
+// Confirma el retiro elegido (Colegio Don Bosco / Universidad Don Bosco / Otros).
+function gateConfirmPickup() {
+  const sel = document.getElementById('gatePickupSelect');
+  const v   = sel ? sel.value : '';
+  if (!v) { showToast('⚠️ Elegí desde dónde nos visitás'); return; }
+  if (v === 'otros') {
+    const inp  = document.getElementById('gateOtrosInput');
+    const inst = inp ? inp.value.trim() : '';
+    if (!inst) { showToast('⚠️ Escribí el nombre de tu colegio o universidad'); return; }
+    // "Otros" se atiende como envío a domicilio; guardamos la institución para el correo al equipo.
+    try { localStorage.setItem(OTROS_KEY, inst); } catch (_) {}
+    syncOtrosToProfile(inst);
+    chooseGateSucursal('domicilio');
+    showOtrosWelcome(inst);
+    return;
+  }
+  // Colegio Don Bosco ('cdb') o Universidad Don Bosco ('udb'): retiro en sucursal.
+  try { localStorage.removeItem(OTROS_KEY); } catch (_) {}
+  syncOtrosToProfile('');
+  chooseGateSucursal(v);
 }
 
 function chooseGateSucursal(suc) {
@@ -134,32 +200,49 @@ function chooseGateSucursal(suc) {
   // Sincronizar con el perfil del usuario logueado (si lo hay)
   syncSucursalToProfile(suc);
   const m = document.getElementById('sucursalGateModal');
-  m.classList.remove('open');
+  if (m) m.classList.remove('open');
   if (!document.querySelector('.moverlay.open')) document.body.style.overflow = '';
-  showToast(suc === 'cdb' ? '🏫 Sucursal: Don Bosco (CDB)'
-          : suc === 'exsal' ? '🏢 Sucursal: EXSAL'
-          : '🚚 Entrega: Envío a domicilio');
-  // Vaciar carrito al cambiar de sucursal (el stock difiere entre sucursales)
-  cart = {};
-  saveCart();
-  updateCartUI();
-  // Recargar productos con el stock de la nueva sucursal
-  loadProducts();
+  showToast(suc === 'domicilio' ? '🚚 Entrega: Envío a domicilio' : '🏫 Entrega: Retiro en sucursal');
+  updateSucursalBadge();
+  // Inventario ÚNICO: el stock no depende de la entrega → NO vaciamos el carrito.
+  if (typeof products !== 'undefined' && products.length) { renderProducts(); updateCartUI(); }
+  else loadProducts();
 }
+
+// Mensaje de bienvenida para quienes nos visitan desde "Otros".
+function showOtrosWelcome(inst) {
+  const prev = document.getElementById('otrosWelcomeModal');
+  if (prev) prev.remove();
+  const safe = String(inst).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const html =
+    '<div class="moverlay" id="otrosWelcomeModal" style="z-index:620">' +
+      '<div class="modal" style="max-width:420px">' +
+        '<div class="mbody" style="text-align:center;padding:32px 26px 10px">' +
+          '<div style="font-size:2.8rem;margin-bottom:12px">🎉</div>' +
+          '<h2 style="font-size:1.2rem;font-weight:800;color:var(--g900);letter-spacing:-.02em;margin-bottom:10px">¡Nos encanta que nos visites desde ' + safe + '!</h2>' +
+          '<p style="color:var(--g500);font-size:.9rem;line-height:1.55">Nos interesa mucho saber de dónde nos visitan. Por ahora, en tu zona te atendemos con <b>envío a domicilio</b> en todo El Salvador: hacé tu pedido normalmente y te lo llevamos. 🚚</p>' +
+        '</div>' +
+        '<div class="mfoot" style="padding-bottom:24px">' +
+          '<button class="btn-pri" style="flex:none;width:100%" onclick="(function(){var m=document.getElementById(\'otrosWelcomeModal\');if(m)m.remove();})()">Entendido ✓</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+  const m = document.getElementById('otrosWelcomeModal');
+  if (m) m.classList.add('open');
+}
+
 function updateSucursalBadge() {
   const el = document.getElementById('sucursalBadge');
   if (!el) return;
   if (!selectedSucursal) { el.style.display = 'none'; return; }
   el.style.display = 'flex';
-  const sucLabel = selectedSucursal === 'cdb'   ? '🏫 CDB'
-                 : selectedSucursal === 'exsal' ? '🏢 EXSAL'
-                 : selectedSucursal === 'domicilio' ? '🚚 Domicilio'
-                 : '';
-  el.innerHTML = sucLabel
+  // Badge PÚBLICO: genérico, sin nombrar la institución.
+  el.innerHTML = entregaPublicLabel(selectedSucursal)
     + ' <span style="font-size:.7rem;color:var(--g400);font-weight:500">▼</span>';
 }
 
-// Permite reabrir el gate manualmente (ej. para cambiar de sucursal)
+// Permite reabrir el selector de entrega manualmente (ej. para cambiarla)
 function reopenSucursalGate() { showSucursalGate(); }
 
 function syncSucursalToProfile(suc) {
@@ -170,4 +253,14 @@ function syncSucursalToProfile(suc) {
   localStorage.setItem(key, JSON.stringify(saved));
   // Reflejar también en la nube (cross-device). No bloquea.
   if (typeof saveProfileToCloud === 'function') saveProfileToCloud({ sucursal: suc });
+}
+
+// Guarda (o limpia) la institución "Otros" en el perfil, para adjuntarla al correo del pedido.
+function syncOtrosToProfile(inst) {
+  if (!currentUser) return;
+  const key   = 'el_profile_' + currentUser.uid;
+  const saved = JSON.parse(localStorage.getItem(key) || '{}');
+  if (inst) saved.visitaInstitucion = inst; else delete saved.visitaInstitucion;
+  localStorage.setItem(key, JSON.stringify(saved));
+  if (typeof saveProfileToCloud === 'function') saveProfileToCloud({ visitaInstitucion: inst || null });
 }

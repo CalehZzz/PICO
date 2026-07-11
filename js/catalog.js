@@ -123,7 +123,7 @@ function renderAddZoneHTML(id, noStock) {
       <input class="qspin-input" type="number" min="1" max="${stockMap[id] || 0}"
         value="${cart[id]}"
         onchange="cartSetVal('${id}', this.value)"
-        oninput="cartSetVal('${id}', this.value)"
+        oninput="cartTypeVal('${id}', this.value)"
         onclick="this.select()">
       <button class="qspin-btn" onclick="cartInc('${id}')">+</button>
     </div>`;

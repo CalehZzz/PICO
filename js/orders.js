@@ -17,11 +17,12 @@ function orderStatusBadge(o) {
     default:           return { cls: 'ss', txt: '✅ Entregado' };
   }
 }
-// Línea con el grado/sección (pickup) o el tipo de entrega (domicilio).
+// Línea con el grado/sección (pickup Colegio) o el tipo de entrega. Texto PÚBLICO:
+// para retiro sin datos académicos (universidad) se muestra genérico, sin institución.
 function orderEntregaMeta(o) {
-  return o.tipoEntrega === 'domicilio'
-    ? '<span>🚚 Envío a domicilio</span>'
-    : `<span>🎓 ${o.grade || ''} – ${o.section || ''}</span>`;
+  if (o.tipoEntrega === 'domicilio') return '<span>🚚 Envío a domicilio</span>';
+  if (o.grade || o.section) return `<span>🎓 ${o.grade || ''} – ${o.section || ''}</span>`;
+  return '<span>🏫 Retiro en sucursal</span>';
 }
 // Bloque del ID de rastreo (solo domicilio, cuando ya está asignado).
 function orderTrackingBlock(o) {
@@ -240,7 +241,7 @@ async function customerCancelOrder(firestoreId, code, btn) {
     });
     // Ajustar contadores de pedidos en estadísticas (el cliente solo cancela pendientes)
     {
-      const sucC = (orderData.sucursal === 'cdb' || orderData.sucursal === 'domicilio') ? 'ColegioDonBosco' : 'ColegioExsal';
+      const sucC = (orderData.sucursal === 'exsal') ? 'ColegioExsal' : 'ColegioDonBosco';
       const statUpdate = { 'pedidosCancelados': firebase.firestore.FieldValue.increment(1) };
       if (orderData.status === 'pending') {
         statUpdate['pedidosPendientes'] = firebase.firestore.FieldValue.increment(-1);

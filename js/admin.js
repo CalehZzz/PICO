@@ -231,8 +231,9 @@ function renderAdminRows(bodyId, data) {
           : `<select class="stsel" onchange="changeSucursal('${o.firestoreId}', this.value)"
               style="background:var(--b50);color:var(--b600)">
               <option value="" ${!o.sucursal ? 'selected' : ''}>Elegir...</option>
-              <option value="cdb"   ${o.sucursal === 'cdb'   ? 'selected' : ''}>🏫 CDB</option>
-              <option value="exsal" ${o.sucursal === 'exsal' ? 'selected' : ''}>🏢 EXSAL</option>
+              <option value="cdb" ${o.sucursal === 'cdb' ? 'selected' : ''}>🏫 Colegio Don Bosco</option>
+              <option value="udb" ${o.sucursal === 'udb' ? 'selected' : ''}>🎓 Universidad Don Bosco</option>
+              ${o.sucursal === 'exsal' ? `<option value="exsal" selected>🏢 EXSAL (histórico)</option>` : ''}
             </select>`
         }
       </td>
@@ -276,7 +277,7 @@ async function changeSucursal(firestoreId, val) {
     // Actualizar en memoria local
     const o = findLoadedOrder(firestoreId);
     if (o) o.sucursal = val || null;
-    showToast(val ? `🏫 Sucursal asignada: ${val.toUpperCase()}` : '↩️ Sucursal eliminada');
+    showToast(val ? `🏫 Entrega asignada: ${(typeof sucursalInternalLabel === 'function') ? sucursalInternalLabel(val) : val.toUpperCase()}` : '↩️ Entrega eliminada');
   } catch (err) {
     showToast('❌ Error: ' + err.message);
   }
@@ -285,7 +286,7 @@ async function changeSucursal(firestoreId, val) {
 // Revierte una entrega: restaura stock, borra los registros de "ventas" del pedido
 // y resta las estadísticas SOLO si la entrega fue del mes actual. Deja el pedido como pendiente.
 async function revertDelivery(firestoreId, data) {
-  const sucursal = (data.sucursal === 'cdb' || data.sucursal === 'domicilio') ? 'cdb' : 'exsal';
+  const sucursal = (data.sucursal === 'exsal') ? 'exsal' : 'cdb';
   const stockField = sucursal === 'cdb' ? 'stockCdb' : 'stockExsal';
   const statDocId = sucursal === 'cdb' ? 'ColegioDonBosco' : 'ColegioExsal';
 
@@ -425,7 +426,7 @@ async function changeStatus(firestoreId, val) {
           await db.collection('pedidos').doc(firestoreId).update({ status: 'pending', deliveredAt: null });
           return;
         }
-        const stockField = (sucursal === 'cdb' || sucursal === 'domicilio') ? 'stockCdb' : 'stockExsal';
+        const stockField = (sucursal === 'exsal') ? 'stockExsal' : 'stockCdb';
         const stockBatch = db.batch();
         let costTotal = 0;
         let priceTotal = 0;
@@ -530,7 +531,7 @@ async function changeStatus(firestoreId, val) {
         });
 
         // ✅ Estadísticas acumuladas (mezcladas con CDB)
-        const statDocId = (sucursal === 'cdb' || sucursal === 'domicilio') ? 'ColegioDonBosco' : 'ColegioExsal';
+        const statDocId = (sucursal === 'exsal') ? 'ColegioExsal' : 'ColegioDonBosco';
         const statPayload = {
           'pedidosEntregados': firebase.firestore.FieldValue.increment(1),
           'pedidosPendientes': firebase.firestore.FieldValue.increment(-1),
@@ -597,7 +598,7 @@ async function adminCancelOrder(firestoreId, code) {
     });
     // Ajustar contadores de pedidos en estadísticas según el estado previo
     if (order) {
-      const sucC = (order.sucursal === 'cdb' || order.sucursal === 'domicilio') ? 'ColegioDonBosco' : 'ColegioExsal';
+      const sucC = (order.sucursal === 'exsal') ? 'ColegioExsal' : 'ColegioDonBosco';
       const statUpdate = { 'pedidosCancelados': firebase.firestore.FieldValue.increment(1) };
       // Un pedido 'confirmado' (domicilio con guía) sigue contando como pendiente en el
       // acumulado (solo deja de serlo al ENTREGAR). Por eso también se descuenta aquí.
@@ -923,7 +924,9 @@ function showOrderDetail(firestoreId) {
 
   document.getElementById('orderDetailBody').innerHTML = `
     <div style="font-size:.78rem;color:var(--g400);margin-bottom:10px">
-      <b style="color:var(--g700)">${o.name}</b>${isDomicilio ? '' : ` · ${o.grade} – ${o.section}`}<br>
+      <b style="color:var(--g700)">${o.name}</b>${isDomicilio
+        ? (o.visitaInstitucion ? ` · 🏫 visita: ${o.visitaInstitucion}` : '')
+        : ` · ${(typeof sucursalInternalLabel === 'function') ? sucursalInternalLabel(o.sucursal) : 'Retiro'}${(o.grade || o.section) ? ` (${o.grade || ''} – ${o.section || ''})` : ''}${o.uniTelefono ? ` · 📞 ${o.uniTelefono}` : ''}`}<br>
       ${fmtDate(o.createdAt)}
     </div>
     ${domicilioBlock}

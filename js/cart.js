@@ -58,9 +58,11 @@ function getShippingProgress(subtotal) {
 // ── Aviso por correo de cada pedido (vía extensión Trigger Email) ──
 function sendOrderEmail(orderId, d) {
   const NOTIFY_EMAIL = 'picosvsupport@gmail.com'; // ← correo donde quieres recibir el aviso
-  const sucLabel = d.tipoEntrega === 'domicilio' ? '🚚 Envío a domicilio'
-                 : d.sucursal === 'cdb' ? 'Colegio Don Bosco (CDB)'
-                 : 'Colegio Exsal (EXSAL)';
+  // Etiqueta INTERNA (para el equipo): sí nombra la institución del retiro.
+  const _sucInternal = (typeof sucursalInternalLabel === 'function')
+    ? sucursalInternalLabel(d.sucursal)
+    : (d.sucursal === 'cdb' ? 'Colegio Don Bosco' : d.sucursal === 'udb' ? 'Universidad Don Bosco' : 'Retiro en sucursal');
+  const sucLabel = d.tipoEntrega === 'domicilio' ? '🚚 Envío a domicilio' : _sucInternal;
   const finalTotal = d.totalConDescuento != null ? d.totalConDescuento : d.total;
 
   const rows = d.items.map(i => `
@@ -84,7 +86,8 @@ function sendOrderEmail(orderId, d) {
       <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
         <tr><td style="padding:4px 0;color:#64748b">Cliente</td><td style="padding:4px 0;font-weight:600">${d.name}</td></tr>
         ${d.tipoEntrega === 'domicilio' ? '' : `<tr><td style="padding:4px 0;color:#64748b">Grado / Sección</td><td style="padding:4px 0;font-weight:600">${d.grade} - ${d.section}</td></tr>`}
-        <tr><td style="padding:4px 0;color:#64748b">Sucursal</td><td style="padding:4px 0;font-weight:600">${sucLabel}</td></tr>
+        <tr><td style="padding:4px 0;color:#64748b">Entrega</td><td style="padding:4px 0;font-weight:600">${sucLabel}</td></tr>
+        ${d.visitaInstitucion ? `<tr><td style="padding:4px 0;color:#64748b">Nos visita desde</td><td style="padding:4px 0;font-weight:700;color:#0071e3">🏫 ${d.visitaInstitucion}</td></tr>` : ''}
         ${d.tipoEntrega === 'domicilio' && d.envio ? `
         <tr><td style="padding:4px 0;color:#64748b">Departamento</td><td style="padding:4px 0;font-weight:600">${d.envio.departamento || ''}</td></tr>
         <tr><td style="padding:4px 0;color:#64748b">Municipio</td><td style="padding:4px 0;font-weight:600">${d.envio.municipio || ''}</td></tr>
@@ -117,7 +120,7 @@ function sendOrderEmail(orderId, d) {
   return db.collection('mail').add({
     to: NOTIFY_EMAIL,
     message: {
-      subject: `🛒 Nuevo pedido ${d.code} — ${d.name} (${sucLabel})`,
+      subject: `🛒 Nuevo pedido ${d.code} — ${d.name} (${sucLabel})${d.visitaInstitucion ? ' · visita: ' + d.visitaInstitucion : ''}`,
       html
     }
   });
@@ -189,7 +192,6 @@ async function crearYEnviarFacturaPedido(orderId, d) {
 
   // Correo al cliente con los DATOS de la factura (sin adjuntos ni imágenes).
   if (d.email) {
-    const sedeLabel = facSucursal === 'exsal' ? 'EXSAL' : 'CDB';
     const filas = items.map(i => `<tr>
         <td style="padding:7px 0;border-bottom:1px solid #eef5fb">${i.productName}</td>
         <td style="padding:7px 0;border-bottom:1px solid #eef5fb;text-align:center">${i.qty}</td>
@@ -215,7 +217,7 @@ async function crearYEnviarFacturaPedido(orderId, d) {
   </div>
   <div style="border:1px solid #e2eef7;border-top:none;border-radius:0 0 10px 10px;padding:18px 20px">
     <p style="margin:0 0 4px">¡Gracias por tu compra, <b>${d.name || ''}</b>!</p>
-    <p style="margin:0 0 14px;color:#4a89b0;font-size:13px">Pedido <b>${d.code}</b> &middot; ${fecha} &middot; Sede ${sedeLabel}</p>
+    <p style="margin:0 0 14px;color:#4a89b0;font-size:13px">Pedido <b>${d.code}</b> &middot; ${fecha}</p>
     <table style="width:100%;border-collapse:collapse;font-size:14px">
       <thead><tr style="color:#4a89b0;font-size:12px">
         <th style="padding:6px 0;border-bottom:2px solid #e2eef7;text-align:left">Producto</th>
@@ -277,7 +279,28 @@ function cartSetVal(id, val) {
   saveCart(); updateCartUI(); updateAddZone(id);
 }
 
+// oninput: actualiza la cantidad EN VIVO mientras se teclea, SIN re-renderizar el
+// selector de cantidad (así el <input> no se destruye y no se pierde el foco tras
+// escribir un dígito). La normalización final (clamp + re-render) ocurre en el
+// evento 'change' (blur / Enter) vía cartSetVal.
+function cartTypeVal(id, val) {
+  const raw = String(val).trim();
+  if (raw === '') return;                 // permitir borrar para reescribir sin sacar el producto
+  let n = parseInt(raw, 10);
+  if (isNaN(n) || n < 1) return;          // ignorar estados intermedios inválidos mientras teclea
+  const max = stockMap[id] || 0;
+  if (max > 0 && n > max) n = max;        // no exceder el stock disponible
+  cart[id] = n;
+  saveCart();
+  updateCartUI();                          // actualiza badge/total/envío/lista, pero NO toca las add-zones
+}
+
 function changeQty(id, d) {
+  // Al incrementar desde el carrito, respetar el stock disponible (bug: antes permitía exceder stock)
+  if (d > 0 && (cart[id] || 0) + d > (stockMap[id] || 0)) {
+    showToast('⚠️ Stock máximo alcanzado');
+    return;
+  }
   cart[id] = (cart[id] || 0) + d;
   if (cart[id] <= 0) delete cart[id];
   if (!Object.keys(cart).length) selectedDiscount = null;
@@ -538,30 +561,28 @@ function openCheckout() {
   if (saved.grade)   document.getElementById('studentGrade').value   = saved.grade;
   if (saved.section) document.getElementById('studentSection').value = saved.section;
 
-  // Sucursal obligatoria desde perfil
+  // Entrega obligatoria (elegida en el modal de entrada / perfil)
   const sucursalInfoEl = document.getElementById('checkoutSucursalInfo');
   if (!saved.sucursal) {
-    sucursalInfoEl.innerHTML = `⚠️ <b>Sucursal no configurada.</b> Debes guardar tu sucursal en tu <a href="#" onclick="closeModal('checkoutModal');showPage('profile')" style="color:var(--b600);font-weight:600">perfil</a> antes de continuar.`;
+    sucursalInfoEl.innerHTML = `⚠️ <b>Entrega no configurada.</b> Elegí cómo recibir tu pedido <a href="#" onclick="closeModal('checkoutModal');reopenSucursalGate();return false" style="color:var(--b600);font-weight:600">aquí</a> antes de continuar.`;
     sucursalInfoEl.style.background = '#fee2e2';
     sucursalInfoEl.style.borderColor = '#fca5a5';
     sucursalInfoEl.style.color = '#dc2626';
     document.getElementById('placeOrderBtn').disabled = true;
   } else {
     const esDomicilio = saved.sucursal === 'domicilio';
-    const label = saved.sucursal === 'cdb' ? '🏫 CDB'
-                : saved.sucursal === 'exsal' ? '🏢 EXSAL'
-                : '🚚 Envío a domicilio';
+    // Texto PÚBLICO: genérico, sin nombrar la institución.
     sucursalInfoEl.innerHTML = esDomicilio
-      ? `🚚 <b>Entrega:</b> ${label} <span style="font-size:.75rem;color:var(--g400)">(puedes cambiarlo en tu perfil)</span>`
-      : `🏫 <b>Sucursal:</b> ${label} <span style="font-size:.75rem;color:var(--g400)">(puedes cambiarlo en tu perfil)</span>`;
+      ? `🚚 <b>Entrega:</b> Envío a domicilio <span style="font-size:.75rem;color:var(--g400)">(podés cambiarlo con el botón de entrega)</span>`
+      : `🏫 <b>Entrega:</b> Retiro en sucursal <span style="font-size:.75rem;color:var(--g400)">(podés cambiarlo con el botón de entrega)</span>`;
     sucursalInfoEl.style.background = '';
     sucursalInfoEl.style.borderColor = '';
     sucursalInfoEl.style.color = '';
     document.getElementById('placeOrderBtn').disabled = false;
   }
 
-  // Mostrar/ocultar datos de envío + método de pago según el tipo de entrega
-  toggleDeliveryFields(saved.sucursal === 'domicilio');
+  // Mostrar/ocultar campos según el tipo de entrega ('domicilio' | 'cdb' | 'udb')
+  toggleDeliveryFields(saved.sucursal);
 
   openModal('checkoutModal');
 }
@@ -569,17 +590,29 @@ function openCheckout() {
 // ── Tipo de entrega: alterna las secciones de envío y pago ──
 let selectedPayment = 'tarjeta'; // 'tarjeta' | 'efectivo'
 
-function toggleDeliveryFields(esDomicilio) {
+// Alterna los campos del checkout según la entrega:
+//   'domicilio' → datos de envío + método de pago
+//   'cdb' (Colegio Don Bosco) → Grado + Sección
+//   'udb' (Universidad Don Bosco) → Teléfono
+function toggleDeliveryFields(sucursal) {
+  const esDomicilio   = sucursal === 'domicilio';
+  const esColegio     = sucursal === 'cdb';
+  const esUniversidad = sucursal === 'udb';
   const ship = document.getElementById('shippingSection');
   const pay  = document.getElementById('paymentSection');
-  const academic = document.getElementById('academicFields');
+  const academic   = document.getElementById('academicFields');
+  const university = document.getElementById('universityFields');
   if (ship) ship.style.display = esDomicilio ? '' : 'none';
   if (pay)  pay.style.display  = esDomicilio ? '' : 'none';
-  // Grado y sección no aplican al envío a domicilio.
-  if (academic) academic.style.display = esDomicilio ? 'none' : '';
+  if (academic)   academic.style.display   = esColegio     ? '' : 'none';
+  if (university) university.style.display = esUniversidad ? '' : 'none';
+  const saved = getSavedProfile();
+  if (esUniversidad) {
+    const up = document.getElementById('uniPhone');
+    if (up && saved.uniPhone) up.value = saved.uniPhone;
+  }
   if (esDomicilio) {
     // Prefijar datos de envío guardados (si existen)
-    const saved = getSavedProfile();
     if (saved.shipPhone)      document.getElementById('shipPhone').value      = saved.shipPhone;
     if (saved.shipPhone2)     document.getElementById('shipPhone2').value     = saved.shipPhone2;
     if (saved.shipDepartment) document.getElementById('shipDepartment').value = saved.shipDepartment;
@@ -618,12 +651,33 @@ async function placeOrder() {
     return;
   }
 
-  // Grado y sección solo se piden para retiro en sucursal (no para domicilio).
+  // Campos por tipo de entrega:
+  //   Colegio Don Bosco ('cdb') → Grado + Sección
+  //   Universidad Don Bosco ('udb') → Teléfono
+  //   Domicilio → datos de envío (más abajo)
   const esDomicilioEntrega = sucursal === 'domicilio';
-  const grade   = esDomicilioEntrega ? '' : document.getElementById('studentGrade').value;
-  const section = esDomicilioEntrega ? '' : document.getElementById('studentSection').value;
+  const esColegio     = sucursal === 'cdb';
+  const esUniversidad = sucursal === 'udb';
+  const grade    = esColegio ? document.getElementById('studentGrade').value   : '';
+  const section  = esColegio ? document.getElementById('studentSection').value : '';
+  const uniPhone = esUniversidad ? (document.getElementById('uniPhone').value || '').trim() : '';
   if (!name) { showToast('⚠️ Ingresa tu nombre completo'); return; }
-  if (!esDomicilioEntrega && (!grade || !section)) { showToast('⚠️ Completa todos los campos'); return; }
+  if (esColegio && (!grade || !section)) { showToast('⚠️ Completa grado y sección'); return; }
+  if (esUniversidad && !uniPhone) { showToast('⚠️ Ingresa tu teléfono'); return; }
+  // Institución de "Otros" (se atiende como domicilio): viaja en el correo al equipo.
+  const visitaInstitucion = esDomicilioEntrega
+    ? ((savedProfile.visitaInstitucion || '').trim() || (function(){ try { return localStorage.getItem(OTROS_KEY) || ''; } catch(_) { return ''; } })())
+    : '';
+  // Guardar el teléfono de universidad en el perfil para futuros pedidos
+  if (esUniversidad && uniPhone) {
+    try {
+      const k = 'el_profile_' + currentUser.uid;
+      const pf = JSON.parse(localStorage.getItem(k) || '{}');
+      pf.uniPhone = uniPhone;
+      localStorage.setItem(k, JSON.stringify(pf));
+      if (typeof saveProfileToCloud === 'function') saveProfileToCloud({ uniPhone });
+    } catch (_) {}
+  }
 
   // ── Datos de envío + método de pago (solo entrega a domicilio) ──
   const esDomicilio = sucursal === 'domicilio';
@@ -692,7 +746,8 @@ async function placeOrder() {
   const shipCost = esDomicilio ? getShippingCost(finalTotal) : 0;
 
   try {
-    const stockField = (sucursal === 'cdb' || sucursal === 'domicilio') ? 'stockCdb' : 'stockExsal';
+    // Inventario ÚNICO: todo descuenta de 'stockCdb' (solo el legado 'exsal' usa stockExsal).
+    const stockField = (sucursal === 'exsal') ? 'stockExsal' : 'stockCdb';
 
     // ── Verificar que haya stock suficiente y descontarlo de forma ATÓMICA, justo antes de crear el pedido ──
     // (aplica a TODO tipo de pedido: tarjeta, efectivo, sucursal o domicilio). Si no alcanza, no se crea el pedido.
@@ -728,6 +783,8 @@ async function placeOrder() {
       discountPct:         selectedDiscount ? selectedDiscount.porcentaje: null,
       sucursal:    sucursal,
       tipoEntrega: esDomicilio ? 'domicilio' : 'pickup',
+      uniTelefono: uniPhone || null,               // teléfono para retiro en Universidad Don Bosco
+      visitaInstitucion: visitaInstitucion || null, // institución "Otros" (se atiende como domicilio)
       envio:       envio,        // {nombre, telefono, telefono2, departamento, municipio, direccion, referencia, indicaciones} o null
       // Costo de envío y total que paga el cliente (NO afectan stats: 'total' sigue siendo solo productos)
       envioCosto:    shipCost,
@@ -759,6 +816,7 @@ async function placeOrder() {
       discountPct:  selectedDiscount ? selectedDiscount.porcentaje : null,
       sucursal,
       tipoEntrega: esDomicilio ? 'domicilio' : 'pickup',
+      visitaInstitucion: visitaInstitucion || null,
       envio,
       envioCosto:    shipCost,
       totalConEnvio: +(((selectedDiscount ? finalTotal : +rawTotal.toFixed(2))) + shipCost).toFixed(2),
@@ -783,7 +841,7 @@ async function placeOrder() {
 
     // Incrementar contador de pedidos pendientes en estadísticas (tiempo real, NO se resetea por mes)
     try {
-      const statDocId = (sucursal === 'cdb' || sucursal === 'domicilio') ? 'ColegioDonBosco' : 'ColegioExsal';
+      const statDocId = (sucursal === 'exsal') ? 'ColegioExsal' : 'ColegioDonBosco';
       await db.collection('estadisticas').doc(statDocId).set({
         pedidosPendientes: firebase.firestore.FieldValue.increment(1)
       }, { merge: true });
@@ -803,6 +861,7 @@ async function placeOrder() {
     closeModal('checkoutModal');
     document.getElementById('studentGrade').value   = '';
     document.getElementById('studentSection').value = '';
+    { const _up = document.getElementById('uniPhone'); if (_up) _up.value = ''; }
     document.getElementById('generatedCode').textContent = code;
 
     // ─── GENERAR QR ───

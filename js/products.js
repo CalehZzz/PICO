@@ -105,11 +105,8 @@ async function loadProducts() {
     writeProdCache(rawProducts, maxSyncTs);
 
     // Procesar productos (detectar cat/emoji, calcular stock)
-    // El stock mostrado es SOLO el de la sucursal elegida (stockCdb o stockExsal).
-    const stockField = selectedSucursal === 'cdb' ? 'stockCdb'
-                     : selectedSucursal === 'exsal' ? 'stockExsal'
-                     : selectedSucursal === 'domicilio' ? 'stockCdb'  // domicilio usa el stock de CDB (por ahora)
-                     : null;
+    // INVENTARIO ÚNICO: tras eliminar EXSAL, todo (domicilio, Colegio Don Bosco,
+    // Universidad Don Bosco y "Otros") sale del mismo stock: 'stockCdb'.
     products = [];
     rawProducts.forEach(d => {
       const det = detectCatEmoji(d.name, d.desc);
@@ -117,17 +114,9 @@ async function loadProducts() {
       // si no, se cae al detector automático (compatibilidad con productos viejos).
       const cat = (d.categoria && String(d.categoria).trim()) ? String(d.categoria).trim() : det.cat;
       const e   = det.e;
-      let s;
-      if (stockField) {
-        // Stock real de la sucursal seleccionada
-        s = typeof d[stockField] === 'number' ? d[stockField] : 0;
-      } else {
-        // Sin sucursal (no debería ocurrir tras el gate): fallback a la suma o stock legado
-        const hasSucursalStock = typeof d.stockCdb === 'number' || typeof d.stockExsal === 'number';
-        s = hasSucursalStock
-          ? ((typeof d.stockCdb === 'number' ? d.stockCdb : 0) + (typeof d.stockExsal === 'number' ? d.stockExsal : 0))
-          : (typeof d.stock === 'number' ? d.stock : 0);
-      }
+      // Stock único: 'stockCdb'. Fallback al 'stock' legado si el producto viejo no tiene stockCdb.
+      let s = typeof d.stockCdb === 'number' ? d.stockCdb
+            : (typeof d.stock === 'number' ? d.stock : 0);
       products.push({
         id:    d.id,
         name:  d.name  || 'Producto',
@@ -142,9 +131,9 @@ async function loadProducts() {
       stockMap[d.id] = s;
     });
 
-    // El stock que se muestra es directamente el de la sucursal (stockCdb / stockExsal)
-    // leído de Firebase. El descuento por pedido ya está aplicado en Firebase al
-    // momento de crear el pedido, así que NO se vuelve a restar aquí (evita doble descuento).
+    // El stock que se muestra es directamente 'stockCdb' leído de Firebase. El
+    // descuento por pedido ya está aplicado en Firebase al momento de crear el
+    // pedido, así que NO se vuelve a restar aquí (evita doble descuento).
 
     if (hasGrid) { loadEl.style.display = 'none'; gridEl.style.display = ''; }
     buildCategoryFilter();   // construir el filtro con las categorías reales del catálogo

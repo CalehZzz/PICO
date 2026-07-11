@@ -26,9 +26,14 @@ let currentUser      = null;
 let isAdmin          = false;
 let products         = [];
 let stockMap         = {};
-// Sucursal elegida en el gate de entrada ('cdb' | 'exsal'). Determina qué stock se muestra.
+// Entrega elegida en el modal de entrada: 'domicilio' | 'cdb' (Colegio Don Bosco)
+// | 'udb' (Universidad Don Bosco). Inventario ÚNICO: NO cambia el stock mostrado.
+// ('exsal' es legado y ya no se ofrece; solo se lee en pedidos históricos.)
 const SUCURSAL_KEY   = 'pico_sucursal_v1';
 let selectedSucursal = localStorage.getItem(SUCURSAL_KEY) || null;
+// Migración: EXSAL ya no se ofrece. Si el usuario tenía 'exsal' guardado, se
+// limpia para que el modal de entrada le pida elegir de nuevo su entrega.
+if (selectedSucursal === 'exsal') { selectedSucursal = null; try { localStorage.removeItem(SUCURSAL_KEY); } catch (_) {} }
 let cart             = {};
 let orders           = [];
 // Busca un pedido entre los docs actualmente cargados (admin: ambas secciones; cliente: mis pedidos)

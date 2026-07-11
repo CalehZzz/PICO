@@ -61,7 +61,11 @@ function renderProfile() {
     ? `<img src="${currentUser.photoURL}" class="profile-photo-lg" alt="">`
     : `<div class="profile-avatar-lg">${initials}</div>`;
   const saved = getSavedProfile();
-  const sucursalLabel = saved.sucursal === 'cdb' ? '🏫 CDB' : saved.sucursal === 'exsal' ? '🏢 EXSAL' : saved.sucursal === 'domicilio' ? '🚚 Domicilio' : '';
+  // Etiqueta PÚBLICA (genérica, sin nombrar la institución).
+  const sucursalLabel = saved.sucursal
+    ? ((typeof entregaPublicLabel === 'function') ? entregaPublicLabel(saved.sucursal)
+        : (saved.sucursal === 'domicilio' ? '🚚 Envío a domicilio' : '🏫 Retiro en sucursal'))
+    : '';
   // Etiqueta de resumen: datos académicos si los hay, o "domicilio guardado" si guardó dirección.
   let tag = '';
   if (saved.grade) {
@@ -100,9 +104,10 @@ function renderProfile() {
 function toggleProfileSections(sucursal) {
   const academic = document.getElementById('profileAcademic');
   const shipping = document.getElementById('profileShipping');
-  const esDom = sucursal === 'domicilio';
-  if (academic) academic.style.display = esDom ? 'none' : '';
-  if (shipping) shipping.style.display = esDom ? '' : 'none';
+  // Grado/Sección solo para Colegio Don Bosco ('cdb'); envío solo para domicilio.
+  // Universidad Don Bosco ('udb') no requiere datos aquí (el teléfono se pide al confirmar).
+  if (academic) academic.style.display = (sucursal === 'cdb')       ? '' : 'none';
+  if (shipping) shipping.style.display = (sucursal === 'domicilio') ? '' : 'none';
 }
 
 function saveProfile() {
@@ -131,14 +136,13 @@ function saveProfile() {
   // Guardar también en la nube (cross-device)
   saveProfileToCloud(prof);
 
-  // Si cambió la sucursal desde el perfil, reflejarlo en el gate y recargar el stock
+  // Si cambió la entrega desde el perfil, reflejarla. Inventario ÚNICO: el stock
+  // NO depende de la entrega, así que NO se vacía el carrito ni se recargan productos.
   if (sucursal && sucursal !== selectedSucursal) {
     selectedSucursal = sucursal;
     localStorage.setItem(SUCURSAL_KEY, sucursal);
-    cart = {};
-    saveCart();
+    if (typeof updateSucursalBadge === 'function') updateSucursalBadge();
     updateCartUI();
-    loadProducts();
   }
   renderProfile();
   showToast('✅ Perfil actualizado');

@@ -252,7 +252,8 @@ nav{position:sticky;top:12px;z-index:200;
 .cfoot{padding:20px 22px;padding-bottom:max(20px,env(safe-area-inset-bottom));border-top:1px solid rgba(17,24,39,.07)}
 .ctotal-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:15px}
 .ctotal-lbl{font-size:.9rem;color:var(--g500);font-weight:500}
-.ctotal-val{font-size:1.4rem;font-weight:800;color:var(--g900);letter-spacing:-.035em}
+/* Subtotal: tamaño MEDIANO */
+.ctotal-val{font-size:1.15rem;font-weight:800;color:var(--g900);letter-spacing:-.03em}
 .btn-checkout{width:100%;padding:15px;border-radius:16px;background:linear-gradient(135deg,var(--b500),var(--b600));
   color:#fff;border:none;cursor:pointer;font-family:var(--font);font-size:.95rem;font-weight:700;letter-spacing:-.01em;
   box-shadow:var(--glow);transition:transform .26s var(--ease),box-shadow .26s var(--ease)}
@@ -307,12 +308,14 @@ nav{position:sticky;top:12px;z-index:200;
 /* ─── Línea de envío actual + total con envío (pie del carrito) ─── */
 #cartShippingLine{margin-bottom:15px}
 .cship-line{display:flex;justify-content:space-between;align-items:center;padding:4px 0}
-.cship-line-lbl{font-size:.86rem;color:var(--g500);font-weight:500}
-.cship-line-val{font-size:.94rem;font-weight:700;color:var(--g900)}
+/* Envío: tamaño PEQUEÑO */
+.cship-line-lbl{font-size:.8rem;color:var(--g500);font-weight:500}
+.cship-line-val{font-size:.82rem;font-weight:700;color:var(--g900)}
 .cship-line-val.free{color:var(--green)}
-.cship-total-line{margin-top:7px;padding-top:10px;border-top:1.5px dashed rgba(17,24,39,.12)}
-.cship-total-line .cship-line-lbl{font-weight:700;color:var(--g700)}
-.cship-line-val.total{font-size:1.24rem;color:var(--g900);letter-spacing:-.03em}
+.cship-total-line{margin-top:8px;padding-top:11px;border-top:1.5px dashed rgba(17,24,39,.12)}
+/* Total con envío: tamaño GRANDE */
+.cship-total-line .cship-line-lbl{font-weight:800;color:var(--g900);font-size:1rem}
+.cship-line-val.total{font-size:1.6rem;font-weight:800;color:var(--g900);letter-spacing:-.04em}
 
 /* ─── AUTH SIDEBAR ─── */
 .auth-overlay{position:fixed;inset:0;z-index:500;pointer-events:none}
@@ -370,8 +373,8 @@ nav{position:sticky;top:12px;z-index:200;
 
 /* ═══ DETALLE DE PRODUCTO ═══ */
 .pd-img{width:100%;height:280px;border-radius:var(--r);overflow:hidden;position:relative;
-  background:linear-gradient(140deg,var(--b50),var(--s100));display:flex;align-items:center;
-  justify-content:center;font-size:5.2rem;margin-bottom:18px;border:1px solid rgba(17,24,39,.05)}
+  background:#fff;display:flex;align-items:center;
+  justify-content:center;font-size:5.2rem;margin-bottom:18px;border:none}
 .pd-img img{width:100%;height:100%;object-fit:contain;display:block;background:#fff}
 .pd-tags{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
 .pd-tag{background:rgba(0,113,227,.08);color:var(--b600);border:1px solid rgba(0,113,227,.14);
