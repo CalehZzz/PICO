@@ -62,15 +62,15 @@ function _renderVisibleSlice() {
   grid.innerHTML = slice.map((p, i) => {
     const s       = stockMap[p.id] !== undefined ? stockMap[p.id] : p.stock;
     const noStock = s === 0;
-    return `<div class="pcard" style="animation-delay:${Math.min(i, 11) * .03}s">
+    return `<article class="pcard" style="animation-delay:${Math.min(i, 9) * .04}s">
       <div class="pimg pimg-clickable" onclick="openProductDetail('${p.id}')">
         ${p.img ? `<img class="pimg-photo" src="${p.img}" alt="${p.name}" loading="lazy" onerror="this.style.display='none'">` : ''}
-        <span class="ptag">${p.cat}</span>
         <span class="pstock ${stockClass(s)}">${stockLabel(s)}</span>
         <span class="pimg-emoji"${p.img ? ' style="display:none"' : ''}>${p.e}</span>
       </div>
       <div class="pbody">
         <div class="pclick" onclick="openProductDetail('${p.id}')">
+          <span class="pcat">${p.cat}</span>
           <div class="pname">${p.name}</div>
           <div class="pdesc">${p.desc}</div>
         </div>
@@ -81,7 +81,7 @@ function _renderVisibleSlice() {
           </div>
         </div>
       </div>
-    </div>`;
+    </article>`;
   }).join('');
 
   // Controles de paginación (arriba y abajo)
