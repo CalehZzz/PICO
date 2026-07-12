@@ -23,6 +23,11 @@ auth.onAuthStateChanged(async user => {
     }
     // Sincronizar la sucursal elegida en el gate con el perfil del usuario
     if (selectedSucursal) syncSucursalToProfile(selectedSucursal);
+    // Si eligió "Otros" antes de iniciar sesión, persistir la institución en el perfil
+    try {
+      const otros = localStorage.getItem(typeof OTROS_KEY !== 'undefined' ? OTROS_KEY : 'pico_otros_institucion_v1');
+      if (otros && typeof syncOtrosToProfile === 'function') syncOtrosToProfile(otros);
+    } catch (_) {}
     // Cargar el perfil guardado en la nube (cross-device) y fusionarlo con el caché local
     loadProfileFromCloud();
     updateNavAuth();

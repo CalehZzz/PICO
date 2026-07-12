@@ -119,13 +119,10 @@ function sendOrderEmail(orderId, d) {
 
   return db.collection('mail').add({
     to: NOTIFY_EMAIL,
-    // Remitente verificado en Brevo. Sin un 'from' verificado, la extensión
-    // Trigger Email no entrega el correo (por eso antes no llegaba el aviso).
-    from: 'PICO Electrónica <info@picosv.com>',
-    replyTo: d.email || 'info@picosv.com',
     message: {
       subject: `🛒 Nuevo pedido ${d.code} — ${d.name} (${sucLabel})${d.visitaInstitucion ? ' · visita: ' + d.visitaInstitucion : ''}`,
-      html
+      html,
+      text: `Nuevo pedido ${d.code} — ${d.name}${d.visitaInstitucion ? ' · visita: ' + d.visitaInstitucion : ''}`
     }
   });
 }
@@ -210,8 +207,6 @@ async function crearYEnviarFacturaPedido(orderId, d) {
     try {
       await db.collection('mail').add({
         to: d.email,
-        from: 'PICO Electrónica <info@picosv.com>',
-        replyTo: 'info@picosv.com',
         message: {
           subject: `🧾 Factura ${numFactura} — PICO Electrónica`,
           html: `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:auto;color:#0f3f63">
@@ -235,7 +230,8 @@ async function crearYEnviarFacturaPedido(orderId, d) {
     <p style="margin:8px 0 0;text-align:right;font-size:17px;font-weight:700">TOTAL: $${total.toFixed(2)}</p>
     <p style="margin:18px 0 0;color:#94a3b8;font-size:12px">Este es un correo automático, por favor no respondas a esta dirección.</p>
   </div>
-</div>`
+</div>`,
+          text: `Factura ${numFactura} — Pedido ${d.code} — Total $${total.toFixed(2)}`
         }
       });
     } catch (e) { console.warn('No se pudo encolar el correo de la factura al cliente:', e); }

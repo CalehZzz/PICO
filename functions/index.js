@@ -552,3 +552,35 @@ exports.setAdminRole = functions.https.onCall(async (data, context) => {
 
   return { ok: true, uid: userRecord.uid, email, admin: makeAdmin };
 });
+
+// ════════════════════════════════════════════════════════════════
+//  AVISO: visitante desde institución "Otros" (colegio/universidad no listada)
+//  Se llama desde el modal de entrada SIN necesidad de iniciar sesión.
+//  Escribe en la colección 'mail' con privilegios de servidor → Trigger Email.
+// ════════════════════════════════════════════════════════════════
+const NOTIFY_EMAIL = 'picosvsupport@gmail.com';
+
+exports.notificarVisitaOtros = functions.https.onCall(async (data) => {
+  const institucion = String((data && data.institucion) || '').trim();
+  if (!institucion || institucion.length < 2 || institucion.length > 200) {
+    throw new functions.https.HttpsError('invalid-argument', 'Nombre de institución inválido.');
+  }
+  const safe = institucion.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const cuando = new Date().toLocaleString('es-SV');
+  const html = `<div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;color:#0f172a">
+    <h2 style="margin:0 0 8px">🏫 Visita desde institución no listada</h2>
+    <p style="margin:0 0 16px;color:#64748b">${cuando}</p>
+    <p style="font-size:16px;margin:0 0 12px">Un visitante indicó que nos visita desde:</p>
+    <p style="font-size:20px;font-weight:700;color:#0071e3;margin:0 0 16px">${safe}</p>
+    <p style="font-size:13px;color:#94a3b8;margin:0">Se redirigió automáticamente a <b>envío a domicilio</b>. Si hace un pedido, el aviso de pedido incluirá esta institución.</p>
+  </div>`;
+  await db.collection('mail').add({
+    to: NOTIFY_EMAIL,
+    message: {
+      subject: `🏫 Visita desde: ${institucion}`,
+      html,
+      text: `Visita desde institución no listada: ${institucion} (${cuando})`
+    }
+  });
+  return { ok: true };
+});

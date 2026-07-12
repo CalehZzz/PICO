@@ -181,9 +181,10 @@ function gateConfirmPickup() {
     const inp  = document.getElementById('gateOtrosInput');
     const inst = inp ? inp.value.trim() : '';
     if (!inst) { showToast('⚠️ Escribí el nombre de tu colegio o universidad'); return; }
-    // "Otros" se atiende como envío a domicilio; guardamos la institución para el correo al equipo.
+    // "Otros" se atiende como envío a domicilio; guardamos la institución y avisamos al equipo.
     try { localStorage.setItem(OTROS_KEY, inst); } catch (_) {}
     syncOtrosToProfile(inst);
+    sendOtrosVisitaEmail(inst);
     chooseGateSucursal('domicilio');
     showOtrosWelcome(inst);
     return;
@@ -263,4 +264,22 @@ function syncOtrosToProfile(inst) {
   if (inst) saved.visitaInstitucion = inst; else delete saved.visitaInstitucion;
   localStorage.setItem(key, JSON.stringify(saved));
   if (typeof saveProfileToCloud === 'function') saveProfileToCloud({ visitaInstitucion: inst || null });
+}
+
+// Aviso inmediato al equipo cuando alguien elige "Otros" y escribe su colegio/universidad.
+// Usa Cloud Function (servidor) porque el visitante aún no tiene sesión y el cliente
+// no puede escribir en la colección 'mail' por las reglas de Firestore.
+async function sendOtrosVisitaEmail(institucion) {
+  const inst = String(institucion || '').trim();
+  if (!inst) return;
+  try {
+    if (typeof firebase !== 'undefined' && firebase.functions) {
+      const fn = firebase.functions().httpsCallable('notificarVisitaOtros');
+      await fn({ institucion: inst });
+      return;
+    }
+  } catch (e) {
+    console.warn('notificarVisitaOtros:', e);
+  }
+  showToast('⚠️ No se pudo enviar el aviso. Intentá de nuevo o contactanos.');
 }
