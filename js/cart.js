@@ -210,8 +210,8 @@ async function crearYEnviarFacturaPedido(orderId, d) {
     try {
       await db.collection('mail').add({
         to: d.email,
-        from: 'PICO Electrónica <pedidos@picosv.com>',
-        replyTo: 'noreply@picosv.com',
+        from: 'PICO Electrónica <info@picosv.com>',
+        replyTo: 'info@picosv.com',
         message: {
           subject: `🧾 Factura ${numFactura} — PICO Electrónica`,
           html: `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:auto;color:#0f3f63">
