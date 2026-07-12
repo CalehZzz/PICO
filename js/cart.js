@@ -119,6 +119,10 @@ function sendOrderEmail(orderId, d) {
 
   return db.collection('mail').add({
     to: NOTIFY_EMAIL,
+    // Remitente verificado en Brevo. Sin un 'from' verificado, la extensión
+    // Trigger Email no entrega el correo (por eso antes no llegaba el aviso).
+    from: 'PICO Electrónica <info@picosv.com>',
+    replyTo: d.email || 'info@picosv.com',
     message: {
       subject: `🛒 Nuevo pedido ${d.code} — ${d.name} (${sucLabel})${d.visitaInstitucion ? ' · visita: ' + d.visitaInstitucion : ''}`,
       html
