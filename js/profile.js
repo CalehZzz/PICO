@@ -26,6 +26,15 @@ async function loadProfileFromCloud() {
   const key = 'el_profile_' + currentUser.uid;
   let local = {};
   try { local = JSON.parse(localStorage.getItem(key) || '{}'); } catch (_) {}
+  // Guardar siempre email/nombre en el perfil de la nube para que el admin pueda
+  // asignar descuentos buscando por email SIN necesidad de una compra previa.
+  try {
+    await profileDocRef().set({
+      email:      currentUser.email || '',
+      emailLower: (currentUser.email || '').trim().toLowerCase(),
+      name:       currentUser.name  || ''
+    }, { merge: true });
+  } catch (_) {}
   try {
     const snap = await profileDocRef().get();
     if (snap.exists) {

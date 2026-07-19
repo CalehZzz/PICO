@@ -45,7 +45,7 @@ function renderCartDiscountSelector() {
   const container = document.getElementById('cartDiscountContainer');
   if (!container) return;
   const myDiscounts = getUserDiscounts();
-  if (!currentUser || isAdmin || myDiscounts.length === 0) {
+  if (!currentUser || myDiscounts.length === 0) {
     container.innerHTML = '';
     container.style.display = 'none';
     selectedDiscount = null;
@@ -151,18 +151,24 @@ async function loadUserForDiscount() {
   if (!email) { info.innerHTML = '<p style="color:#dc2626;font-size:.82rem">Ingresa un email.</p>'; return; }
   info.innerHTML = '<p style="font-size:.82rem;color:var(--g400)">Buscando...</p>';
   try {
-    // Buscar pedidos de ese email para obtener el uid
-    const snap = await db.collection('pedidos').where('email', '==', email).limit(1).get();
-    if (snap.empty) {
-      info.innerHTML = '<p style="font-size:.82rem;color:#dc2626">No se encontró ningún pedido con ese email. El cliente debe haber realizado al menos un pedido.</p>';
-      return;
+    let uid = null;
+
+    // 1) Buscar por perfil (basta con que el cliente haya iniciado sesión una vez;
+    //    NO necesita una compra previa).
+    const perfSnap = await db.collection('perfiles').where('emailLower', '==', email).limit(1).get();
+    if (!perfSnap.empty) {
+      uid = perfSnap.docs[0].id;
+    } else {
+      // 2) Respaldo para clientes antiguos: buscar en sus pedidos.
+      const ordSnap = await db.collection('pedidos').where('email', '==', email).limit(1).get();
+      if (!ordSnap.empty) uid = ordSnap.docs[0].data().userId || null;
     }
-    const orderData = snap.docs[0].data();
-    const uid = orderData.userId;
+
     if (!uid) {
-      info.innerHTML = '<p style="font-size:.82rem;color:#dc2626">El cliente no tiene cuenta de Google vinculada.</p>';
+      info.innerHTML = '<p style="font-size:.82rem;color:#dc2626">No se encontró ningún cliente con ese email. El cliente debe haber iniciado sesión al menos una vez con esa cuenta de Google.</p>';
       return;
     }
+
     const currentIds = await getUserDiscountIds(uid);
     renderDiscountAssigner(uid, email, currentIds);
   } catch(e) {

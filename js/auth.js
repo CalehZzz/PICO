@@ -35,6 +35,9 @@ auth.onAuthStateChanged(async user => {
     loadProducts();
     // Cargar descuentos globales (todos los descuentos definidos por el admin)
     startDescuentosListener();
+    // Cargar los descuentos asignados a ESTE usuario (incluidos los admins:
+    // un admin también puede tener y usar descuentos asignados a su cuenta).
+    startUserDiscountListener(user.uid);
     if (isAdmin) {
       startAdminListener();
       // Si llegó desde un QR (URL con ?pedido=ID)
@@ -49,9 +52,6 @@ auth.onAuthStateChanged(async user => {
       if (pedidoId && page === 'adminPanel') {
         setTimeout(() => highlightOrder(pedidoId), 1800);
       }
-    } else {
-      // Usuario normal: cargar sus descuentos asignados
-      startUserDiscountListener(user.uid);
     }
     initPageAfterAuth();
   } else {
