@@ -38,6 +38,8 @@ auth.onAuthStateChanged(async user => {
     // Cargar los descuentos asignados a ESTE usuario (incluidos los admins:
     // un admin también puede tener y usar descuentos asignados a su cuenta).
     startUserDiscountListener(user.uid);
+    // Tarjeta de sellos activa vinculada al correo (para el 40% al completar 8)
+    startStampCardListener(user.email);
     if (isAdmin) {
       startAdminListener();
       // Si llegó desde un QR (URL con ?pedido=ID)
@@ -61,10 +63,13 @@ auth.onAuthStateChanged(async user => {
     if (typeof unsubAdmins !== 'undefined' && unsubAdmins) { unsubAdmins(); unsubAdmins = null; }
     if (unsubDescuentos)  { unsubDescuentos();  unsubDescuentos  = null; }
     if (unsubUserDiscount){ unsubUserDiscount();unsubUserDiscount= null; }
+    if (typeof stopStampCardListener === 'function') stopStampCardListener();
     allDescuentos    = [];
     userDiscountIds  = [];
     selectedDiscount = null;
+    userStampCard    = null;
     updateNavAuth();
+    if (typeof renderCartDiscountSelector === 'function') renderCartDiscountSelector();
     // Sin sesión: cargar productos (solo stock de Firebase, sin ajuste de pedidos)
     loadProducts();
     initPageAfterAuth();
@@ -157,6 +162,7 @@ async function doLogout() {
   orders = [];
   cart   = {};
   selectedDiscount = null; // Bug 5 fix: limpiar descuento antes de actualizar UI
+  if (typeof stopStampCardListener === 'function') stopStampCardListener();
   try { localStorage.removeItem('pico_cart'); } catch(_) {}
   renderCartDiscountSelector(); // Bug 5 fix: ocultar el selector de descuento inmediatamente
   updateCartUI();

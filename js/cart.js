@@ -741,6 +741,36 @@ async function placeOrder() {
 
   // Capturamos el % de descuento ANTES de resetear selectedDiscount (se usa más abajo en el pago).
   const pagoDiscPct = selectedDiscount ? selectedDiscount.porcentaje : 0;
+  const discFields  = (typeof buildDiscountOrderFields === 'function')
+    ? buildDiscountOrderFields()
+    : {
+        totalConDescuento: selectedDiscount ? finalTotal : null,
+        discountId: selectedDiscount ? selectedDiscount.id : null,
+        discountName: selectedDiscount ? selectedDiscount.nombre : null,
+        discountPct: selectedDiscount ? selectedDiscount.porcentaje : null,
+        discountCode: null, discountCodeId: null, stampCardCode: null, discountSource: null
+      };
+  if (selectedDiscount) discFields.totalConDescuento = finalTotal;
+  else discFields.totalConDescuento = null;
+
+  // Revalidar código/sellos justo antes de crear el pedido (evita canjes inválidos)
+  try {
+    if (selectedDiscount && selectedDiscount.source === 'code') {
+      await validarCodigoDescuento(selectedDiscount.code, rawTotal);
+    }
+    if (selectedDiscount && selectedDiscount.source === 'stamp') {
+      if (!stampRewardAvailable(userStampCard) || userStampCard.code !== selectedDiscount.id) {
+        throw new Error('Tu tarjeta de sellos ya no tiene el 40% disponible.');
+      }
+    }
+  } catch (e) {
+    selectedDiscount = null;
+    if (typeof renderCartDiscountSelector === 'function') renderCartDiscountSelector();
+    btn.disabled = false;
+    btn.textContent = 'Confirmar Pedido';
+    showToast('⚠️ ' + (e.message || 'Descuento no válido'));
+    return;
+  }
 
   // Costo de envío por tramos (según el subtotal con descuento). Solo a domicilio.
   const shipCost = esDomicilio ? getShippingCost(finalTotal) : 0;
@@ -777,10 +807,16 @@ async function placeOrder() {
     const docRef = await db.collection('pedidos').add({
       code, name, grade, section, items,
       total:               +rawTotal.toFixed(2),
-      totalConDescuento:   selectedDiscount ? finalTotal : null,
-      discountId:          selectedDiscount ? selectedDiscount.id        : null,
-      discountName:        selectedDiscount ? selectedDiscount.nombre    : null,
-      discountPct:         selectedDiscount ? selectedDiscount.porcentaje: null,
+      totalConDescuento:   discFields.totalConDescuento,
+      discountId:          discFields.discountId,
+      discountName:        discFields.discountName,
+      discountPct:         discFields.discountPct,
+      discountCode:        discFields.discountCode,
+      discountCodeId:      discFields.discountCodeId,
+      stampCardCode:       discFields.stampCardCode,
+      discountSource:      discFields.discountSource,
+      descuentoConsumido:  false,
+      stampApplied:        false,
       sucursal:    sucursal,
       tipoEntrega: esDomicilio ? 'domicilio' : 'pickup',
       uniTelefono: uniPhone || null,               // teléfono para retiro en Universidad Don Bosco
@@ -807,13 +843,18 @@ async function placeOrder() {
       email:       currentUser?.email || null
     });
 
+    // Consumir código promocional / archivar tarjeta de sellos (servidor). No bloquea el pedido.
+    if (typeof consumirDescuentoTrasPedido === 'function') {
+      consumirDescuentoTrasPedido(docRef.id).catch(e => console.warn('consumirDescuento:', e));
+    }
+
     // Aviso por correo al dueño (no bloquea el pedido si algo falla)
     sendOrderEmail(docRef.id, {
       code, name, grade, section, items,
       total: +rawTotal.toFixed(2),
-      totalConDescuento: selectedDiscount ? finalTotal : null,
-      discountName: selectedDiscount ? selectedDiscount.nombre : null,
-      discountPct:  selectedDiscount ? selectedDiscount.porcentaje : null,
+      totalConDescuento: discFields.totalConDescuento,
+      discountName: discFields.discountName,
+      discountPct:  discFields.discountPct,
       sucursal,
       tipoEntrega: esDomicilio ? 'domicilio' : 'pickup',
       visitaInstitucion: visitaInstitucion || null,
@@ -828,9 +869,9 @@ async function placeOrder() {
     crearYEnviarFacturaPedido(docRef.id, {
       code, name, items,
       total: +rawTotal.toFixed(2),
-      totalConDescuento: selectedDiscount ? finalTotal : null,
-      discountName: selectedDiscount ? selectedDiscount.nombre : null,
-      discountPct:  selectedDiscount ? selectedDiscount.porcentaje : null,
+      totalConDescuento: discFields.totalConDescuento,
+      discountName: discFields.discountName,
+      discountPct:  discFields.discountPct,
       sucursal,
       tipoEntrega: esDomicilio ? 'domicilio' : 'pickup',
       envioCosto: shipCost,
@@ -856,6 +897,7 @@ async function placeOrder() {
     myOrdersPaging.page = 0; myOrdersPaging.cursors = []; myOrdersPaging.atEnd = false; // refrescar al crear pedido
     selectedDiscount = null; // Bug 1 fix: resetear descuento seleccionado al completar pedido
     try { localStorage.removeItem('pico_cart'); } catch(_) {}
+    if (typeof renderCartDiscountSelector === 'function') renderCartDiscountSelector();
     updateCartUI();
     renderProducts();
     closeModal('checkoutModal');

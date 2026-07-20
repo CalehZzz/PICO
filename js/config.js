@@ -50,9 +50,16 @@ let currentSearch    = '';
 // Descuentos: lista global (leída de Firestore) y descuentos asignados al usuario
 let allDescuentos       = [];   // [{id, nombre, porcentaje}]
 let userDiscountIds     = [];   // IDs de descuentos que tiene este usuario (cargados por uid)
-let selectedDiscount    = null; // {id, nombre, porcentaje} o null
+// selectedDiscount: { source:'assigned'|'code'|'stamp', id, nombre, porcentaje, code? } | null
+let selectedDiscount    = null;
 let unsubDescuentos     = null;
 let unsubUserDiscount   = null;
+// Tarjeta de sellos activa del usuario logueado (listener por email)
+let userStampCard       = null; // { code, nombre, sellos, rewardAvailable, ... } | null
+let unsubStampCard      = null;
+const STAMP_REWARD_PCT  = 40;
+const STAMP_TARGET      = 8;
+const STAMP_MIN_ORDER   = 1;    // $ mínimo de productos para ganar 1 sello
 
 // Paginación / lazy render
 const PAGE_SIZE            = 10;

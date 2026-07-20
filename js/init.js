@@ -9,9 +9,9 @@
 // que el stockMap se ajuste según el estado de sesión.
 loadCart();
 updateNavAuth();
-updateCartUI();
-// Obligar a elegir sucursal antes de continuar
-if (!selectedSucursal) showSucursalGate();
+if (typeof updateCartUI === 'function') updateCartUI();
+// Obligar a elegir sucursal antes de continuar (no en página de tarjeta de sellos)
+if (!selectedSucursal && document.body.dataset.page !== 'stampCard') showSucursalGate();
 
 // ═══════════════════════════════════════════════════
 //  RETORNO DEL PAGO WOMPI (?pago=ok&order=...)

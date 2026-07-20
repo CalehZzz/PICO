@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Redirigiendo…</title>
+<script>
+(function () {
+  var path = location.pathname || '';
+  // /tarjetas/CODIGO → /tarjetas/?c=CODIGO (GitHub Pages / hosting estático)
+  var m = path.match(/^\/tarjetas\/([^\/]+)\/?$/i);
+  if (m && m[1] && m[1].toLowerCase() !== 'index.html') {
+    location.replace('/tarjetas/?c=' + encodeURIComponent(m[1]));
+    return;
+  }
+  location.replace('/');
+})();
+</script>
+</head>
+<body>
+<p>Redirigiendo…</p>
+</body>
+</html>

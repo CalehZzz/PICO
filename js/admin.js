@@ -557,6 +557,10 @@ async function changeStatus(firestoreId, val) {
         stockBatch.set(db.collection('estadisticas').doc(statDocId), statPayload, { merge: true });
 
         await stockBatch.commit();
+        // Sello de tarjeta de fidelidad (idempotente, no revierte la entrega si falla)
+        if (typeof añadirSelloTrasEntrega === 'function') {
+          añadirSelloTrasEntrega(firestoreId).catch(e => console.warn('Sello:', e));
+        }
         renderProducts();
         refreshAdminAfterChange();
         showToast('✅ Pedido marcado como entregado');

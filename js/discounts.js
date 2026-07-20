@@ -1,10 +1,6 @@
 // ════════════════════════════════════════════════════════════════
-// PICO · Descuentos: listeners y asignación por usuario (admin)
+// PICO · Descuentos: asignados, códigos promocionales y tarjeta de sellos
 // ════════════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════
-//  DESCUENTOS — LISTENERS Y LÓGICA
-// ═══════════════════════════════════════════════════
 
 // Escucha la colección "descuentos" (compartida con inventario)
 function startDescuentosListener() {
@@ -12,9 +8,7 @@ function startDescuentosListener() {
   unsubDescuentos = db.collection('descuentos').orderBy('createdAt', 'asc').onSnapshot(snap => {
     allDescuentos = [];
     snap.forEach(doc => allDescuentos.push({ id: doc.id, ...doc.data() }));
-    // Si hay selector de descuento activo, actualizarlo
     renderCartDiscountSelector();
-    // Si el panel admin está visible, actualizar su sección de descuentos
     if (isAdmin && document.body.dataset.page === 'adminPanel') {
       renderAdminDiscountSection();
     }
@@ -30,65 +24,247 @@ function startUserDiscountListener(uid) {
     } else {
       userDiscountIds = [];
     }
-    selectedDiscount = null; // resetear selección al actualizar
+    // Si el descuento asignado seleccionado ya no está, limpiarlo
+    if (selectedDiscount && selectedDiscount.source === 'assigned'
+        && !userDiscountIds.includes(selectedDiscount.id)) {
+      selectedDiscount = null;
+    }
     renderCartDiscountSelector();
   }, err => console.error('User discount listener:', err));
 }
 
-// Descuentos del usuario actual (filtrados de la lista global)
+// Tarjeta de sellos activa del email del usuario (máx. 1)
+function startStampCardListener(email) {
+  if (unsubStampCard) { unsubStampCard(); unsubStampCard = null; }
+  userStampCard = null;
+  const emailLower = String(email || '').trim().toLowerCase();
+  if (!emailLower) { renderCartDiscountSelector(); return; }
+  unsubStampCard = db.collection('stamp-cards')
+    .where('emailLower', '==', emailLower)
+    .where('status', '==', 'active')
+    .limit(1)
+    .onSnapshot(snap => {
+      if (snap.empty) {
+        userStampCard = null;
+      } else {
+        const doc = snap.docs[0];
+        userStampCard = { code: doc.id, ...doc.data() };
+        if (!userStampCard.code) userStampCard.code = doc.id;
+      }
+      // Si tenía seleccionado el 40% de sellos y ya no aplica, limpiar
+      if (selectedDiscount && selectedDiscount.source === 'stamp') {
+        if (!userStampCard || !stampRewardAvailable(userStampCard)) {
+          selectedDiscount = null;
+        }
+      }
+      renderCartDiscountSelector();
+    }, err => console.error('Stamp card listener:', err));
+}
+
+function stopStampCardListener() {
+  if (unsubStampCard) { unsubStampCard(); unsubStampCard = null; }
+  userStampCard = null;
+}
+
+function stampRewardAvailable(card) {
+  if (!card) return false;
+  if (card.rewardUsed === true) return false;
+  if (card.status && card.status !== 'active') return false;
+  const sellos = Number(card.sellos) || 0;
+  return card.rewardAvailable === true || sellos >= STAMP_TARGET;
+}
+
 function getUserDiscounts() {
   return allDescuentos.filter(d => userDiscountIds.includes(d.id));
 }
 
-// Renderiza el selector de descuento en el carrito (si el usuario tiene descuentos asignados)
+function clearSelectedDiscount() {
+  selectedDiscount = null;
+}
+
+// ═══════════════════════════════════════════════════
+//  SELECTOR DEL CARRITO (asignado / código / sellos)
+// ═══════════════════════════════════════════════════
 function renderCartDiscountSelector() {
   const container = document.getElementById('cartDiscountContainer');
   if (!container) return;
-  const myDiscounts = getUserDiscounts();
-  if (!currentUser || myDiscounts.length === 0) {
+
+  if (!currentUser) {
     container.innerHTML = '';
     container.style.display = 'none';
     selectedDiscount = null;
     updateCartUI();
     return;
   }
+
+  const myDiscounts = getUserDiscounts();
+  const stampOk = stampRewardAvailable(userStampCard);
+  const hasAnyOption = myDiscounts.length > 0 || stampOk;
+
   container.style.display = 'block';
-  const opts = myDiscounts.map(d =>
-    `<option value="${d.id}" ${selectedDiscount && selectedDiscount.id === d.id ? 'selected' : ''}>${escHtml(d.nombre)} (${d.porcentaje}%)</option>`
-  ).join('');
+
+  const opts = [];
+  opts.push('<option value="">Sin descuento</option>');
+  myDiscounts.forEach(d => {
+    const sel = selectedDiscount && selectedDiscount.source === 'assigned' && selectedDiscount.id === d.id ? 'selected' : '';
+    opts.push(`<option value="assigned:${escHtml(d.id)}" ${sel}>${escHtml(d.nombre)} (${d.porcentaje}%)</option>`);
+  });
+  if (stampOk) {
+    const sel = selectedDiscount && selectedDiscount.source === 'stamp' ? 'selected' : '';
+    const name = (userStampCard && userStampCard.nombre) ? userStampCard.nombre : 'Tarjeta de sellos';
+    opts.push(`<option value="stamp:${escHtml(userStampCard.code)}" ${sel}>🏅 ${escHtml(name)} — ${STAMP_REWARD_PCT}% (8 sellos)</option>`);
+  }
+
+  const codeVal = (selectedDiscount && selectedDiscount.source === 'code') ? (selectedDiscount.code || '') : '';
+  const appliedInfo = selectedDiscount
+    ? `<div class="cart-discount-info">Descuento del <b>${selectedDiscount.porcentaje}%</b> aplicado${selectedDiscount.nombre ? ' · ' + escHtml(selectedDiscount.nombre) : ''}</div>`
+    : '';
+
+  const stampHint = userStampCard && !stampOk
+    ? `<div class="cart-stamp-hint">Tarjeta de sellos: <b>${Math.min(STAMP_TARGET, Number(userStampCard.sellos) || 0)}/${STAMP_TARGET}</b> — te faltan ${Math.max(0, STAMP_TARGET - (Number(userStampCard.sellos) || 0))} para el ${STAMP_REWARD_PCT}%</div>`
+    : '';
+
   container.innerHTML = `
-    <div class="cart-discount-row">
-      <label class="cart-discount-label"><span>🏷️ Descuento</span></label>
-      <select id="cartDiscountSelect" onchange="onCartDiscountChange(this)">
-        <option value="">Sin descuento</option>
-        ${opts}
-      </select>
+    <div class="cart-discount-box">
+      ${hasAnyOption ? `
+      <div class="cart-discount-row">
+        <label class="cart-discount-label"><span>🏷️ Descuento</span></label>
+        <select id="cartDiscountSelect" onchange="onCartDiscountChange(this)">
+          ${opts.join('')}
+        </select>
+      </div>` : ''}
+      <div class="cart-code-row">
+        <input type="text" id="cartDiscountCodeInput" class="cart-code-input" placeholder="Código promocional"
+          value="${escHtml(codeVal)}" maxlength="40" autocomplete="off"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();aplicarCodigoDescuentoCart();}">
+        <button type="button" class="nbtn cart-code-btn" onclick="aplicarCodigoDescuentoCart()">Aplicar</button>
+      </div>
+      <div id="cartDiscountCodeMsg" class="cart-code-msg"></div>
+      ${appliedInfo}
+      ${stampHint}
+      <p class="cart-discount-note">Solo un descuento a la vez (asignado, código o tarjeta de sellos).</p>
     </div>
-    ${selectedDiscount ? `<div class="cart-discount-info">Descuento del <b>${selectedDiscount.porcentaje}%</b> aplicado al total</div>` : ''}
   `;
   updateCartUI();
 }
 
 function onCartDiscountChange(sel) {
-  const id = sel.value;
-  if (!id) {
+  const val = sel.value || '';
+  if (!val) {
     selectedDiscount = null;
-  } else {
-    selectedDiscount = allDescuentos.find(d => d.id === id) || null;
+    renderCartDiscountSelector();
+    return;
+  }
+  if (val.startsWith('assigned:')) {
+    const id = val.slice('assigned:'.length);
+    const d = allDescuentos.find(x => x.id === id);
+    selectedDiscount = d
+      ? { source: 'assigned', id: d.id, nombre: d.nombre, porcentaje: Number(d.porcentaje) || 0 }
+      : null;
+  } else if (val.startsWith('stamp:')) {
+    if (!stampRewardAvailable(userStampCard)) {
+      selectedDiscount = null;
+    } else {
+      selectedDiscount = {
+        source: 'stamp',
+        id: userStampCard.code,
+        nombre: userStampCard.nombre || 'Tarjeta de sellos (8 sellos)',
+        porcentaje: STAMP_REWARD_PCT
+      };
+    }
   }
   renderCartDiscountSelector();
+}
+
+async function aplicarCodigoDescuentoCart() {
+  const msg = document.getElementById('cartDiscountCodeMsg');
+  const input = document.getElementById('cartDiscountCodeInput');
+  if (!currentUser) {
+    if (msg) { msg.style.color = '#dc2626'; msg.textContent = 'Inicia sesión para usar un código.'; }
+    return;
+  }
+  const raw = (input && input.value || '').trim().toUpperCase();
+  if (!raw) {
+    if (msg) { msg.style.color = '#dc2626'; msg.textContent = 'Escribe un código.'; }
+    return;
+  }
+  if (msg) { msg.style.color = 'var(--g400)'; msg.textContent = 'Validando...'; }
+
+  try {
+    const resolved = await validarCodigoDescuento(raw, getCartRawTotal());
+    selectedDiscount = {
+      source: 'code',
+      id: resolved.id,
+      code: resolved.code,
+      nombre: resolved.nombre,
+      porcentaje: resolved.porcentaje
+    };
+    if (msg) { msg.style.color = 'var(--green)'; msg.textContent = `✅ ${resolved.nombre} (−${resolved.porcentaje}%) aplicado.`; }
+    renderCartDiscountSelector();
+  } catch (e) {
+    if (msg) { msg.style.color = '#dc2626'; msg.textContent = e.message || 'Código no válido.'; }
+  }
+}
+
+// Valida un código promocional (lectura Firestore + redención por usuario)
+async function validarCodigoDescuento(codeUpper, cartRawTotal) {
+  const code = String(codeUpper || '').trim().toUpperCase();
+  if (!code) throw new Error('Escribe un código.');
+  if (!currentUser) throw new Error('Inicia sesión para usar un código.');
+
+  let snap = await db.collection('discount-codes').where('code', '==', code).limit(1).get();
+  // Respaldo: el id del documento es el código
+  if (snap.empty) {
+    const byId = await db.collection('discount-codes').doc(code).get();
+    if (byId.exists) snap = { empty: false, docs: [byId] };
+  }
+  if (snap.empty) throw new Error('Código no encontrado.');
+
+  const doc = snap.docs[0];
+  const d = doc.data() || {};
+  if (d.activo === false) throw new Error('Este código ya no está activo.');
+
+  const pct = Number(d.porcentaje);
+  if (!(pct > 0 && pct <= 100)) throw new Error('Código con porcentaje inválido.');
+
+  if (d.venceAt != null) {
+    const venceMs = (typeof d.venceAt.toMillis === 'function')
+      ? d.venceAt.toMillis()
+      : (typeof d.venceAt === 'number' ? d.venceAt : new Date(d.venceAt).getTime());
+    if (venceMs && Date.now() > venceMs) throw new Error('Este código ya venció.');
+  }
+
+  const maxUsos = d.maxUsos == null ? null : Number(d.maxUsos);
+  const usos = Number(d.usosActuales) || 0;
+  if (maxUsos != null && !isNaN(maxUsos) && usos >= maxUsos) {
+    throw new Error('Este código ya alcanzó el máximo de usos.');
+  }
+
+  const min = Number(d.montoMinimo) || 0;
+  if (cartRawTotal < min) {
+    throw new Error(`Monto mínimo del carrito: $${min.toFixed(2)}.`);
+  }
+
+  if (d.unSoloUsoPorUsuario) {
+    const red = await db.collection('discount-codes').doc(doc.id)
+      .collection('redenciones').doc(currentUser.uid).get();
+    if (red.exists) throw new Error('Ya usaste este código anteriormente.');
+  }
+
+  return {
+    id: doc.id,
+    code: (d.code || code).toUpperCase(),
+    nombre: d.nombre || d.code || code,
+    porcentaje: pct
+  };
 }
 
 function escHtml(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// Calcular total del carrito con descuento aplicado
 function getCartTotal() {
-  const raw = Object.keys(cart).reduce((s, id) => {
-    const p = products.find(x => x.id === id);
-    return s + (p ? p.price * (cart[id] || 0) : 0);
-  }, 0);
+  const raw = getCartRawTotal();
   if (selectedDiscount && selectedDiscount.porcentaje) {
     return +(raw * (1 - selectedDiscount.porcentaje / 100)).toFixed(2);
   }
@@ -102,16 +278,62 @@ function getCartRawTotal() {
   }, 0);
 }
 
+// Campos de descuento para guardar en el pedido / factura / correo
+function buildDiscountOrderFields() {
+  if (!selectedDiscount) {
+    return {
+      totalConDescuento: null,
+      discountId: null,
+      discountName: null,
+      discountPct: null,
+      discountCode: null,
+      discountCodeId: null,
+      stampCardCode: null,
+      discountSource: null
+    };
+  }
+  const src = selectedDiscount.source || 'assigned';
+  return {
+    discountId:       src === 'assigned' ? selectedDiscount.id : null,
+    discountName:     selectedDiscount.nombre || null,
+    discountPct:      selectedDiscount.porcentaje || null,
+    discountCode:     src === 'code' ? (selectedDiscount.code || null) : null,
+    discountCodeId:   src === 'code' ? selectedDiscount.id : null,
+    stampCardCode:    src === 'stamp' ? selectedDiscount.id : null,
+    discountSource:   src
+  };
+}
+
+// Tras crear el pedido: consumir código / archivar tarjeta (Cloud Function, Admin SDK)
+async function consumirDescuentoTrasPedido(orderId) {
+  if (!selectedDiscount || !orderId) return;
+  if (selectedDiscount.source !== 'code' && selectedDiscount.source !== 'stamp') return;
+  try {
+    const fn = firebase.functions().httpsCallable('consumirDescuentoPedido');
+    await fn({ orderId });
+  } catch (e) {
+    console.warn('No se pudo consumir el descuento del pedido:', e);
+  }
+}
+
+// Tras marcar entregado: sumar sello si aplica (no rompe la entrega si falla)
+async function añadirSelloTrasEntrega(orderId) {
+  if (!orderId) return;
+  try {
+    const fn = firebase.functions().httpsCallable('anadirSelloPorPedido');
+    await fn({ orderId });
+  } catch (e) {
+    console.warn('No se pudo añadir sello de tarjeta:', e);
+  }
+}
+
 // ═══════════════════════════════════════════════════
 //  ADMIN — GESTIÓN DE DESCUENTOS POR USUARIO
 // ═══════════════════════════════════════════════════
-
-// Guardar descuentos asignados a un usuario en Firestore
 async function saveUserDiscounts(uid, discountIds) {
   await db.collection('user-discounts').doc(uid).set({ discountIds, updatedAt: Date.now() }, { merge: true });
 }
 
-// Obtener los discountIds actuales de un usuario
 async function getUserDiscountIds(uid) {
   try {
     const snap = await db.collection('user-discounts').doc(uid).get();
@@ -119,15 +341,12 @@ async function getUserDiscountIds(uid) {
   } catch { return []; }
 }
 
-// Renderizar la sección de asignación de descuentos en el panel admin
 function renderAdminDiscountSection() {
   const container = document.getElementById('adminDiscountSection');
   if (!container) return;
 
-  // Bug 2 fix: si ya hay una búsqueda activa (el campo de email existe y tiene contenido,
-  // o ya hay resultados mostrándose), no re-renderizar y perder el trabajo del admin.
   const existingEmail = document.getElementById('discountUserEmail');
-  if (existingEmail) return; // ya está montado el formulario, no pisar
+  if (existingEmail) return;
 
   if (allDescuentos.length === 0) {
     container.innerHTML = '<p style="font-size:.82rem;color:var(--g400);padding:12px 0">No hay descuentos creados aún. Créalos desde el inventario.</p>';
@@ -144,7 +363,6 @@ function renderAdminDiscountSection() {
   `;
 }
 
-// Buscar usuario por email y mostrar sus descuentos actuales
 async function loadUserForDiscount() {
   const email = (document.getElementById('discountUserEmail').value || '').trim().toLowerCase();
   const info = document.getElementById('discountUserInfo');
@@ -152,23 +370,17 @@ async function loadUserForDiscount() {
   info.innerHTML = '<p style="font-size:.82rem;color:var(--g400)">Buscando...</p>';
   try {
     let uid = null;
-
-    // 1) Buscar por perfil (basta con que el cliente haya iniciado sesión una vez;
-    //    NO necesita una compra previa).
     const perfSnap = await db.collection('perfiles').where('emailLower', '==', email).limit(1).get();
     if (!perfSnap.empty) {
       uid = perfSnap.docs[0].id;
     } else {
-      // 2) Respaldo para clientes antiguos: buscar en sus pedidos.
       const ordSnap = await db.collection('pedidos').where('email', '==', email).limit(1).get();
       if (!ordSnap.empty) uid = ordSnap.docs[0].data().userId || null;
     }
-
     if (!uid) {
       info.innerHTML = '<p style="font-size:.82rem;color:#dc2626">No se encontró ningún cliente con ese email. El cliente debe haber iniciado sesión al menos una vez con esa cuenta de Google.</p>';
       return;
     }
-
     const currentIds = await getUserDiscountIds(uid);
     renderDiscountAssigner(uid, email, currentIds);
   } catch(e) {
@@ -177,7 +389,6 @@ async function loadUserForDiscount() {
   }
 }
 
-// Mostrar checkboxes de descuentos para asignar a un usuario
 function renderDiscountAssigner(uid, email, currentIds) {
   const info = document.getElementById('discountUserInfo');
   const checks = allDescuentos.map(d => `

@@ -287,14 +287,64 @@ exports.crearEnlaceWompi = functions
       subtotal += price * qty;
     }
 
-    // Descuento: releer el porcentaje real desde 'descuentos' (no confiar en el pedido)
+    // Descuento: releer el % real (asignado / código / tarjeta de sellos). No confiar en el pedido.
     let pct = 0;
+    let resolvedName = o.discountName || null;
     if (o.discountId) {
       try {
         const dSnap = await db.collection('descuentos').doc(String(o.discountId)).get();
         if (dSnap.exists) {
           const p = Number(dSnap.data().porcentaje);
-          if (p > 0 && p <= 100) pct = p;
+          if (p > 0 && p <= 100) {
+            pct = p;
+            resolvedName = dSnap.data().nombre || resolvedName;
+          }
+        }
+      } catch (_) {}
+    } else if (o.discountCodeId || o.discountCode) {
+      try {
+        let dSnap = null;
+        if (o.discountCodeId) {
+          dSnap = await db.collection('discount-codes').doc(String(o.discountCodeId)).get();
+        }
+        if ((!dSnap || !dSnap.exists) && o.discountCode) {
+          const q = await db.collection('discount-codes')
+            .where('code', '==', String(o.discountCode).toUpperCase()).limit(1).get();
+          if (!q.empty) dSnap = q.docs[0];
+        }
+        if (dSnap && dSnap.exists) {
+          const d = dSnap.data();
+          const p = Number(d.porcentaje);
+          const activo = d.activo !== false;
+          let vigente = true;
+          if (d.venceAt != null) {
+            const ms = d.venceAt.toMillis ? d.venceAt.toMillis()
+              : (typeof d.venceAt === 'number' ? d.venceAt : Date.parse(d.venceAt));
+            if (ms && Date.now() > ms) vigente = false;
+          }
+          // Aceptar si el código sigue válido O si este pedido ya lo consumió
+          const yaConsumido = o.descuentoConsumido === true;
+          if (activo && vigente && p > 0 && p <= 100) {
+            pct = p;
+            resolvedName = d.nombre || o.discountCode || resolvedName;
+          } else if (yaConsumido && p > 0 && p <= 100) {
+            pct = p;
+            resolvedName = d.nombre || o.discountCode || resolvedName;
+          }
+        }
+      } catch (_) {}
+    } else if (o.stampCardCode) {
+      try {
+        const cSnap = await db.collection('stamp-cards').doc(String(o.stampCardCode)).get();
+        if (cSnap.exists) {
+          const c = cSnap.data();
+          const emailOk = !o.email || String(c.emailLower || '').toLowerCase() === String(o.email).toLowerCase();
+          const available = c.rewardAvailable === true || (Number(c.sellos) || 0) >= 8;
+          const usedByThis = c.rewardUsed === true && c.rewardUsedOrderId === orderId;
+          if (emailOk && (available || usedByThis)) {
+            pct = Number(c.rewardPct) > 0 ? Number(c.rewardPct) : 40;
+            resolvedName = c.nombre || 'Tarjeta de sellos';
+          }
         }
       } catch (_) {}
     }
@@ -314,6 +364,7 @@ exports.crearEnlaceWompi = functions
         total: round2(subtotal),
         totalConDescuento: pct ? round2(conDescuento) : null,
         discountPct: pct || null,
+        discountName: resolvedName,
         totalConEnvio: monto,
         montoVerificadoServidor: true
       }).catch(e => console.warn('No se pudo sanar el monto:', e));
@@ -583,4 +634,191 @@ exports.notificarVisitaOtros = functions.https.onCall(async (data) => {
     }
   });
   return { ok: true };
+});
+
+// ════════════════════════════════════════════════════════════════
+//  consumirDescuentoPedido (callable)
+//  Tras crear un pedido con código promocional o tarjeta de sellos:
+//  incrementa usos / escribe redención / archiva la tarjeta.
+//  Idempotente vía pedidos.descuentoConsumido.
+// ════════════════════════════════════════════════════════════════
+exports.consumirDescuentoPedido = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Debes iniciar sesión.');
+  }
+  const orderId = String((data && data.orderId) || '');
+  if (!orderId) throw new functions.https.HttpsError('invalid-argument', 'Falta orderId.');
+
+  const orderRef = db.collection('pedidos').doc(orderId);
+  const uid = context.auth.uid;
+  const email = (context.auth.token.email || '').toLowerCase();
+
+  // Resolver ref del código ANTES de la transacción (evita query dentro del tx)
+  const orderPeek = await orderRef.get();
+  if (!orderPeek.exists) throw new functions.https.HttpsError('not-found', 'Pedido no encontrado.');
+  const peek = orderPeek.data();
+  let codeRefResolved = null;
+  if (peek.discountCodeId) {
+    codeRefResolved = db.collection('discount-codes').doc(String(peek.discountCodeId));
+  } else if (peek.discountCode) {
+    const q = await db.collection('discount-codes')
+      .where('code', '==', String(peek.discountCode).toUpperCase()).limit(1).get();
+    if (!q.empty) codeRefResolved = q.docs[0].ref;
+  }
+
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(orderRef);
+    if (!snap.exists) throw new functions.https.HttpsError('not-found', 'Pedido no encontrado.');
+    const o = snap.data();
+    if (o.userId && o.userId !== uid && context.auth.token.admin !== true) {
+      throw new functions.https.HttpsError('permission-denied', 'Este pedido no es tuyo.');
+    }
+    if (o.descuentoConsumido === true) return;
+
+    // ── Código promocional ──
+    if (codeRefResolved) {
+      const cSnap = await tx.get(codeRefResolved);
+      if (cSnap.exists) {
+        const c = cSnap.data();
+        const maxUsos = c.maxUsos == null ? null : Number(c.maxUsos);
+        const usos = Number(c.usosActuales) || 0;
+        if (c.unSoloUsoPorUsuario) {
+          const redRef = codeRefResolved.collection('redenciones').doc(uid);
+          const redSnap = await tx.get(redRef);
+          if (redSnap.exists && redSnap.data().orderId !== orderId) {
+            throw new functions.https.HttpsError('failed-precondition', 'Ya usaste este código.');
+          }
+          if (!redSnap.exists) {
+            tx.set(redRef, {
+              usedAt: Date.now(),
+              orderId,
+              email: email || o.email || null
+            });
+          }
+        }
+        if (!(maxUsos != null && !isNaN(maxUsos) && usos >= maxUsos)) {
+          tx.update(codeRefResolved, {
+            usosActuales: usos + 1,
+            updatedAt: Date.now()
+          });
+        }
+      }
+    }
+
+    // ── Tarjeta de sellos (40%) ──
+    if (o.stampCardCode) {
+      const cardRef = db.collection('stamp-cards').doc(String(o.stampCardCode));
+      const cardSnap = await tx.get(cardRef);
+      if (cardSnap.exists) {
+        const c = cardSnap.data();
+        const cardEmail = String(c.emailLower || '').toLowerCase();
+        const orderEmail = String(o.email || email || '').toLowerCase();
+        if (cardEmail && orderEmail && cardEmail !== orderEmail && context.auth.token.admin !== true) {
+          throw new functions.https.HttpsError('permission-denied', 'La tarjeta no pertenece a este correo.');
+        }
+        if (c.rewardUsed === true && c.rewardUsedOrderId && c.rewardUsedOrderId !== orderId) {
+          throw new functions.https.HttpsError('failed-precondition', 'El 40% de la tarjeta ya fue usado.');
+        }
+        if (c.rewardUsed !== true || c.rewardUsedOrderId !== orderId) {
+          tx.update(cardRef, {
+            rewardUsed: true,
+            rewardAvailable: false,
+            rewardUsedAt: Date.now(),
+            rewardUsedInPerson: false,
+            rewardUsedOrderId: orderId,
+            status: 'completed',
+            completedAt: Date.now(),
+            updatedAt: Date.now()
+          });
+        }
+      }
+    }
+
+    tx.update(orderRef, { descuentoConsumido: true });
+  });
+
+  return { ok: true };
+});
+
+// ════════════════════════════════════════════════════════════════
+//  añadirSelloPorPedido (callable)
+//  Al marcar un pedido como ENTREGADO: +1 sello si total productos >= $1.
+//  Idempotente vía pedidos.stampApplied + stampOrderIds en la tarjeta.
+//  Solo admin. Si falla, el llamador NO debe revertir la entrega.
+// ════════════════════════════════════════════════════════════════
+exports.anadirSelloPorPedido = functions.https.onCall(async (data, context) => {
+  if (!context.auth || context.auth.token.admin !== true) {
+    throw new functions.https.HttpsError('permission-denied', 'Solo administradores.');
+  }
+  const orderId = String((data && data.orderId) || '');
+  if (!orderId) throw new functions.https.HttpsError('invalid-argument', 'Falta orderId.');
+
+  const STAMP_TARGET = 8;
+  const STAMP_MIN = 1;
+  const orderRef = db.collection('pedidos').doc(orderId);
+
+  const result = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(orderRef);
+    if (!snap.exists) return { ok: false, reason: 'not-found' };
+    const o = snap.data();
+    if (o.stampApplied === true) return { ok: true, reason: 'already' };
+
+    const emailLower = String(o.email || '').trim().toLowerCase();
+    if (!emailLower) {
+      tx.update(orderRef, { stampApplied: true, stampSkipReason: 'no-email' });
+      return { ok: false, reason: 'no-email' };
+    }
+
+    const totalProd = typeof o.totalConDescuento === 'number'
+      ? o.totalConDescuento
+      : (typeof o.total === 'number' ? o.total : 0);
+    if (!(totalProd >= STAMP_MIN)) {
+      tx.update(orderRef, { stampApplied: true, stampSkipReason: 'below-min' });
+      return { ok: false, reason: 'below-min' };
+    }
+
+    const q = db.collection('stamp-cards')
+      .where('emailLower', '==', emailLower)
+      .where('status', '==', 'active')
+      .limit(1);
+    const qSnap = await tx.get(q);
+    if (qSnap.empty) {
+      tx.update(orderRef, { stampApplied: true, stampSkipReason: 'no-card' });
+      return { ok: false, reason: 'no-card' };
+    }
+
+    const cardDoc = qSnap.docs[0];
+    const cardRef = cardDoc.ref;
+    const c = cardDoc.data();
+    const ids = Array.isArray(c.stampOrderIds) ? c.stampOrderIds.slice() : [];
+    if (ids.includes(orderId)) {
+      tx.update(orderRef, { stampApplied: true });
+      return { ok: true, reason: 'already-on-card' };
+    }
+
+    let sellos = Number(c.sellos) || 0;
+    if (sellos >= STAMP_TARGET) {
+      tx.update(orderRef, { stampApplied: true, stampSkipReason: 'full' });
+      return { ok: false, reason: 'full' };
+    }
+
+    sellos = Math.min(STAMP_TARGET, sellos + 1);
+    ids.push(orderId);
+    const rewardAvailable = sellos >= STAMP_TARGET && c.rewardUsed !== true;
+
+    tx.update(cardRef, {
+      sellos,
+      stampOrderIds: ids,
+      rewardAvailable,
+      updatedAt: Date.now()
+    });
+    tx.update(orderRef, {
+      stampApplied: true,
+      stampCardCode: cardDoc.id,
+      stampSellosAfter: sellos
+    });
+    return { ok: true, sellos, rewardAvailable };
+  });
+
+  return result;
 });
