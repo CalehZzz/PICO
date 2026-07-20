@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="robots" content="noindex, nofollow">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PICO · Tarjeta de sellos</title>
+<title>PICO · Tarjetas de sellos</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -12,7 +12,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-functions-compat.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/qr-code-styling@1.9.2/lib/qr-code-styling.min.js"></script>
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
 <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96.png">
@@ -22,13 +21,26 @@
 <meta name="theme-color" content="#0071e3">
 <link rel="stylesheet" href="/css/styles.css">
 </head>
-<body data-page="stampCard">
+<body data-page="stampCards">
 
-<div class="page active" id="page-stampCard">
-  <div class="stamp-page">
-    <a class="stamp-back" href="/mis-tarjetas/" id="stampBackToList">← Mis tarjetas</a>
-    <div id="stampCardRoot">
-      <p class="stamp-loading">Cargando tarjeta...</p>
+<div class="page active" id="page-stampCards">
+  <div class="stamp-list-page">
+    <h2 id="stampListTitle">Mis tarjetas</h2>
+    <p class="stamp-list-help" id="stampListHelp">
+      Cada 8 compras (≥ $1) sumás 1 sello. Con 8 sellos tenés 40% en una compra.
+    </p>
+    <div id="stampListAdminBar" class="hidden">
+      <div class="stamp-list-tabs" role="tablist">
+        <button type="button" class="stamp-tab active" data-filter="active" onclick="setStampListFilter('active')">Activas</button>
+        <button type="button" class="stamp-tab" data-filter="done" onclick="setStampListFilter('done')">Terminadas</button>
+        <button type="button" class="stamp-tab" data-filter="all" onclick="setStampListFilter('all')">Todas</button>
+      </div>
+      <input type="search" id="stampListSearch" class="finput stamp-list-search" placeholder="Buscar por código, nombre o correo…"
+        oninput="renderStampCardsList()">
+      <p id="stampListCounts" class="stamp-list-counts"></p>
+    </div>
+    <div id="stampListRoot">
+      <p class="stamp-loading">Cargando…</p>
     </div>
   </div>
 </div>
@@ -43,7 +55,7 @@
 <script src="/js/orders.js"></script>
 <script src="/js/catalog.js"></script>
 <script src="/js/profile.js"></script>
-<script src="/js/stamp-card-page.js"></script>
+<script src="/js/stamp-cards-list.js"></script>
 <script src="/js/utils.js"></script>
 <script src="/js/init.js"></script>
 </body>

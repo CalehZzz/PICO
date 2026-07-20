@@ -10,7 +10,8 @@ const PAGE_URLS = {
   catalog:    '/',
   myOrders:   '/mis-pedidos/',
   adminPanel: '/admin/',
-  profile:    '/perfil/'
+  profile:    '/perfil/',
+  stampCards: '/mis-tarjetas/'
 };
 
 // Normaliza una ruta para comparar (quita index.html y barras finales).
@@ -60,6 +61,13 @@ function initPageAfterAuth() {
       renderAdminPanel();
     } else {
       showToast('⚠️ Acceso solo para administradores');
+      setTimeout(() => { location.href = '/'; }, 1300);
+    }
+  } else if (page === 'stampCards') {
+    if (currentUser) {
+      if (typeof initStampCardsListPage === 'function') initStampCardsListPage();
+    } else {
+      showToast('⚠️ Inicia sesión para ver tus tarjetas');
       setTimeout(() => { location.href = '/'; }, 1300);
     }
   }

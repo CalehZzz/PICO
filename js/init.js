@@ -11,7 +11,10 @@ loadCart();
 updateNavAuth();
 if (typeof updateCartUI === 'function') updateCartUI();
 // Obligar a elegir sucursal antes de continuar (no en página de tarjeta de sellos)
-if (!selectedSucursal && document.body.dataset.page !== 'stampCard') showSucursalGate();
+{
+  const p = document.body.dataset.page;
+  if (!selectedSucursal && p !== 'stampCard' && p !== 'stampCards') showSucursalGate();
+}
 
 // ═══════════════════════════════════════════════════
 //  RETORNO DEL PAGO WOMPI (?pago=ok&order=...)

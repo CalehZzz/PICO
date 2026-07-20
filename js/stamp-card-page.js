@@ -110,6 +110,7 @@ function renderStampCardView() {
     progressMsg = `Te faltan <b>${faltan}</b> sello${faltan === 1 ? '' : 's'} para el 40% de descuento.`;
   }
 
+  const displayName = (c.nombre || '').trim() || 'Sin nombre';
   const adminPanel = isAdmin ? renderStampAdminPanel(c) : '';
 
   root.innerHTML = `
@@ -117,7 +118,7 @@ function renderStampCardView() {
       <div class="stamp-card-header">
         <div>
           <p class="stamp-eyebrow">Tarjeta de fidelidad PICO</p>
-          <h1>${escStamp(c.nombre || 'Tarjeta de sellos')}</h1>
+          <h1>${escStamp(displayName)}</h1>
           <p class="stamp-meta">Código <b>${escStamp(c.code || _stampCode)}</b> · ${statusBadge}</p>
         </div>
       </div>
@@ -125,7 +126,7 @@ function renderStampCardView() {
       <p class="stamp-progress-text">${sellos}/8 sellos</p>
       <p class="stamp-sub">${progressMsg}</p>
       <div class="stamp-info-grid">
-        <div><span>Correo</span><b>${escStamp(c.email || '—')}</b></div>
+        <div><span>Correo</span><b>${escStamp((c.email || '').trim() || 'Sin asignar')}</b></div>
         <div><span>Creada</span><b>${escStamp(formatStampDate(c.createdAt || c.fecha))}</b></div>
       </div>
       <div id="stampQrBox" class="stamp-qr-box"></div>
@@ -138,14 +139,23 @@ function renderStampCardView() {
 
 function renderStampAdminPanel(c) {
   const status = c.status || 'active';
-  const disabled = status !== 'active' ? 'disabled' : '';
+  const isActive = status === 'active';
+  const disabled = isActive ? '' : 'disabled';
+  const linked = Array.isArray(c.stampOrderIds) && c.stampOrderIds.length > 0;
   return `
     <div class="stamp-admin">
       <h3>Gestión (admin)</h3>
-      <p class="stamp-admin-help">Edita datos, suma/resta sellos o marca el 40% como usado en persona (archiva la tarjeta).</p>
+      <p class="stamp-admin-help">
+        Nombre y correo son opcionales al crear la tarjeta. Asignalos cuando se la des al cliente.
+        ${!isActive ? ' Esta tarjeta ya no está activa; solo podés eliminarla del listado activo.' : ''}
+      </p>
       <div class="stamp-admin-grid">
-        <label>Nombre<input id="saNombre" class="finput" value="${escStamp(c.nombre || '')}" ${disabled}></label>
-        <label>Correo<input id="saEmail" type="email" class="finput" value="${escStamp(c.email || '')}" ${disabled}></label>
+        <label>Nombre <span style="font-weight:400;color:var(--g400)">(opcional)</span>
+          <input id="saNombre" class="finput" placeholder="Sin nombre" value="${escStamp(c.nombre || '')}" ${disabled}>
+        </label>
+        <label>Correo <span style="font-weight:400;color:var(--g400)">(opcional)</span>
+          <input id="saEmail" type="email" class="finput" placeholder="cliente@email.com" value="${escStamp(c.email || '')}" ${disabled}>
+        </label>
         <label>Fecha (opcional)<input id="saFecha" type="date" class="finput" value="${stampDateInputValue(c.fecha || c.createdAt)}" ${disabled}></label>
         <label>Sellos (0–8)<input id="saSellos" type="number" min="0" max="8" class="finput" value="${Number(c.sellos) || 0}" ${disabled}></label>
       </div>
@@ -154,7 +164,12 @@ function renderStampAdminPanel(c) {
         <button class="nbtn" ${disabled} onclick="stampAdminAdjust(1)">+1 sello</button>
         <button class="nbtn" ${disabled} onclick="stampAdminSave()">Guardar datos</button>
         <button class="nbtn nbtn-outline" ${disabled} onclick="stampAdminMarkUsedInPerson()" style="border-color:#dc2626;color:#dc2626">Marcar 40% usado en persona</button>
+        <button class="nbtn nbtn-outline stamp-admin-delete" onclick="stampAdminDelete()" style="border-color:#991b1b;color:#991b1b">Eliminar tarjeta</button>
       </div>
+      <p class="stamp-admin-delete-hint">
+        Eliminar la saca de <b>Activas</b> en Mis tarjetas / Tarjetas.
+        ${linked ? 'Como tiene pedidos vinculados, se archiva (no se borra del historial).' : 'Si no tiene pedidos vinculados, se borra por completo.'}
+      </p>
       <div id="stampAdminMsg" class="stamp-admin-msg"></div>
     </div>
   `;
@@ -193,8 +208,8 @@ async function stampAdminSave() {
   };
   if (fechaStr) patch.fecha = Date.parse(fechaStr + 'T12:00:00');
   try {
-    // Una sola tarjeta activa por correo
-    if (emailLower && _stampData && _stampData.status === 'active') {
+    // Máx. 1 tarjeta activa por correo (solo si se asigna un correo)
+    if (emailLower && _stampData && (_stampData.status || 'active') === 'active') {
       const other = await db.collection('stamp-cards')
         .where('emailLower', '==', emailLower)
         .where('status', '==', 'active')
@@ -207,7 +222,45 @@ async function stampAdminSave() {
       }
     }
     await db.collection('stamp-cards').doc(_stampCode).update(patch);
-    if (msg) { msg.style.color = 'var(--green)'; msg.textContent = '✅ Guardado.'; }
+    if (msg) {
+      msg.style.color = 'var(--green)';
+      msg.textContent = emailLower
+        ? '✅ Guardado. Tarjeta asignada a ' + emailLower + '.'
+        : '✅ Guardado (sin correo asignado).';
+    }
+  } catch (e) {
+    if (msg) { msg.style.color = '#dc2626'; msg.textContent = 'Error: ' + e.message; }
+  }
+}
+
+async function stampAdminDelete() {
+  if (!isAdmin || !_stampCode || !_stampData) return;
+  const status = _stampData.status || 'active';
+  const linked = Array.isArray(_stampData.stampOrderIds) && _stampData.stampOrderIds.length > 0;
+  // Sin historial de pedidos → borrado físico. Con historial → archivar (cancelled).
+  // Si ya está cancelled/completed, segundo click borra del todo.
+  const hard = status === 'cancelled' || status === 'completed' || (!linked && _stampData.rewardUsed !== true);
+  const msgConfirm = hard
+    ? '¿Eliminar esta tarjeta por completo?\n\nEsto no se puede deshacer.\nLa tarjeta dejará de aparecer en Mis tarjetas / Tarjetas.'
+    : '¿Archivar / eliminar esta tarjeta?\n\nSe marcará como eliminada (conserva historial de pedidos vinculados).\nDejará de aparecer en Activas en Mis tarjetas / Tarjetas.';
+  if (!confirm(msgConfirm)) return;
+  const msg = document.getElementById('stampAdminMsg');
+  try {
+    const ref = db.collection('stamp-cards').doc(_stampCode);
+    if (hard) {
+      await ref.delete();
+      if (msg) { msg.style.color = 'var(--green)'; msg.textContent = '✅ Tarjeta eliminada.'; }
+      setTimeout(() => { location.href = '/mis-tarjetas/'; }, 900);
+    } else {
+      await ref.update({
+        status: 'cancelled',
+        rewardAvailable: false,
+        cancelledAt: Date.now(),
+        cancelledBy: (currentUser && currentUser.email) || 'admin',
+        updatedAt: Date.now()
+      });
+      if (msg) { msg.style.color = 'var(--green)'; msg.textContent = '✅ Tarjeta archivada (eliminada de activas).'; }
+    }
   } catch (e) {
     if (msg) { msg.style.color = '#dc2626'; msg.textContent = 'Error: ' + e.message; }
   }
@@ -289,6 +342,11 @@ function renderStampQr(code) {
 auth.onAuthStateChanged(() => {
   if (document.body.dataset.page === 'stampCard' && _stampData) {
     setTimeout(renderStampCardView, 200);
+  }
+  const back = document.getElementById('stampBackToList');
+  if (back) {
+    if (typeof isAdmin !== 'undefined' && isAdmin) back.textContent = '← Tarjetas';
+    else back.textContent = '← Mis tarjetas';
   }
 });
 

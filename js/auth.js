@@ -83,6 +83,8 @@ function updateNavAuth() {
   const area     = document.getElementById('authNavArea');
   const profBtn  = document.getElementById('profileNavBtn');
   const adminBtn = document.getElementById('adminNavBtn');
+  const stampsBtn = document.getElementById('stampsNavBtn');
+  const stampsLabel = document.getElementById('stampsNavLabelBtn');
 
   if (currentUser) {
     const initials = currentUser.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -98,14 +100,17 @@ function updateNavAuth() {
         <button class="nbtn nbtn-ghost" onclick="doLogout()"
           style="font-size:.78rem;color:var(--g400)">Salir</button>
       </div>`;
-    profBtn.classList.remove('hidden');
+    if (profBtn) profBtn.classList.remove('hidden');
+    if (stampsBtn) stampsBtn.classList.remove('hidden');
+    if (stampsLabel) stampsLabel.textContent = isAdmin ? '🏅 Tarjetas' : '🏅 Mis tarjetas';
     isAdmin ? adminBtn.classList.remove('hidden') : adminBtn.classList.add('hidden');
     document.body.classList.toggle('is-admin', !!isAdmin);
     const invBtn = document.getElementById('inventoryNavBtn');
     isAdmin ? invBtn.classList.remove('hidden') : invBtn.classList.add('hidden');
   } else {
     area.innerHTML = `<button class="nbtn nbtn-outline" onclick="toggleAuth()">Iniciar Sesión</button>`;
-    profBtn.classList.add('hidden');
+    if (profBtn) profBtn.classList.add('hidden');
+    if (stampsBtn) stampsBtn.classList.add('hidden');
     adminBtn.classList.add('hidden');
     document.body.classList.remove('is-admin');
     document.getElementById('inventoryNavBtn').classList.add('hidden');
