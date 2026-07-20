@@ -31,6 +31,34 @@ function showPage(name) {
   location.href = url;
 }
 
+function closeNavMenu() {
+  const menu = document.getElementById('navMenu');
+  const btn = document.getElementById('navMenuBtn');
+  if (menu) menu.classList.remove('open');
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+
+function toggleNavMenu(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const menu = document.getElementById('navMenu');
+  const btn = document.getElementById('navMenuBtn');
+  if (!menu) return;
+  const open = !menu.classList.contains('open');
+  menu.classList.toggle('open', open);
+  if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+// Cerrar menú al tocar fuera / al cambiar tamaño a desktop
+document.addEventListener('click', (e) => {
+  const menu = document.getElementById('navMenu');
+  if (!menu || !menu.classList.contains('open')) return;
+  if (menu.contains(e.target)) return;
+  closeNavMenu();
+});
+window.addEventListener('resize', () => {
+  if (window.innerWidth > 820) closeNavMenu();
+});
+
 // Comportamiento del logo del encabezado:
 //   • Si YA estamos en la página principal (catálogo) → recarga la página.
 //   • Si estamos en cualquier otra página → redirige a la principal.

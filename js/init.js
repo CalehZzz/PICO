@@ -10,6 +10,16 @@
 loadCart();
 updateNavAuth();
 if (typeof updateCartUI === 'function') updateCartUI();
+// Campos de correo/contraseña: solo en la página principal y una vez por sesión
+// (evita que el navegador pida rellenar la contraseña en cada subpágina).
+try {
+  if (document.body.dataset.page === 'catalog'
+      && typeof ensureAuthLoginFields === 'function'
+      && !sessionStorage.getItem('pico_auth_fields_once')) {
+    ensureAuthLoginFields();
+    sessionStorage.setItem('pico_auth_fields_once', '1');
+  }
+} catch (_) {}
 // Obligar a elegir sucursal antes de continuar (no en página de tarjeta de sellos)
 {
   const p = document.body.dataset.page;

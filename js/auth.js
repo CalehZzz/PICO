@@ -92,13 +92,12 @@ function updateNavAuth() {
       ? `<img src="${currentUser.photoURL}" class="user-photo" alt="">`
       : `<div class="user-avatar">${initials}</div>`;
     area.innerHTML = `
-      <div style="display:flex;align-items:center;gap:8px">
-        <div class="user-pill" onclick="showPage('profile')" title="Ver perfil">
+      <div class="nav-auth-logged">
+        <div class="user-pill" onclick="closeNavMenu();showPage('profile')" title="Ver perfil">
           ${avatarHtml}
           <span>${currentUser.name.split(' ')[0]}</span>
         </div>
-        <button class="nbtn nbtn-ghost" onclick="doLogout()"
-          style="font-size:.78rem;color:var(--g400)">Salir</button>
+        <button class="nbtn nbtn-ghost nav-logout-btn" onclick="closeNavMenu();doLogout()">Salir</button>
       </div>`;
     if (profBtn) profBtn.classList.remove('hidden');
     if (stampsBtn) stampsBtn.classList.remove('hidden');
@@ -108,7 +107,7 @@ function updateNavAuth() {
     const invBtn = document.getElementById('inventoryNavBtn');
     isAdmin ? invBtn.classList.remove('hidden') : invBtn.classList.add('hidden');
   } else {
-    area.innerHTML = `<button class="nbtn nbtn-outline" onclick="toggleAuth()">Iniciar Sesión</button>`;
+    area.innerHTML = `<button class="nbtn nbtn-outline" onclick="closeNavMenu();toggleAuth()">Iniciar Sesión</button>`;
     if (profBtn) profBtn.classList.add('hidden');
     if (stampsBtn) stampsBtn.classList.add('hidden');
     adminBtn.classList.add('hidden');
@@ -120,10 +119,33 @@ function updateNavAuth() {
 // ═══════════════════════════════════════════════════
 //  AUTH FUNCTIONS
 // ═══════════════════════════════════════════════════
-function toggleAuth() { document.getElementById('authOverlay').classList.toggle('open'); }
+function ensureAuthLoginFields() {
+  const box = document.getElementById('authLoginFields');
+  if (!box || document.getElementById('loginPass')) return;
+  box.innerHTML = `
+    <form id="authLoginForm" autocomplete="on" onsubmit="event.preventDefault();doLogin();return false">
+      <label class="flabel">Correo electrónico</label>
+      <input type="email" id="loginEmail" name="username" class="finput" placeholder="tu@correo.com"
+        autocomplete="username" onkeydown="if(event.key==='Enter'){event.preventDefault();doLogin()}">
+      <label class="flabel">Contraseña</label>
+      <input type="password" id="loginPass" name="password" class="finput" placeholder="••••••••"
+        autocomplete="current-password" onkeydown="if(event.key==='Enter'){event.preventDefault();doLogin()}">
+    </form>`;
+  const btn = document.getElementById('loginSubmitBtn');
+  const div = document.getElementById('authLoginDivider');
+  if (btn) btn.style.display = '';
+  if (div) div.style.display = '';
+}
+
+function toggleAuth() {
+  // Campos de contraseña solo cuando se abre el panel (evita el prompt del navegador en cada subpágina)
+  ensureAuthLoginFields();
+  document.getElementById('authOverlay').classList.toggle('open');
+}
 function closeAuth()  { document.getElementById('authOverlay').classList.remove('open'); }
 
 function switchAuthTab(tab) {
+  if (tab === 'login') ensureAuthLoginFields();
   document.getElementById('panel-login').classList.toggle('hidden', tab !== 'login');
   document.getElementById('panel-register').classList.toggle('hidden', tab !== 'register');
   document.getElementById('tab-login').classList.toggle('active', tab === 'login');
@@ -132,8 +154,11 @@ function switchAuthTab(tab) {
 }
 
 async function doLogin() {
-  const email = document.getElementById('loginEmail').value.trim();
-  const pass  = document.getElementById('loginPass').value;
+  ensureAuthLoginFields();
+  const emailEl = document.getElementById('loginEmail');
+  const passEl  = document.getElementById('loginPass');
+  const email = (emailEl && emailEl.value || '').trim();
+  const pass  = passEl && passEl.value || '';
   const errEl = document.getElementById('loginErr');
   errEl.style.display = 'none';
   if (!email || !pass) { showToast('⚠️ Ingresa correo y contraseña'); return; }

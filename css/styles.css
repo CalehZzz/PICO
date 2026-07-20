@@ -76,7 +76,18 @@ nav{position:sticky;top:12px;z-index:200;
 .brand:active{transform:scale(.96)}
 .brand-icon{height:32px;width:auto;border-radius:0;object-fit:contain;display:block;background:transparent;box-shadow:none}
 .brand-name{font-size:1.05rem;font-weight:800;color:var(--g900);letter-spacing:-.03em}
-.nav-right{display:flex;align-items:center;gap:5px;flex-wrap:nowrap}
+.nav-right{display:flex;align-items:center;gap:5px;flex-wrap:nowrap;position:relative;min-width:0}
+.nav-menu{display:flex;align-items:center;position:relative}
+.nav-menu-btn{display:none;align-items:center;justify-content:center;width:40px;height:40px;padding:0;border:none;border-radius:999px;background:rgba(17,24,39,.05);color:var(--g800);cursor:pointer;flex-shrink:0;transition:background .2s var(--ease),transform .2s var(--ease)}
+.nav-menu-btn:hover{background:rgba(17,24,39,.09)}
+.nav-menu-btn:active{transform:scale(.96)}
+.nav-menu-bars{display:flex;flex-direction:column;justify-content:center;gap:5px;width:16px;height:14px}
+.nav-menu-bars span{display:block;height:2px;border-radius:2px;background:var(--g800);transition:transform .28s var(--spring),opacity .2s}
+.nav-menu.open .nav-menu-bars span:nth-child(1){transform:translateY(7px) rotate(45deg)}
+.nav-menu.open .nav-menu-bars span:nth-child(2){opacity:0}
+.nav-menu.open .nav-menu-bars span:nth-child(3){transform:translateY(-7px) rotate(-45deg)}
+.nav-menu-panel{display:flex;align-items:center;gap:5px;flex-wrap:nowrap}
+.nav-menu-panel > span{display:contents}
 .nbtn{padding:8px 15px;border-radius:999px;font-family:var(--font);font-size:.82rem;
   font-weight:600;cursor:pointer;border:none;transition:transform .2s var(--ease),background .2s var(--ease),color .2s var(--ease),box-shadow .2s var(--ease);
   white-space:nowrap;letter-spacing:-.01em;background:rgba(0,113,227,.1);color:var(--b600)}
@@ -90,7 +101,7 @@ nav{position:sticky;top:12px;z-index:200;
   background:linear-gradient(135deg,var(--b500),var(--b600));
   color:#fff;border:none;cursor:pointer;
   display:flex;align-items:center;gap:7px;font-size:.83rem;font-weight:700;
-  font-family:var(--font);transition:transform .22s var(--ease),box-shadow .22s var(--ease);box-shadow:var(--glow-sm);letter-spacing:-.01em}
+  font-family:var(--font);transition:transform .22s var(--ease),box-shadow .22s var(--ease);box-shadow:var(--glow-sm);letter-spacing:-.01em;flex-shrink:0}
 .cart-btn:hover{transform:translateY(-1px);box-shadow:var(--glow)}
 .cart-btn:active{transform:translateY(0) scale(.97)}
 .cbadge{position:absolute;top:-5px;right:-4px;
@@ -109,6 +120,8 @@ nav{position:sticky;top:12px;z-index:200;
   color:#fff;display:flex;align-items:center;justify-content:center;font-size:.62rem;font-weight:800;flex-shrink:0;
   box-shadow:0 2px 6px rgba(0,113,227,.3)}
 .user-photo{width:26px;height:26px;border-radius:50%;object-fit:cover;flex-shrink:0;box-shadow:0 1px 4px rgba(0,0,0,.16)}
+.nav-auth-logged{display:flex;align-items:center;gap:8px}
+.nav-logout-btn{font-size:.78rem;color:var(--g400)}
 
 /* ─── PAGES ─── */
 .page{display:none;min-height:calc(100vh - 84px)}
@@ -530,6 +543,37 @@ tr:hover td{background:rgba(0,113,227,.04)}
 .odetail-subtotal span:last-child{font-size:1.02rem;font-weight:800;color:var(--g900)}
 
 /* ─── RESPONSIVE ─── */
+@media(max-width:820px){
+  .nav-menu-btn{display:flex}
+  .nav-menu-panel{
+    position:absolute;top:calc(100% + 12px);right:0;z-index:220;
+    min-width:min(260px,calc(100vw - 28px));
+    flex-direction:column;align-items:stretch;gap:4px;
+    padding:10px;
+    background:rgba(255,255,255,.94);
+    -webkit-backdrop-filter:saturate(180%) blur(16px);backdrop-filter:saturate(180%) blur(16px);
+    border:1px solid rgba(255,255,255,.75);
+    border-radius:22px;
+    box-shadow:0 16px 40px rgba(17,24,39,.14),0 4px 12px rgba(17,24,39,.08);
+    opacity:0;visibility:hidden;pointer-events:none;
+    transform:translateY(-8px) scale(.97);transform-origin:top right;
+    transition:opacity .2s var(--ease),transform .28s var(--spring),visibility .2s;
+  }
+  .nav-menu-panel > span{display:block}
+  .nav-menu-panel .nbtn,
+  .nav-menu-panel .nbtn-outline,
+  .nav-menu-panel .user-pill{
+    width:100%;justify-content:flex-start;border-radius:14px;padding:12px 14px;text-align:left;
+    box-sizing:border-box;
+  }
+  .nav-menu-panel #authNavArea{display:flex;flex-direction:column;gap:4px;width:100%}
+  .nav-menu-panel .nav-auth-logged{flex-direction:column;align-items:stretch;gap:4px;width:100%}
+  .nav-menu-panel .nav-logout-btn{width:100%;justify-content:flex-start}
+  .nav-menu.open .nav-menu-panel{
+    opacity:1;visibility:visible;pointer-events:auto;
+    transform:translateY(0) scale(1);
+  }
+}
 @media(max-width:580px){
   nav{margin:10px 10px 0;top:8px;padding:0 8px 0 14px;height:54px}
   .page{min-height:calc(100vh - 74px)}
@@ -543,10 +587,7 @@ tr:hover td{background:rgba(0,113,227,.04)}
   .auth-box{width:calc(100vw - 20px);right:10px;top:74px}
   .admin-pg{padding:18px 12px}
   .op,.profile-pg{padding:26px 14px 46px}
-  .nav-right .nbtn-ghost:not(.nbtn-orders):not(.nbtn-mobile-keep):not(.nbtn-stamps){display:none}
-  /* Cuando el usuario es admin, en móvil se muestra "Admin" en lugar de "Mis Pedidos" */
-  body.is-admin .nav-right .nbtn-orders{display:none}
-  .nav-right{gap:4px}
+  .nav-right{gap:6px}
   .brand-name{font-size:.95rem}
   .cart-btn{padding:8px 13px;font-size:.79rem}
   .atable-wrap{overflow-x:auto}
@@ -554,7 +595,7 @@ tr:hover td{background:rgba(0,113,227,.04)}
 @media(max-width:420px){
   nav{padding:0 8px 0 12px}
   .brand-name{display:none}
-  .cart-btn span:not(.cbadge){display:none}
+  .cart-btn .cart-btn-label{display:none}
   .cart-btn{padding:9px 12px}
 }
 

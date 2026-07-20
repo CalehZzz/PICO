@@ -100,10 +100,8 @@ function renderStampCardView() {
   }
 
   let progressMsg = '';
-  if (status === 'completed') {
-    progressMsg = c.rewardUsedInPerson
-      ? 'Esta tarjeta ya se canjeó en persona. Se archivó; hay que crear una nueva en el inventario.'
-      : 'Esta tarjeta ya se canjeó online. Se archivó; hay que crear una nueva en el inventario.';
+  if (status === 'completed' || status === 'cancelled') {
+    progressMsg = 'Esta tarjeta ya no está disponible. Pedí una tarjeta nueva en sucursal o consultá con atención al cliente.';
   } else if (rewardReady) {
     progressMsg = '¡Completaste 8 sellos! Tienes <b>40% disponible</b> en tu próxima compra online (o pídelo en persona).';
   } else {
