@@ -483,7 +483,24 @@ function toggleDescuentosMode(e) {
 
   // Dejar que la animación arranque antes de cambiar la vista
   const apply = () => {
-    // Entrar: solo productos con descuentoPct > 0 (inventario)
+    // Solo admins pueden entrar al modo Descuentos (preview / pruebas).
+    // El resto ve "Próximamente".
+    if (!isAdmin) {
+      if (discountMode) {
+        discountMode = false;
+        document.body.classList.remove('discount-mode');
+        _syncDescuentosBtn();
+        renderProducts();
+      }
+      openModal('descuentosModal');
+      const body = document.querySelector('#descuentosModal .discount-soon h3');
+      const p = document.querySelector('#descuentosModal .discount-soon p');
+      if (body) body.textContent = 'Próximamente...';
+      if (p) p.textContent = 'Estamos preparando ofertas especiales. Muy pronto vas a ver descuentos aquí.';
+      return;
+    }
+
+    // Admin: solo productos con descuentoPct > 0 (inventario)
     const hasOffers = (products || []).some(p => _productDiscountPct(p.id) > 0);
     if (!discountMode && !hasOffers) {
       openModal('descuentosModal');
