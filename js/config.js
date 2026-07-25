@@ -26,6 +26,11 @@ let currentUser      = null;
 let isAdmin          = false;
 let products         = [];
 let stockMap         = {};
+// Grupos de variantes (indexados por groupId) construidos al cargar productos.
+// { [groupId]: { id, name, kind:'valor'|'color', cat, e, orden, variants:[product...] } }
+let productGroups    = {};
+// Ítems del catálogo a renderizar: { type:'product'|'group', ... }
+let catalogItems     = [];
 // Entrega elegida en el modal de entrada: 'domicilio' | 'cdb' (Colegio Don Bosco)
 // | 'udb' (Universidad Don Bosco). Inventario ÚNICO: NO cambia el stock mostrado.
 // ('exsal' es legado y ya no se ofrece; solo se lee en pedidos históricos.)

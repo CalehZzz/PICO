@@ -108,6 +108,7 @@ async function loadProducts() {
     // INVENTARIO ÚNICO: tras eliminar EXSAL, todo (domicilio, Colegio Don Bosco,
     // Universidad Don Bosco y "Otros") sale del mismo stock: 'stockCdb'.
     products = [];
+    productGroups = {};
     rawProducts.forEach(d => {
       const det = detectCatEmoji(d.name, d.desc);
       // Categoría: si el admin la asignó explícitamente, se usa esa;
@@ -117,7 +118,14 @@ async function loadProducts() {
       // Stock único: 'stockCdb'. Fallback al 'stock' legado si el producto viejo no tiene stockCdb.
       let s = typeof d.stockCdb === 'number' ? d.stockCdb
             : (typeof d.stock === 'number' ? d.stock : 0);
-      products.push({
+      const groupId = (d.groupId && String(d.groupId).trim()) ? String(d.groupId).trim() : '';
+      const groupKind = (d.groupKind === 'color') ? 'color' : (d.groupKind === 'valor' ? 'valor' : '');
+      const groupName = (d.groupName && String(d.groupName).trim()) ? String(d.groupName).trim() : '';
+      const variantLabel = (d.variantLabel && String(d.variantLabel).trim()) ? String(d.variantLabel).trim() : '';
+      const variantColor = (d.variantColor && String(d.variantColor).trim()) ? String(d.variantColor).trim() : '';
+      // false = deshabilitada en inventario (p.ej. sin stock de ese color). Ausente = habilitada.
+      const variantEnabled = d.variantEnabled === false ? false : true;
+      const p = {
         id:    d.id,
         name:  d.name  || 'Producto',
         price: typeof d.price === 'number' ? d.price : 0,
@@ -129,9 +137,40 @@ async function loadProducts() {
         // Descuento de oferta en tienda (inventario). 0 = sin oferta.
         descuentoPct: (typeof d.descuentoPct === 'number' && d.descuentoPct > 0 && d.descuentoPct <= 100)
           ? Math.round(d.descuentoPct) : 0,
-        stock: s, cat, e
-      });
+        stock: s, cat, e,
+        groupId, groupKind, groupName, variantLabel, variantColor, variantEnabled
+      };
+      products.push(p);
       stockMap[d.id] = s;
+
+      // Índice de grupos (solo si tiene groupId válido)
+      if (groupId) {
+        if (!productGroups[groupId]) {
+          productGroups[groupId] = {
+            id: groupId,
+            name: groupName || p.name,
+            kind: groupKind || 'valor',
+            cat, e,
+            orden: p.orden,
+            variants: []
+          };
+        }
+        const g = productGroups[groupId];
+        g.variants.push(p);
+        if (groupName) g.name = groupName;
+        if (groupKind) g.kind = groupKind;
+        // Orden del grupo = menor orden entre variantes (null = ignorar)
+        if (p.orden != null && (g.orden == null || p.orden < g.orden)) g.orden = p.orden;
+        // Categoría representativa: la más frecuente / primera
+        if (!g.cat) g.cat = cat;
+        if (!g.e) g.e = e;
+      }
+    });
+    // Ordenar variantes dentro de cada grupo (por label, luego nombre)
+    Object.keys(productGroups).forEach(gid => {
+      productGroups[gid].variants.sort((a, b) =>
+        (a.variantLabel || a.name).localeCompare(b.variantLabel || b.name, 'es', { numeric: true })
+      );
     });
 
     // El stock que se muestra es directamente 'stockCdb' leído de Firebase. El
