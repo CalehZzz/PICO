@@ -54,6 +54,65 @@ function getShippingProgress(subtotal) {
 // ═══════════════════════════════════════════════════
 //  CART  (con persistencia en localStorage)
 // ═══════════════════════════════════════════════════
+// Claves: productId  ó  productId::colorId  (colores con stock compartido del raíz).
+const CART_COLOR_SEP = '::';
+
+function makeCartKey(productId, colorId) {
+  if (!colorId) return productId;
+  return productId + CART_COLOR_SEP + colorId;
+}
+function parseCartKey(key) {
+  const s = String(key == null ? '' : key);
+  const i = s.indexOf(CART_COLOR_SEP);
+  if (i < 0) return { productId: s, colorId: null };
+  return { productId: s.slice(0, i), colorId: s.slice(i + CART_COLOR_SEP.length) || null };
+}
+function _cartKeyAttr(key) {
+  return String(key).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+/** Suma de unidades en carrito de un producto raíz (todos sus colores). */
+function cartQtyForProduct(productId) {
+  let sum = 0;
+  Object.keys(cart || {}).forEach(k => {
+    if (parseCartKey(k).productId === productId) sum += (cart[k] || 0);
+  });
+  return sum;
+}
+/** Máximo de unidades que puede tener esta línea sin pasar el stock compartido. */
+function cartLineMax(productId, cartKey) {
+  const stock = stockMap[productId] || 0;
+  const others = cartQtyForProduct(productId) - (cart[cartKey] || 0);
+  return Math.max(0, stock - others);
+}
+function findCartColor(productId, colorId) {
+  if (!colorId) return null;
+  const p = (products || []).find(x => x.id === productId);
+  if (!p) return null;
+  return (p.groupColors || []).find(c => c && c.id === colorId) || null;
+}
+/** Nombre para mostrar en admin / pedidos / correos: "LED · Rojo". */
+function orderItemDisplayName(item) {
+  if (!item) return '';
+  const label = item.colorLabel || item.colorName || '';
+  return label ? ((item.name || '') + ' · ' + label) : (item.name || '');
+}
+/** Badge HTML con circulito + etiqueta de color (para detalle de pedido). */
+function orderItemColorBadgeHtml(item) {
+  if (!item || !(item.colorLabel || item.colorName)) return '';
+  const label = item.colorLabel || item.colorName;
+  const hex = item.color || '#9ca3af';
+  const esc = (typeof _pdEsc === 'function') ? _pdEsc : (s => String(s == null ? '' : s));
+  return `<span class="odetail-color"><span class="odetail-swatch" style="--swatch:${esc(hex)}"></span>${esc(label)}</span>`;
+}
+/** Necesidad de stock agregada por producto raíz (varias líneas color → un doc). */
+function cartStockNeedsByProduct() {
+  const need = {};
+  Object.keys(cart || {}).forEach(k => {
+    const { productId } = parseCartKey(k);
+    need[productId] = (need[productId] || 0) + (cart[k] || 0);
+  });
+  return need;
+}
 
 // ── Aviso por correo de cada pedido (vía extensión Trigger Email) ──
 function sendOrderEmail(orderId, d) {
@@ -67,7 +126,7 @@ function sendOrderEmail(orderId, d) {
 
   const rows = d.items.map(i => `
     <tr>
-      <td style="padding:6px 10px;border-bottom:1px solid #eee">${i.name}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee">${orderItemDisplayName(i)}${i.color ? ` <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${i.color};border:1px solid rgba(0,0,0,.15);vertical-align:middle;margin-left:4px"></span>` : ''}</td>
       <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:center">${i.qty}</td>
       <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">$${i.price.toFixed(2)}</td>
       <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">$${(i.qty * i.price).toFixed(2)}</td>
@@ -151,11 +210,15 @@ async function crearYEnviarFacturaPedido(orderId, d) {
   const items = (d.items || []).map(it => {
     const sub = +((it.price || 0) * (it.qty || 0)).toFixed(2);
     return {
-      productName: it.name, qty: it.qty,
+      productName: orderItemDisplayName(it),
+      qty: it.qty,
       precioUnit: +(it.price || 0).toFixed(2),
       subtotal: sub,
       total: +(sub * discFactor).toFixed(2),
-      descPct: discPct, descNombre: d.discountName || ''
+      descPct: discPct, descNombre: d.discountName || '',
+      colorId: it.colorId || null,
+      colorLabel: it.colorLabel || null,
+      color: it.color || null
     };
   });
   const unidades = items.reduce((s, it) => s + (it.qty || 0), 0);
@@ -249,11 +312,24 @@ function loadCart() {
   } catch(_) {}
 }
 
-function addToCart(id) {
+function addToCart(id, colorId) {
   if (typeof requireSucursalForCart === 'function' && !requireSucursalForCart()) return;
-  const s = stockMap[id] || 0;
-  if (s < 1) { showToast('⚠️ Sin stock disponible'); return; }
   const p = products.find(x => x.id === id);
+  if (!p) return;
+  // Productos con groupColors: hace falta elegir color (modal) si no viene.
+  const hasColors = p.groupColors && p.groupColors.length > 0;
+  if (hasColors && !colorId) {
+    if (typeof openProductDetail === 'function') openProductDetail(id);
+    else showToast('⚠️ Elegí un color');
+    return;
+  }
+  if (hasColors && colorId) {
+    const c = findCartColor(id, colorId);
+    if (!c || c.enabled === false) { showToast('⚠️ Color no disponible'); return; }
+  }
+  const key = makeCartKey(id, colorId || null);
+  const lineMax = cartLineMax(id, key);
+  if (lineMax < 1) { showToast('⚠️ Sin stock disponible'); return; }
   const prodPct = (typeof getProductDiscountPct === 'function') ? getProductDiscountPct(p) : 0;
   // No combinar oferta de producto con descuento de carrito (código/asignado/sellos)
   if (prodPct > 0 && selectedDiscount) {
@@ -265,15 +341,16 @@ function addToCart(id) {
   }
   const fromBtn = document.querySelector('#addZone_' + id + ' .add-btn')
     || document.querySelector('#addZoneModal_' + id + ' .add-btn');
-  cart[id] = 1;
+  if (!cart[key]) cart[key] = 1;
   saveCart();
   updateCartUI();
   // Animación de vuelo solo en modo Descuentos
   if (typeof discountMode !== 'undefined' && discountMode && fromBtn) {
     playAddToCartAnim(fromBtn);
   }
-  updateAddZone(id);
-  showToast('✅ Agregado al carrito');
+  updateAddZone(id, colorId || null);
+  const cLabel = hasColors ? (findCartColor(id, colorId) || {}).label : '';
+  showToast(cLabel ? ('✅ Agregado: ' + cLabel) : '✅ Agregado al carrito');
 }
 
 /** Animación dopamínica: el + vuela al botón del carrito y este hace bump. */
@@ -310,58 +387,64 @@ function playAddToCartAnim(fromEl) {
   }, 560);
 }
 
-function cartInc(id) {
-  const max = stockMap[id] || 0;
-  if ((cart[id] || 0) >= max) { showToast('⚠️ Stock máximo alcanzado'); return; }
-  cart[id] = (cart[id] || 0) + 1;
-  saveCart(); updateCartUI(); updateAddZone(id);
+function cartInc(key) {
+  const { productId, colorId } = parseCartKey(key);
+  const max = cartLineMax(productId, key);
+  if ((cart[key] || 0) >= max) { showToast('⚠️ Stock máximo alcanzado'); return; }
+  cart[key] = (cart[key] || 0) + 1;
+  saveCart(); updateCartUI(); updateAddZone(productId, colorId);
 }
 
-function cartDec(id) {
-  cart[id] = (cart[id] || 0) - 1;
-  if (cart[id] <= 0) delete cart[id];
-  saveCart(); updateCartUI(); updateAddZone(id);
+function cartDec(key) {
+  const { productId, colorId } = parseCartKey(key);
+  cart[key] = (cart[key] || 0) - 1;
+  if (cart[key] <= 0) delete cart[key];
+  saveCart(); updateCartUI(); updateAddZone(productId, colorId);
 }
 
-function cartSetVal(id, val) {
+function cartSetVal(key, val) {
+  const { productId, colorId } = parseCartKey(key);
   const n = parseInt(val);
-  if (isNaN(n) || n <= 0) { delete cart[id]; }
-  else { cart[id] = Math.min(n, stockMap[id] || 0); }
-  saveCart(); updateCartUI(); updateAddZone(id);
+  if (isNaN(n) || n <= 0) { delete cart[key]; }
+  else { cart[key] = Math.min(n, cartLineMax(productId, key)); }
+  saveCart(); updateCartUI(); updateAddZone(productId, colorId);
 }
 
 // oninput: actualiza la cantidad EN VIVO mientras se teclea, SIN re-renderizar el
 // selector de cantidad (así el <input> no se destruye y no se pierde el foco tras
 // escribir un dígito). La normalización final (clamp + re-render) ocurre en el
 // evento 'change' (blur / Enter) vía cartSetVal.
-function cartTypeVal(id, val) {
+function cartTypeVal(key, val) {
+  const { productId } = parseCartKey(key);
   const raw = String(val).trim();
   if (raw === '') return;                 // permitir borrar para reescribir sin sacar el producto
   let n = parseInt(raw, 10);
   if (isNaN(n) || n < 1) return;          // ignorar estados intermedios inválidos mientras teclea
-  const max = stockMap[id] || 0;
-  if (max > 0 && n > max) n = max;        // no exceder el stock disponible
-  cart[id] = n;
+  const max = cartLineMax(productId, key);
+  if (max > 0 && n > max) n = max;        // no exceder el stock compartido
+  cart[key] = n;
   saveCart();
   updateCartUI();                          // actualiza badge/total/envío/lista, pero NO toca las add-zones
 }
 
-function changeQty(id, d) {
-  // Al incrementar desde el carrito, respetar el stock disponible (bug: antes permitía exceder stock)
-  if (d > 0 && (cart[id] || 0) + d > (stockMap[id] || 0)) {
+function changeQty(key, d) {
+  const { productId, colorId } = parseCartKey(key);
+  // Al incrementar desde el carrito, respetar el stock compartido del raíz
+  if (d > 0 && (cart[key] || 0) + d > cartLineMax(productId, key)) {
     showToast('⚠️ Stock máximo alcanzado');
     return;
   }
-  cart[id] = (cart[id] || 0) + d;
-  if (cart[id] <= 0) delete cart[id];
+  cart[key] = (cart[key] || 0) + d;
+  if (cart[key] <= 0) delete cart[key];
   if (!Object.keys(cart).length) selectedDiscount = null;
-  saveCart(); updateCartUI(); updateAddZone(id);
+  saveCart(); updateCartUI(); updateAddZone(productId, colorId);
 }
 
-function removeFromCart(id) {
-  delete cart[id];
+function removeFromCart(key) {
+  const { productId, colorId } = parseCartKey(key);
+  delete cart[key];
   if (!Object.keys(cart).length) selectedDiscount = null;
-  saveCart(); updateCartUI(); updateAddZone(id);
+  saveCart(); updateCartUI(); updateAddZone(productId, colorId);
 }
 
 function updateCartUI() {
@@ -392,30 +475,39 @@ function updateCartUI() {
     el.innerHTML = `<div class="empty-cart"><div class="icon">🛒</div><p>Tu carrito está vacío</p></div>`;
     return;
   }
-  el.innerHTML = Object.keys(cart).map(id => {
-    const p = products.find(x => x.id === id);
+  el.innerHTML = Object.keys(cart).map(key => {
+    const { productId, colorId } = parseCartKey(key);
+    const p = products.find(x => x.id === productId);
     if (!p) return '';
-    const qty = cart[id] || 0;
+    const qty = cart[key] || 0;
+    const color = colorId ? findCartColor(productId, colorId) : null;
+    const colorLabel = color ? color.label : '';
+    const thumbSrc = (color && color.imageUrl) || p.img || '';
     const unitSale = (typeof getProductSalePrice === 'function') ? getProductSalePrice(p) : p.price;
     const prodPct = (typeof getProductDiscountPct === 'function') ? getProductDiscountPct(p) : 0;
     const priceHtml = prodPct > 0
       ? `<div class="citem-price"><span style="text-decoration:line-through;color:var(--g400);font-size:.78rem;font-weight:500;margin-right:6px">$${(p.price * qty).toFixed(2)}</span>$${(unitSale * qty).toFixed(2)}</div>`
       : `<div class="citem-price">$${(unitSale * qty).toFixed(2)}</div>`;
-    const thumbHtml = p.img
-      ? `<div class="citem-emoji" style="overflow:hidden;padding:0"><img src="${p.img}" alt="${p.name}" style="width:100%;height:100%;object-fit:cover;border-radius:9px" onerror="this.parentElement.innerHTML='${p.e}'"></div>`
+    const thumbHtml = thumbSrc
+      ? `<div class="citem-emoji" style="overflow:hidden;padding:0"><img src="${thumbSrc}" alt="${p.name}" style="width:100%;height:100%;object-fit:cover;border-radius:9px" onerror="this.parentElement.innerHTML='${p.e}'"></div>`
       : `<div class="citem-emoji">${p.e}</div>`;
+    const colorHtml = colorLabel
+      ? `<div class="citem-color"><span class="citem-swatch" style="--swatch:${color.color || '#9ca3af'}"></span>${colorLabel}</div>`
+      : '';
+    const kAttr = _cartKeyAttr(key);
     return `<div class="citem">
       ${thumbHtml}
       <div class="citem-info">
         <div class="citem-name">${p.name}${prodPct > 0 ? ` <span style="color:#e57373;font-size:.72rem;font-weight:800">−${prodPct}%</span>` : ''}</div>
+        ${colorHtml}
         ${priceHtml}
       </div>
       <div class="cqty">
-        <button class="cqbtn" onclick="changeQty('${id}', -1)">−</button>
-        <span class="cqval">${cart[id]}</span>
-        <button class="cqbtn" onclick="changeQty('${id}', +1)">+</button>
+        <button class="cqbtn" onclick="changeQty('${kAttr}', -1)">−</button>
+        <span class="cqval">${qty}</span>
+        <button class="cqbtn" onclick="changeQty('${kAttr}', +1)">+</button>
       </div>
-      <button class="rmbtn" onclick="removeFromCart('${id}')">🗑️</button>
+      <button class="rmbtn" onclick="removeFromCart('${kAttr}')">🗑️</button>
     </div>`;
   }).join('');
 }
@@ -479,10 +571,10 @@ function renderShippingProgress() {
 // Sugiere hasta 3 productos en stock para alcanzar el siguiente tramo de envío.
 function renderShipRecs(gap) {
   if (!Array.isArray(products) || !products.length || gap <= 0) return '';
-  // Disponibles: con stock libre (descontando lo que ya está en el carrito).
+  // Disponibles: con stock libre (descontando lo que ya está en el carrito, todos los colores).
   const avail = products.filter(p => {
     const stock  = stockMap[p.id] || 0;
-    const inCart = cart[p.id]     || 0;
+    const inCart = cartQtyForProduct(p.id);
     return (stock - inCart) > 0 && p.price > 0;
   });
   if (!avail.length) return '';
@@ -514,8 +606,15 @@ function renderShipRecs(gap) {
 
 // Agregar (o incrementar) un producto recomendado desde la barra de envío.
 function shipRecAdd(id) {
-  if (cart[id]) cartInc(id);
-  else          addToCart(id);
+  const p = products.find(x => x.id === id);
+  // Con colores: abrir modal para elegir (pueden pedirse varios a la vez).
+  if (p && p.groupColors && p.groupColors.length) {
+    if (typeof openProductDetail === 'function') openProductDetail(id);
+    return;
+  }
+  const key = makeCartKey(id, null);
+  if (cart[key]) cartInc(key);
+  else addToCart(id);
 }
 
 // Línea clara del envío que se paga AHORA + total con envío (solo domicilio).
@@ -570,14 +669,20 @@ function openCheckout() {
   if (!Object.keys(cart).length) { showToast('⚠️ El carrito está vacío'); return; }
   closeCart();
 
-  const items = Object.keys(cart).map(id => {
-    const p = products.find(x => x.id === id);
+  const items = Object.keys(cart).map(key => {
+    const { productId, colorId } = parseCartKey(key);
+    const p = products.find(x => x.id === productId);
+    if (!p) return '';
+    const color = colorId ? findCartColor(productId, colorId) : null;
+    const colorBadge = color
+      ? `<span class="odetail-color"><span class="odetail-swatch" style="--swatch:${color.color || '#9ca3af'}"></span>${color.label || ''}</span>`
+      : '';
     return `<div class="odetail-item">
       <div>
-        <div class="odetail-item-name">${p.e} ${p.name}</div>
-        <div class="odetail-item-sub">$${p.price.toFixed(2)} × ${cart[id]}</div>
+        <div class="odetail-item-name">${p.e} ${p.name}${colorBadge}</div>
+        <div class="odetail-item-sub">$${p.price.toFixed(2)} × ${cart[key]}</div>
       </div>
-      <div class="odetail-item-price">$${(p.price * cart[id]).toFixed(2)}</div>
+      <div class="odetail-item-price">$${(p.price * cart[key]).toFixed(2)}</div>
     </div>`;
   }).join('');
   const rawTotal    = getCartRawTotal();
@@ -774,9 +879,10 @@ async function placeOrder() {
     } catch (_) {}
   }
 
-  // Validar stock local
-  for (const id of Object.keys(cart)) {
-    if ((stockMap[id] || 0) < (cart[id] || 0)) {
+  // Validar stock local (agregado por producto raíz: colores comparten stock)
+  const localNeed = cartStockNeedsByProduct();
+  for (const id of Object.keys(localNeed)) {
+    if ((stockMap[id] || 0) < (localNeed[id] || 0)) {
       const p = products.find(x => x.id === id);
       showToast('⚠️ Stock insuficiente: ' + (p?.name || id));
       return;
@@ -788,17 +894,28 @@ async function placeOrder() {
   btn.textContent = 'Guardando...';
 
   const code  = genCode();
-  const items = Object.keys(cart).map(id => {
-    const p = products.find(x => x.id === id);
+  const items = Object.keys(cart).map(key => {
+    const { productId, colorId } = parseCartKey(key);
+    const p = products.find(x => x.id === productId);
     const prodPct = (typeof getProductDiscountPct === 'function') ? getProductDiscountPct(p) : 0;
     const unit = (typeof getProductSalePrice === 'function') ? getProductSalePrice(p) : p.price;
-    return {
-      id, name: p.name, qty: cart[id],
+    const color = colorId ? findCartColor(productId, colorId) : null;
+    const line = {
+      id: productId,
+      name: p.name,
+      qty: cart[key],
       price: unit,
       listPrice: p.price,
       productDiscPct: prodPct > 0 ? prodPct : null,
       cost: p.cost
     };
+    // Color pedido (stock compartido del raíz): lo ve el admin en el detalle.
+    if (color) {
+      line.colorId = color.id;
+      line.colorLabel = color.label || '';
+      line.color = color.color || '';
+    }
+    return line;
   });
   const listTotal  = items.reduce((s, i) => s + i.qty * (i.listPrice != null ? i.listPrice : i.price), 0);
   const rawTotal   = items.reduce((s, i) => s + i.qty * i.price, 0); // tras oferta de producto
@@ -851,12 +968,14 @@ async function placeOrder() {
     // ── Verificar que haya stock suficiente y descontarlo de forma ATÓMICA, justo antes de crear el pedido ──
     // (aplica a TODO tipo de pedido: tarjeta, efectivo, sucursal o domicilio). Si no alcanza, no se crea el pedido.
     await db.runTransaction(async (tx) => {
-      const ids = Object.keys(cart);
+      // Una sola resta por producto raíz (varios colores → stock compartido).
+      const needById = cartStockNeedsByProduct();
+      const ids = Object.keys(needById);
       const snaps = await Promise.all(ids.map(id => tx.get(db.collection('productos').doc(id))));
       // 1) Validar disponibilidad de cada producto
       for (let k = 0; k < ids.length; k++) {
         const snap = snaps[k];
-        const need = cart[ids[k]] || 0;
+        const need = needById[ids[k]] || 0;
         const data = snap.exists ? snap.data() : null;
         const have = data && typeof data[stockField] === 'number' ? data[stockField] : 0;
         if (!snap.exists || have < need) {
@@ -867,7 +986,7 @@ async function placeOrder() {
       // 2) Descontar el stock
       for (let k = 0; k < ids.length; k++) {
         tx.update(db.collection('productos').doc(ids[k]), {
-          [stockField]: firebase.firestore.FieldValue.increment(-(cart[ids[k]] || 0)),
+          [stockField]: firebase.firestore.FieldValue.increment(-(needById[ids[k]] || 0)),
           updatedAt: Date.now()   // marca el producto como cambiado para el caché incremental
         });
       }
@@ -957,10 +1076,11 @@ async function placeOrder() {
       }, { merge: true });
     } catch (e) { console.warn('No se pudo incrementar pedidosPendientes:', e); }
 
-    // Reflejar el descuento en el stockMap local
-    for (const id of Object.keys(cart)) {
-      stockMap[id] = Math.max(0, (stockMap[id] || 0) - (cart[id] || 0));
-    }
+    // Reflejar el descuento en el stockMap local (agregado por raíz)
+    const needLocal = cartStockNeedsByProduct();
+    Object.keys(needLocal).forEach(id => {
+      stockMap[id] = Math.max(0, (stockMap[id] || 0) - (needLocal[id] || 0));
+    });
 
     cart = {};
     myOrdersPaging.page = 0; myOrdersPaging.cursors = []; myOrdersPaging.atEnd = false; // refrescar al crear pedido

@@ -225,7 +225,7 @@ function _renderProductCard(p, i) {
         `</div>` +
         `<div class="pfooter">` +
           `${_pricePairHtml(oldP, pct, true)}` +
-          `<div class="add-zone" id="addZone_${p.id}">${renderAddZoneHTML(p.id, noStock)}</div>` +
+          `<div class="add-zone" id="addZone_${p.id}">${renderAddZoneHTML(p.id, noStock, null)}</div>` +
         `</div>` +
       `</div>` +
     `</article>`;
@@ -329,31 +329,63 @@ function goToPageFromInput(el) {
   goToPage(v);
 }
 
-function renderAddZoneHTML(id, noStock) {
-  const inCart = !!cart[id];
-  if (noStock && !inCart)
+/**
+ * Zona +/- del catálogo / modal.
+ * @param {string} id productId raíz
+ * @param {boolean} noStock
+ * @param {string|null} colorId color de groupColors (modal); null en tarjeta
+ */
+function renderAddZoneHTML(id, noStock, colorId) {
+  const p = (products || []).find(x => x.id === id);
+  const hasColors = !!(p && p.groupColors && p.groupColors.length);
+
+  // En la tarjeta: productos con colores abren el modal (varios colores a la vez).
+  if (hasColors && !colorId) {
+    const totalInCart = (typeof cartQtyForProduct === 'function') ? cartQtyForProduct(id) : 0;
+    if (noStock && totalInCart < 1)
+      return `<button class="add-btn" disabled style="opacity:.4">+</button>`;
+    const badge = totalInCart > 0
+      ? `<span class="add-color-qty" title="En carrito">${totalInCart}</span>`
+      : '';
+    return `<button class="add-btn" onclick="openProductDetail('${id}')" title="Elegir color">+${badge}</button>`;
+  }
+
+  const key = (typeof makeCartKey === 'function') ? makeCartKey(id, colorId || null) : id;
+  const inCart = !!cart[key];
+  const lineMax = (typeof cartLineMax === 'function')
+    ? cartLineMax(id, key)
+    : (stockMap[id] || 0);
+  const kAttr = (typeof _cartKeyAttr === 'function') ? _cartKeyAttr(key) : key;
+  if ((noStock || lineMax < 1) && !inCart)
     return `<button class="add-btn" disabled style="opacity:.4">+</button>`;
   if (inCart)
     return `<div class="qty-spin">
-      <button class="qspin-btn" onclick="cartDec('${id}')">−</button>
-      <input class="qspin-input" type="number" min="1" max="${stockMap[id] || 0}"
-        value="${cart[id]}"
-        onchange="cartSetVal('${id}', this.value)"
-        oninput="cartTypeVal('${id}', this.value)"
+      <button class="qspin-btn" onclick="cartDec('${kAttr}')">−</button>
+      <input class="qspin-input" type="number" min="1" max="${lineMax}"
+        value="${cart[key]}"
+        onchange="cartSetVal('${kAttr}', this.value)"
+        oninput="cartTypeVal('${kAttr}', this.value)"
         onclick="this.select()">
-      <button class="qspin-btn" onclick="cartInc('${id}')">+</button>
+      <button class="qspin-btn" onclick="cartInc('${kAttr}')">+</button>
     </div>`;
-  return `<button class="add-btn" onclick="addToCart('${id}')" title="Agregar">+</button>`;
+  const colorArg = colorId
+    ? `, '${String(colorId).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
+    : '';
+  return `<button class="add-btn" onclick="addToCart('${id}'${colorArg})" title="Agregar">+</button>`;
 }
 
-function updateAddZone(id) {
+function updateAddZone(id, colorId) {
   const s = stockMap[id] !== undefined ? stockMap[id] : 0;
-  const html = renderAddZoneHTML(id, s === 0);
   const el = document.getElementById('addZone_' + id);
-  if (el) el.innerHTML = html;
-  // Mantener sincronizado el selector dentro del modal de detalle (si está abierto).
+  if (el) el.innerHTML = renderAddZoneHTML(id, s === 0, null);
+  // Modal: reflejar la línea del color seleccionado (stock compartido del raíz).
   const elM = document.getElementById('addZoneModal_' + id);
-  if (elM) elM.innerHTML = html;
+  if (elM) {
+    const modalColor = (_pdColorProductId === id && _pdSelectedColorId)
+      ? _pdSelectedColorId
+      : (colorId || null);
+    elM.innerHTML = renderAddZoneHTML(id, s === 0, modalColor);
+  }
 }
 
 // Construye el menú "Filtrar por" dinámicamente con las categorías presentes en el
@@ -652,10 +684,14 @@ function _fillProductDetailModal(p, g, opts) {
     descHeader +
     `<div id="pdDescArea">${descHtml}</div>`;
 
-  // Carrito: siempre el id del producto mostrado. Con groupColors es el raíz.
+  // Carrito: con groupColors, una línea por color (stock compartido del raíz).
+  const modalColorId = embeddedColors ? _pdSelectedColorId : null;
+  const lineKey = (typeof makeCartKey === 'function') ? makeCartKey(p.id, modalColorId) : p.id;
+  const lineMax = (typeof cartLineMax === 'function') ? cartLineMax(p.id, lineKey) : (stockMap[p.id] || 0);
+  const modalNoStock = noStock || (lineMax < 1 && !cart[lineKey]);
   foot.innerHTML =
     `<button class="btn-sec" onclick="closeModal('productDetailModal')">Cerrar</button>` +
-    `<div class="add-zone pd-add" id="addZoneModal_${p.id}">${renderAddZoneHTML(p.id, noStock)}</div>`;
+    `<div class="add-zone pd-add" id="addZoneModal_${p.id}">${renderAddZoneHTML(p.id, modalNoStock, modalColorId)}</div>`;
 
   openModal('productDetailModal');
 }
