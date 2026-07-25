@@ -505,7 +505,7 @@ function selectGroupVariant(variantId) {
   const v = g.variants.find(x => x.id === variantId);
   if (!v || !_variantIsEnabled(v)) return;
   _pdSelectedVariantId = v.id;
-  _fillProductDetailModal(v, g);
+  _fillProductDetailModal(v, g, { animate: false });
 }
 
 /** Elige un color del array groupColors del producto raíz (stock/id compartidos). */
@@ -516,7 +516,7 @@ function selectProductColor(colorId) {
   const c = (p.groupColors || []).find(x => x.id === colorId);
   if (!c || !_colorIsEnabled(c)) return;
   _pdSelectedColorId = c.id;
-  _fillProductDetailModal(p, null);
+  _fillProductDetailModal(p, null, { animate: false });
 }
 
 /** Picker de colores desde groupColors (producto raíz, stock compartido). */
@@ -576,11 +576,12 @@ function _renderVariantPicker(g, selectedId) {
   `</div>`;
 }
 
-function _fillProductDetailModal(p, g) {
+function _fillProductDetailModal(p, g, opts) {
   _ensureProductDetailModal();
   const body = document.getElementById('productDetailBody');
   const foot = document.getElementById('productDetailFoot');
   const shell = document.getElementById('productDetailShell');
+  const animate = !(opts && opts.animate === false);
 
   // Color embebido (groupColors): stock e id del producto raíz siempre.
   const embeddedColors = (!g && p.groupColors && p.groupColors.length) ? p.groupColors : null;
@@ -606,9 +607,12 @@ function _fillProductDetailModal(p, g) {
 
   if (shell) {
     shell.classList.toggle('has-fire', pct > 0);
-    shell.classList.remove('pd-pop');
-    void shell.offsetWidth;
-    shell.classList.add('pd-pop');
+    // Solo animar al abrir el modal; no al cambiar color/variante.
+    if (animate) {
+      shell.classList.remove('pd-pop');
+      void shell.offsetWidth;
+      shell.classList.add('pd-pop');
+    }
   }
   const overlay = document.getElementById('productDetailModal');
   if (overlay) overlay.classList.toggle('pd-sale-overlay', pct > 0);
