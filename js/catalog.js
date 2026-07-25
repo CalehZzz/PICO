@@ -8,34 +8,156 @@
 function stockClass(s) { return s === 0 ? 'stock-none' : s <= 5 ? 'stock-low' : 'stock-ok'; }
 function stockLabel(s) { return s === 0 ? 'Sin stock'  : s <= 5 ? `Pocas (${s})` : `${s} disp.`; }
 
+/** Texto buscable de un producto (incluye etiqueta/grupo de variante). */
+function _productSearchHay(p) {
+  return [
+    p.name, p.cat, p.desc || '',
+    p.variantLabel || '', p.groupName || '', p.variantColor || ''
+  ].join(' ').toLowerCase();
+}
+function _productMatchesSearch(p, q) {
+  if (!q) return true;
+  return _productSearchHay(p).includes(q);
+}
+function _groupMatchesSearch(g, q) {
+  if (!q) return true;
+  if ((g.name || '').toLowerCase().includes(q) || (g.cat || '').toLowerCase().includes(q)) return true;
+  return (g.variants || []).some(v => _productMatchesSearch(v, q));
+}
+function _variantIsEnabled(v) {
+  return v && v.variantEnabled !== false;
+}
+function _variantStock(v) {
+  if (!v) return 0;
+  return stockMap[v.id] !== undefined ? stockMap[v.id] : (v.stock || 0);
+}
+/** Variantes habilitadas del grupo (incluye sin stock; el UI las marca aparte). */
+function _groupEnabledVariants(g) {
+  return (g.variants || []).filter(_variantIsEnabled);
+}
+function _groupRepProduct(g) {
+  const enabled = _groupEnabledVariants(g);
+  const withStock = enabled.find(v => _variantStock(v) > 0 && v.img);
+  if (withStock) return withStock;
+  const anyImg = enabled.find(v => v.img) || (g.variants || []).find(v => v.img);
+  return withStock || enabled[0] || anyImg || (g.variants || [])[0] || null;
+}
+function _groupStockTotal(g) {
+  return _groupEnabledVariants(g).reduce((sum, v) => sum + _variantStock(v), 0);
+}
+function _groupDiscountPct(g) {
+  let best = 0;
+  (g.variants || []).forEach(v => {
+    const pct = _productDiscountPct(v.id);
+    if (pct > best) best = pct;
+  });
+  return best;
+}
+function _itemSortKey(item) {
+  if (item.type === 'group') {
+    const g = item.group;
+    const rep = _groupRepProduct(g) || { name: g.name, orden: g.orden, _pop: 0 };
+    return {
+      orden: g.orden == null ? Infinity : g.orden,
+      pop: _pop(rep),
+      name: g.name || ''
+    };
+  }
+  const p = item.product;
+  return {
+    orden: p.orden == null ? Infinity : p.orden,
+    pop: _pop(p),
+    name: p.name || ''
+  };
+}
+
+/**
+ * Construye la lista del catálogo:
+ * - Sin búsqueda: 1 tarjeta por grupo + productos sin grupo.
+ * - Con búsqueda: variantes individuales que coinciden + sus grupos a la par.
+ */
+function _buildCatalogItems() {
+  const q = (currentSearch || '').trim();
+  const searching = q.length > 0;
+  const items = [];
+  const seenGroups = new Set();
+
+  const inCat = (cat) => currentCat === 'Todos' || cat === currentCat;
+  const groupHasOffer = (g) => !discountMode || (g.variants || []).some(v => _productDiscountPct(v.id) > 0);
+  const prodHasOffer = (p) => !discountMode || _productDiscountPct(p.id) > 0;
+
+  if (!searching) {
+    Object.keys(productGroups || {}).forEach(gid => {
+      const g = productGroups[gid];
+      if (!g || !_groupEnabledVariants(g).length) return;
+      if (!inCat(g.cat)) return;
+      if (!groupHasOffer(g)) return;
+      items.push({ type: 'group', group: g });
+      seenGroups.add(gid);
+    });
+    (products || []).forEach(p => {
+      // Las variantes agrupadas NO aparecen sueltas al navegar.
+      if (p.groupId && productGroups[p.groupId]) return;
+      if (!inCat(p.cat)) return;
+      if (!prodHasOffer(p)) return;
+      items.push({ type: 'product', product: p });
+    });
+  } else {
+    (products || []).forEach(p => {
+      if (!_productMatchesSearch(p, q)) return;
+      if (!inCat(p.cat)) return;
+      if (!prodHasOffer(p)) return;
+      // Hit individual (aunque pertenezca a un grupo)
+      items.push({ type: 'product', product: p, searchHit: true });
+      if (p.groupId && productGroups[p.groupId] && !seenGroups.has(p.groupId)) {
+        const g = productGroups[p.groupId];
+        if (inCat(g.cat) && groupHasOffer(g) && _groupEnabledVariants(g).length) {
+          items.push({ type: 'group', group: g });
+          seenGroups.add(p.groupId);
+        }
+      }
+    });
+    // Grupos que coinciden por nombre aunque ninguna variante se listó aún
+    Object.keys(productGroups || {}).forEach(gid => {
+      if (seenGroups.has(gid)) return;
+      const g = productGroups[gid];
+      if (!g || !_groupMatchesSearch(g, q)) return;
+      if (!inCat(g.cat) || !groupHasOffer(g)) return;
+      if (!_groupEnabledVariants(g).length) return;
+      items.push({ type: 'group', group: g });
+      seenGroups.add(gid);
+    });
+  }
+
+  items.sort((a, b) => {
+    const ka = _itemSortKey(a), kb = _itemSortKey(b);
+    if (ka.orden !== kb.orden) return ka.orden - kb.orden;
+    return kb.pop - ka.pop || ka.name.localeCompare(kb.name, 'es');
+  });
+  return items;
+}
+
 function renderProducts() {
   updateSucursalBadge();
   // En páginas sin catálogo no hay grid que renderizar.
   if (!document.getElementById('productsGrid')) return;
   // Cada vez que cambia el filtro/búsqueda, volver a la primera página
   currentPage = 1;
-  currentFiltered = products.filter(p => {
-    const mc = currentCat === 'Todos' || p.cat === currentCat;
-    const ms = p.name.toLowerCase().includes(currentSearch) ||
-               p.cat.toLowerCase().includes(currentSearch)  ||
-               (p.desc || '').toLowerCase().includes(currentSearch);
-    const md = !discountMode || _productDiscountPct(p.id) > 0;
-    return mc && ms && md;
-  });
-  // Orden: primero el orden MANUAL del admin (menor número = primero),
-  // luego popularidad y alfabético para los que no tienen orden asignado.
-  currentFiltered.sort((a, b) => {
-    const ao = (a.orden == null ? Infinity : a.orden);
-    const bo = (b.orden == null ? Infinity : b.orden);
-    if (ao !== bo) return ao - bo;
-    return _pop(b) - _pop(a) || a.name.localeCompare(b.name, 'es');
-  });
+  catalogItems = _buildCatalogItems();
+  // Compat: currentFiltered sigue siendo lista de productos "planos" para
+  // código legado; en búsqueda incluye hits individuales.
+  currentFiltered = catalogItems
+    .filter(it => it.type === 'product')
+    .map(it => it.product);
   _renderVisibleSlice();
 }
 
 // Navega a una página concreta del catálogo (paginación 100% local, sin lecturas extra)
 function goToPage(page) {
-  const totalPages = Math.max(1, Math.ceil(currentFiltered.length / PAGE_SIZE));
+  const total = (Array.isArray(catalogItems) && catalogItems.length)
+    ? catalogItems.length
+    : currentFiltered.length;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   currentPage = Math.min(Math.max(1, page), totalPages);
   _renderVisibleSlice();
   // Subir al inicio del catálogo al cambiar de página
@@ -43,11 +165,108 @@ function goToPage(page) {
   if (wrap) wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+function _discountTagHtml(pct, size) {
+  if (!(pct > 0)) return '';
+  const w = size === 'lg' ? 72 : 58;
+  const h = size === 'lg' ? 84 : 68;
+  const cls = size === 'lg' ? 'discount-tag discount-tag-lg' : 'discount-tag';
+  return `<span class="${cls}" title="${pct}% de descuento" aria-label="${pct}% de descuento">` +
+    `<svg viewBox="0 0 48 56" width="${w}" height="${h}" aria-hidden="true">` +
+      `<path d="M24 3.2l15.8 14V48.2c0 2-1.6 3.6-3.6 3.6H11.8c-2 0-3.6-1.6-3.6-3.6V17.2L24 3.2z" fill="#ff8a80"/>` +
+      `<circle cx="24" cy="16.2" r="3.1" fill="#fff"/>` +
+      `<path d="M24 9.4c2.2-2.4 1.1-4.9 0-5.9-1.1.9-2.2 3.4 0 5.9z" stroke="#8d6e63" stroke-width="1.15" fill="none"/>` +
+      `<path d="M12.2 37.8h23.6" stroke="#fff" stroke-width="1.5" stroke-dasharray="2 2.1" stroke-linecap="round"/>` +
+      `<text x="24" y="31.5" text-anchor="middle" fill="#fff" font-size="11" font-weight="800" font-family="Plus Jakarta Sans,sans-serif">-${pct}%</text>` +
+    `</svg></span>`;
+}
+
+function _pricePairHtml(oldP, pct, asCard) {
+  const newP = pct > 0 ? oldP * (1 - pct / 100) : oldP;
+  if (pct > 0) {
+    if (asCard) {
+      return `<span class="pprice-wrap"><span class="pprice-old">$${oldP.toFixed(2)}</span><span class="pprice pprice-sale">$${newP.toFixed(2)}</span></span>`;
+    }
+    return `<div class="pd-price pd-price-sale"><span class="pprice-old">$${oldP.toFixed(2)}</span><span class="pd-price-new">$${newP.toFixed(2)}</span></div>`;
+  }
+  return asCard
+    ? `<span class="pprice">$${oldP.toFixed(2)}</span>`
+    : `<div class="pd-price">$${oldP.toFixed(2)}</div>`;
+}
+
+function _renderProductCard(p, i) {
+  const s       = _variantStock(p);
+  const noStock = s === 0;
+  const pct     = discountMode ? _productDiscountPct(p.id) : 0;
+  const oldP    = typeof p.price === 'number' ? p.price : 0;
+  const groupBadge = (p.groupId && productGroups[p.groupId] && (currentSearch || '').trim())
+    ? `<span class="pgroup-badge">En grupo</span>` : '';
+  const card =
+    `<article class="pcard${pct > 0 ? ' pcard-sale' : ''}">` +
+      `<div class="pimg pimg-clickable" onclick="openProductDetail('${p.id}')">` +
+        `${p.img ? `<img class="pimg-photo" src="${_pdEsc(p.img)}" alt="${_pdEsc(p.name)}" loading="lazy" onerror="this.style.display='none'">` : ''}` +
+        `${_discountTagHtml(pct)}` +
+        `<span class="pstock ${stockClass(s)}">${stockLabel(s)}</span>` +
+        `<span class="pimg-emoji"${p.img ? ' style="display:none"' : ''}>${p.e}</span>` +
+      `</div>` +
+      `<div class="pbody">` +
+        `<div class="pclick" onclick="openProductDetail('${p.id}')">` +
+          `<span class="pcat">${_pdEsc(p.cat)}${groupBadge}</span>` +
+          `<div class="pname">${_pdEsc(p.name)}</div>` +
+          `<div class="pdesc">${_pdEsc(p.desc)}</div>` +
+        `</div>` +
+        `<div class="pfooter">` +
+          `${_pricePairHtml(oldP, pct, true)}` +
+          `<div class="add-zone" id="addZone_${p.id}">${renderAddZoneHTML(p.id, noStock)}</div>` +
+        `</div>` +
+      `</div>` +
+    `</article>`;
+  const shellClass = pct > 0 ? 'pcard-fire-shell' : 'pcard-slot';
+  return `<div class="${shellClass}" style="animation-delay:${Math.min(i, 9) * .04}s">${card}</div>`;
+}
+
+function _renderGroupCard(g, i) {
+  const rep = _groupRepProduct(g);
+  const s = _groupStockTotal(g);
+  const enabled = _groupEnabledVariants(g);
+  const pct = discountMode ? _groupDiscountPct(g) : 0;
+  const oldP = rep && typeof rep.price === 'number' ? rep.price : 0;
+  const optsLabel = enabled.length === 1
+    ? '1 opción'
+    : `${enabled.length} opciones`;
+  const stockTxt = s === 0 ? 'Sin stock' : (s <= 5 ? `Pocas · ${optsLabel}` : `${optsLabel}`);
+  const gid = _pdEsc(g.id).replace(/'/g, "\\'");
+  const card =
+    `<article class="pcard pcard-group${pct > 0 ? ' pcard-sale' : ''}">` +
+      `<div class="pimg pimg-clickable" onclick="openGroupDetail('${gid}')">` +
+        `${rep && rep.img ? `<img class="pimg-photo" src="${_pdEsc(rep.img)}" alt="${_pdEsc(g.name)}" loading="lazy" onerror="this.style.display='none'">` : ''}` +
+        `${_discountTagHtml(pct)}` +
+        `<span class="pstock ${stockClass(s)}">${_pdEsc(stockTxt)}</span>` +
+        `<span class="pimg-emoji"${rep && rep.img ? ' style="display:none"' : ''}>${_pdEsc((g.e || (rep && rep.e) || '📦'))}</span>` +
+      `</div>` +
+      `<div class="pbody">` +
+        `<div class="pclick" onclick="openGroupDetail('${gid}')">` +
+          `<span class="pcat">${_pdEsc(g.cat || '')}<span class="pgroup-badge">${g.kind === 'color' ? 'Por color' : 'Por valor'}</span></span>` +
+          `<div class="pname">${_pdEsc(g.name)}</div>` +
+          `<div class="pdesc">${_pdEsc((rep && rep.desc) || 'Elige la variante dentro del producto')}</div>` +
+        `</div>` +
+        `<div class="pfooter">` +
+          `${_pricePairHtml(oldP, pct, true)}` +
+          `<div class="add-zone">` +
+            `<button class="add-btn" onclick="openGroupDetail('${gid}')" title="Elegir variante">+</button>` +
+          `</div>` +
+        `</div>` +
+      `</div>` +
+    `</article>`;
+  const shellClass = pct > 0 ? 'pcard-fire-shell' : 'pcard-slot';
+  return `<div class="${shellClass}" style="animation-delay:${Math.min(i, 9) * .04}s">${card}</div>`;
+}
+
 function _renderVisibleSlice() {
   const grid   = document.getElementById('productsGrid');
   const noRes  = document.getElementById('noResults');
+  const items  = Array.isArray(catalogItems) ? catalogItems : [];
 
-  if (!currentFiltered.length) {
+  if (!items.length) {
     grid.innerHTML = '';
     noRes.classList.remove('hidden');
     _updatePagers(false);
@@ -55,59 +274,22 @@ function _renderVisibleSlice() {
   }
   noRes.classList.add('hidden');
 
-  const totalPages = Math.max(1, Math.ceil(currentFiltered.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
   if (currentPage > totalPages) currentPage = totalPages;
 
   const start = (currentPage - 1) * PAGE_SIZE;
-  const slice = currentFiltered.slice(start, start + PAGE_SIZE);
-  grid.innerHTML = slice.map((p, i) => {
-    const s       = stockMap[p.id] !== undefined ? stockMap[p.id] : p.stock;
-    const noStock = s === 0;
-    const pct     = discountMode ? _productDiscountPct(p.id) : 0;
-    const oldP    = typeof p.price === 'number' ? p.price : 0;
-    const newP    = pct > 0 ? oldP * (1 - pct / 100) : oldP;
-    const tagHtml = pct > 0
-      ? `<span class="discount-tag" title="${pct}% de descuento" aria-label="${pct}% de descuento">` +
-          `<svg viewBox="0 0 48 56" width="58" height="68" aria-hidden="true">` +
-            `<path d="M24 3.2l15.8 14V48.2c0 2-1.6 3.6-3.6 3.6H11.8c-2 0-3.6-1.6-3.6-3.6V17.2L24 3.2z" fill="#ff8a80"/>` +
-            `<circle cx="24" cy="16.2" r="3.1" fill="#fff"/>` +
-            `<path d="M24 9.4c2.2-2.4 1.1-4.9 0-5.9-1.1.9-2.2 3.4 0 5.9z" stroke="#8d6e63" stroke-width="1.15" fill="none"/>` +
-            `<path d="M12.2 37.8h23.6" stroke="#fff" stroke-width="1.5" stroke-dasharray="2 2.1" stroke-linecap="round"/>` +
-            `<text x="24" y="31.5" text-anchor="middle" fill="#fff" font-size="11" font-weight="800" font-family="Plus Jakarta Sans,sans-serif">-${pct}%</text>` +
-          `</svg>` +
-        `</span>`
-      : '';
-    const priceHtml = pct > 0
-      ? `<span class="pprice-wrap"><span class="pprice-old">$${oldP.toFixed(2)}</span><span class="pprice pprice-sale">$${newP.toFixed(2)}</span></span>`
-      : `<span class="pprice">$${oldP.toFixed(2)}</span>`;
-    const card =
-      `<article class="pcard${pct > 0 ? ' pcard-sale' : ''}">` +
-        `<div class="pimg pimg-clickable" onclick="openProductDetail('${p.id}')">` +
-          `${p.img ? `<img class="pimg-photo" src="${_pdEsc(p.img)}" alt="${_pdEsc(p.name)}" loading="lazy" onerror="this.style.display='none'">` : ''}` +
-          `${tagHtml}` +
-          `<span class="pstock ${stockClass(s)}">${stockLabel(s)}</span>` +
-          `<span class="pimg-emoji"${p.img ? ' style="display:none"' : ''}>${p.e}</span>` +
-        `</div>` +
-        `<div class="pbody">` +
-          `<div class="pclick" onclick="openProductDetail('${p.id}')">` +
-            `<span class="pcat">${_pdEsc(p.cat)}</span>` +
-            `<div class="pname">${_pdEsc(p.name)}</div>` +
-            `<div class="pdesc">${_pdEsc(p.desc)}</div>` +
-          `</div>` +
-          `<div class="pfooter">` +
-            `${priceHtml}` +
-            `<div class="add-zone" id="addZone_${p.id}">${renderAddZoneHTML(p.id, noStock)}</div>` +
-          `</div>` +
-        `</div>` +
-      `</article>`;
-    // Shell liviano (solo CSS ::before/::after) si tiene descuento
-    const shellClass = pct > 0 ? 'pcard-fire-shell' : 'pcard-slot';
-    return `<div class="${shellClass}" style="animation-delay:${Math.min(i, 9) * .04}s">${card}</div>`;
-  }).join('');
+  const slice = items.slice(start, start + PAGE_SIZE);
+  grid.innerHTML = slice.map((it, i) =>
+    it.type === 'group' ? _renderGroupCard(it.group, i) : _renderProductCard(it.product, i)
+  ).join('');
 
   // Controles de paginación (arriba y abajo)
   _updatePagers(true, currentPage, totalPages);
 }
+
+// Estado del modal de grupo (variante seleccionada)
+let _pdSelectedVariantId = null;
+let _pdActiveGroupId = null;
 
 // Actualiza ambos paginadores (superior e inferior) a la vez.
 function _updatePagers(show, page, totalPages) {
@@ -269,21 +451,87 @@ function _ensureProductDetailModal() {
 function openProductDetail(id) {
   const p = products.find(x => x.id === id);
   if (!p) return;
+  // Si pertenece a un grupo, abrir el modal de grupo con esa variante preseleccionada.
+  if (p.groupId && productGroups[p.groupId]) {
+    openGroupDetail(p.groupId, p.id);
+    return;
+  }
+  _pdActiveGroupId = null;
+  _pdSelectedVariantId = p.id;
+  _fillProductDetailModal(p, null);
+}
 
+function openGroupDetail(groupId, preselectId) {
+  const g = productGroups[groupId];
+  if (!g) return;
+  const enabled = _groupEnabledVariants(g);
+  let selected = null;
+  if (preselectId) selected = g.variants.find(v => v.id === preselectId) || null;
+  if (!selected || !_variantIsEnabled(selected)) {
+    selected = enabled.find(v => _variantStock(v) > 0) || enabled[0] || g.variants[0] || null;
+  }
+  if (!selected) return;
+  _pdActiveGroupId = groupId;
+  _pdSelectedVariantId = selected.id;
+  _fillProductDetailModal(selected, g);
+}
+
+function selectGroupVariant(variantId) {
+  if (!_pdActiveGroupId) return;
+  const g = productGroups[_pdActiveGroupId];
+  if (!g) return;
+  const v = g.variants.find(x => x.id === variantId);
+  if (!v || !_variantIsEnabled(v)) return;
+  _pdSelectedVariantId = v.id;
+  _fillProductDetailModal(v, g);
+}
+
+function _renderVariantPicker(g, selectedId) {
+  if (!g) return '';
+  const kind = g.kind === 'color' ? 'color' : 'valor';
+  const label = kind === 'color' ? 'Color' : 'Valor';
+  const chips = (g.variants || []).map(v => {
+    const enabled = _variantIsEnabled(v);
+    const stock = _variantStock(v);
+    const sel = v.id === selectedId;
+    const disabled = !enabled;
+    const title = disabled
+      ? `${v.variantLabel || v.name} (no disponible)`
+      : `${v.variantLabel || v.name}${stock === 0 ? ' · sin stock' : ''}`;
+    if (kind === 'color') {
+      const color = v.variantColor || '#9ca3af';
+      return `<button type="button" class="pd-swatch${sel ? ' is-selected' : ''}${disabled ? ' is-disabled' : ''}${stock === 0 && enabled ? ' is-oustock' : ''}"` +
+        ` style="--swatch:${_pdEsc(color)}"` +
+        ` title="${_pdEsc(title)}"` +
+        ` aria-label="${_pdEsc(title)}"` +
+        (disabled ? ' disabled' : ` onclick="selectGroupVariant('${v.id}')"`) +
+        `></button>`;
+    }
+    return `<button type="button" class="pd-chip${sel ? ' is-selected' : ''}${disabled ? ' is-disabled' : ''}${stock === 0 && enabled ? ' is-oustock' : ''}"` +
+      ` title="${_pdEsc(title)}"` +
+      (disabled ? ' disabled' : ` onclick="selectGroupVariant('${v.id}')"`) +
+      `>${_pdEsc(v.variantLabel || v.name)}</button>`;
+  }).join('');
+  return `<div class="pd-variant-block">` +
+    `<div class="pd-variant-label">${label}</div>` +
+    `<div class="pd-variant-options pd-variant-${kind}">${chips}</div>` +
+  `</div>`;
+}
+
+function _fillProductDetailModal(p, g) {
   _ensureProductDetailModal();
   const body = document.getElementById('productDetailBody');
   const foot = document.getElementById('productDetailFoot');
   const shell = document.getElementById('productDetailShell');
 
-  const s       = stockMap[p.id] !== undefined ? stockMap[p.id] : p.stock;
-  const noStock = s === 0;
+  const s       = _variantStock(p);
+  const noStock = s === 0 || !_variantIsEnabled(p);
   const pct     = discountMode ? _productDiscountPct(p.id) : 0;
   const oldP    = typeof p.price === 'number' ? p.price : 0;
-  const newP    = pct > 0 ? oldP * (1 - pct / 100) : oldP;
+  const displayName = g ? (g.name || p.groupName || p.name) : p.name;
 
   if (shell) {
     shell.classList.toggle('has-fire', pct > 0);
-    // Reinicia la entrada dopamínica cada vez que se abre
     shell.classList.remove('pd-pop');
     void shell.offsetWidth;
     shell.classList.add('pd-pop');
@@ -292,41 +540,33 @@ function openProductDetail(id) {
   if (overlay) overlay.classList.toggle('pd-sale-overlay', pct > 0);
 
   const imgHtml = p.img
-    ? `<img src="${_pdEsc(p.img)}" alt="${_pdEsc(p.name)}" onerror="this.style.display='none';this.parentNode.innerHTML='${_pdEsc(p.e || '📦')}'">`
+    ? `<img src="${_pdEsc(p.img)}" alt="${_pdEsc(displayName)}" onerror="this.style.display='none';this.parentNode.innerHTML='${_pdEsc(p.e || '📦')}'">`
     : _pdEsc(p.e || '📦');
 
   const descHtml = (p.desc && p.desc.trim())
     ? `<div class="pd-desc">${_pdEsc(p.desc)}</div>`
     : `<div class="pd-desc-empty">Este producto no tiene descripción.</div>`;
 
-  // Encabezado de descripción: el admin ve un botón para editarla en línea.
   const descHeader = isAdmin
     ? `<div class="pd-desc-h">Descripción <button class="pd-edit-btn" onclick="startEditProductDesc('${p.id}')"><span>✏️</span> Editar</button></div>`
     : `<div class="pd-desc-h">Descripción</div>`;
 
-  const tagHtml = pct > 0
-    ? `<span class="discount-tag discount-tag-lg" title="${pct}% de descuento">` +
-        `<svg viewBox="0 0 48 56" width="72" height="84" aria-hidden="true">` +
-          `<path d="M24 3.2l15.8 14V48.2c0 2-1.6 3.6-3.6 3.6H11.8c-2 0-3.6-1.6-3.6-3.6V17.2L24 3.2z" fill="#ff8a80"/>` +
-          `<circle cx="24" cy="16.2" r="3.1" fill="#fff"/>` +
-          `<path d="M24 9.4c2.2-2.4 1.1-4.9 0-5.9-1.1.9-2.2 3.4 0 5.9z" stroke="#8d6e63" stroke-width="1.15" fill="none"/>` +
-          `<path d="M12.2 37.8h23.6" stroke="#fff" stroke-width="1.5" stroke-dasharray="2 2.1" stroke-linecap="round"/>` +
-          `<text x="24" y="31.5" text-anchor="middle" fill="#fff" font-size="11" font-weight="800" font-family="Plus Jakarta Sans,sans-serif">-${pct}%</text>` +
-        `</svg></span>`
+  const variantPicker = g ? _renderVariantPicker(g, p.id) : '';
+  const variantNote = g && p.variantLabel
+    ? `<div class="pd-selected-variant">Seleccionado: <strong>${_pdEsc(p.variantLabel)}</strong></div>`
     : '';
 
-  const priceHtml = pct > 0
-    ? `<div class="pd-price pd-price-sale"><span class="pprice-old">$${oldP.toFixed(2)}</span><span class="pd-price-new">$${newP.toFixed(2)}</span></div>`
-    : `<div class="pd-price">$${oldP.toFixed(2)}</div>`;
-
   body.innerHTML =
-    `<div class="pd-img">${imgHtml}${tagHtml}</div>` +
+    `<div class="pd-img">${imgHtml}${_discountTagHtml(pct, 'lg')}</div>` +
     `<div class="pd-tags">` +
       `<span class="pd-tag">${_pdEsc(p.cat)}</span>` +
       `<span class="pd-tag ${stockClass(s)}" style="background:transparent">${_pdEsc(stockLabel(s))}</span>` +
+      (g ? `<span class="pd-tag">${g.kind === 'color' ? 'Grupo · color' : 'Grupo · valor'}</span>` : '') +
     `</div>` +
-    `<div class="pd-name">${_pdEsc(p.name)}</div>` +
-    priceHtml +
+    `<div class="pd-name">${_pdEsc(displayName)}</div>` +
+    variantNote +
+    variantPicker +
+    _pricePairHtml(oldP, pct, false) +
     descHeader +
     `<div id="pdDescArea">${descHtml}</div>`;
 
