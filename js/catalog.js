@@ -240,6 +240,15 @@ function _ensureProductDetailModal() {
   m.id = 'productDetailModal';
   m.innerHTML =
     '<div class="pd-fire-shell" id="productDetailShell">' +
+      '<span class="pd-orb pd-orb-a" aria-hidden="true"></span>' +
+      '<span class="pd-orb pd-orb-b" aria-hidden="true"></span>' +
+      '<span class="pd-orb pd-orb-c" aria-hidden="true"></span>' +
+      '<span class="pd-spark pd-spark-1" aria-hidden="true"></span>' +
+      '<span class="pd-spark pd-spark-2" aria-hidden="true"></span>' +
+      '<span class="pd-spark pd-spark-3" aria-hidden="true"></span>' +
+      '<span class="pd-spark pd-spark-4" aria-hidden="true"></span>' +
+      '<span class="pd-spark pd-spark-5" aria-hidden="true"></span>' +
+      '<span class="pd-spark pd-spark-6" aria-hidden="true"></span>' +
       '<div class="modal" id="productDetailBox">' +
         '<div class="mhd">' +
           '<h2>🔎 Detalle del producto</h2>' +
@@ -272,7 +281,15 @@ function openProductDetail(id) {
   const oldP    = typeof p.price === 'number' ? p.price : 0;
   const newP    = pct > 0 ? oldP * (1 - pct / 100) : oldP;
 
-  if (shell) shell.classList.toggle('has-fire', pct > 0);
+  if (shell) {
+    shell.classList.toggle('has-fire', pct > 0);
+    // Reinicia la entrada dopamínica cada vez que se abre
+    shell.classList.remove('pd-pop');
+    void shell.offsetWidth;
+    shell.classList.add('pd-pop');
+  }
+  const overlay = document.getElementById('productDetailModal');
+  if (overlay) overlay.classList.toggle('pd-sale-overlay', pct > 0);
 
   const imgHtml = p.img
     ? `<img src="${_pdEsc(p.img)}" alt="${_pdEsc(p.name)}" onerror="this.style.display='none';this.parentNode.innerHTML='${_pdEsc(p.e || '📦')}'">`
