@@ -97,6 +97,12 @@ function renderCartDiscountSelector() {
     return;
   }
 
+  // Si hay productos en oferta, el descuento de carrito no se combina con ellos.
+  const hasProdDisc = cartHasProductDiscount();
+  if (hasProdDisc && selectedDiscount) {
+    selectedDiscount = null;
+  }
+
   const myDiscounts = getUserDiscounts();
   const stampOk = stampRewardAvailable(userStampCard);
   const hasAnyOption = myDiscounts.length > 0 || stampOk;
@@ -124,31 +130,43 @@ function renderCartDiscountSelector() {
     ? `<div class="cart-stamp-hint">Tarjeta de sellos: <b>${Math.min(STAMP_TARGET, Number(userStampCard.sellos) || 0)}/${STAMP_TARGET}</b> — te faltan ${Math.max(0, STAMP_TARGET - (Number(userStampCard.sellos) || 0))} para el ${STAMP_REWARD_PCT}%</div>`
     : '';
 
+  const prodNote = hasProdDisc
+    ? `<p class="cart-discount-note">Hay productos en oferta en el carrito. Ese descuento no se combina con códigos, asignados ni tarjeta de sellos.</p>`
+    : `<p class="cart-discount-note">Solo un descuento a la vez (asignado, código o tarjeta de sellos). No se combina con ofertas de producto.</p>`;
+
+  const disabledAttr = hasProdDisc ? 'disabled' : '';
+
   container.innerHTML = `
     <div class="cart-discount-box">
       ${hasAnyOption ? `
       <div class="cart-discount-row">
         <label class="cart-discount-label"><span>🏷️ Descuento</span></label>
-        <select id="cartDiscountSelect" onchange="onCartDiscountChange(this)">
+        <select id="cartDiscountSelect" onchange="onCartDiscountChange(this)" ${disabledAttr}>
           ${opts.join('')}
         </select>
       </div>` : ''}
       <div class="cart-code-row">
         <input type="text" id="cartDiscountCodeInput" class="cart-code-input" placeholder="Código promocional"
-          value="${escHtml(codeVal)}" maxlength="40" autocomplete="off"
+          value="${escHtml(codeVal)}" maxlength="40" autocomplete="off" ${disabledAttr}
           onkeydown="if(event.key==='Enter'){event.preventDefault();aplicarCodigoDescuentoCart();}">
-        <button type="button" class="nbtn cart-code-btn" onclick="aplicarCodigoDescuentoCart()">Aplicar</button>
+        <button type="button" class="nbtn cart-code-btn" onclick="aplicarCodigoDescuentoCart()" ${disabledAttr}>Aplicar</button>
       </div>
       <div id="cartDiscountCodeMsg" class="cart-code-msg"></div>
       ${appliedInfo}
       ${stampHint}
-      <p class="cart-discount-note">Solo un descuento a la vez (asignado, código o tarjeta de sellos).</p>
+      ${prodNote}
     </div>
   `;
   updateCartUI();
 }
 
 function onCartDiscountChange(sel) {
+  if (cartHasProductDiscount()) {
+    selectedDiscount = null;
+    showToast('⚠️ No se puede combinar con ofertas de producto');
+    renderCartDiscountSelector();
+    return;
+  }
   const val = sel.value || '';
   if (!val) {
     selectedDiscount = null;
@@ -181,6 +199,10 @@ async function aplicarCodigoDescuentoCart() {
   const input = document.getElementById('cartDiscountCodeInput');
   if (!currentUser) {
     if (msg) { msg.style.color = '#dc2626'; msg.textContent = 'Inicia sesión para usar un código.'; }
+    return;
+  }
+  if (cartHasProductDiscount()) {
+    if (msg) { msg.style.color = '#dc2626'; msg.textContent = 'No se puede combinar con ofertas de producto.'; }
     return;
   }
   const raw = (input && input.value || '').trim().toUpperCase();
@@ -263,18 +285,65 @@ function escHtml(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+/** % de descuento de oferta del producto (0–100). Definido en inventario. */
+function getProductDiscountPct(p) {
+  if (!p) return 0;
+  const n = typeof p.descuentoPct === 'number' ? p.descuentoPct : 0;
+  if (!isFinite(n) || n <= 0) return 0;
+  return Math.min(100, Math.round(n));
+}
+
+/** Precio unitario a cobrar (aplica descuento de producto si existe). */
+function getProductSalePrice(p) {
+  if (!p) return 0;
+  const pct = getProductDiscountPct(p);
+  const price = typeof p.price === 'number' ? p.price : 0;
+  if (pct <= 0) return price;
+  return +(price * (1 - pct / 100)).toFixed(2);
+}
+
+/** true si algún ítem del carrito ya tiene descuento de producto. */
+function cartHasProductDiscount() {
+  return Object.keys(cart || {}).some(id => {
+    const p = products.find(x => x.id === id);
+    return getProductDiscountPct(p) > 0;
+  });
+}
+
 function getCartTotal() {
-  const raw = getCartRawTotal();
-  if (selectedDiscount && selectedDiscount.porcentaje) {
-    return +(raw * (1 - selectedDiscount.porcentaje / 100)).toFixed(2);
-  }
-  return +raw.toFixed(2);
+  // No combinar: si hay ofertas de producto en el carrito, solo ellas aplican.
+  // Si no, el descuento de carrito (código/asignado/sellos) aplica a todo.
+  const hasProd = cartHasProductDiscount();
+  if (hasProd && selectedDiscount) selectedDiscount = null;
+  const cartPct = (!hasProd && selectedDiscount && selectedDiscount.porcentaje)
+    ? selectedDiscount.porcentaje : 0;
+  let total = 0;
+  Object.keys(cart || {}).forEach(id => {
+    const p = products.find(x => x.id === id);
+    if (!p) return;
+    const qty = cart[id] || 0;
+    const prodPct = getProductDiscountPct(p);
+    let unit = typeof p.price === 'number' ? p.price : 0;
+    if (prodPct > 0) unit = unit * (1 - prodPct / 100);
+    else if (cartPct > 0) unit = unit * (1 - cartPct / 100);
+    total += unit * qty;
+  });
+  return +total.toFixed(2);
 }
 
 function getCartRawTotal() {
-  return Object.keys(cart).reduce((s, id) => {
+  // Subtotal "antes" del descuento de carrito: precios de lista con oferta de producto ya aplicada.
+  return Object.keys(cart || {}).reduce((s, id) => {
     const p = products.find(x => x.id === id);
-    return s + (p ? p.price * (cart[id] || 0) : 0);
+    return s + (p ? getProductSalePrice(p) * (cart[id] || 0) : 0);
+  }, 0);
+}
+
+/** Subtotal a precio de lista (sin ningún descuento) — útil para mostrar tachado. */
+function getCartListTotal() {
+  return Object.keys(cart || {}).reduce((s, id) => {
+    const p = products.find(x => x.id === id);
+    return s + (p ? (p.price || 0) * (cart[id] || 0) : 0);
   }, 0);
 }
 

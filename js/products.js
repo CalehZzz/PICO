@@ -126,6 +126,9 @@ async function loadProducts() {
         img:   d.imageUrl || '',
         // Orden manual decidido por el admin (menor = aparece primero). null = automático.
         orden: (typeof d.orden === 'number' && isFinite(d.orden)) ? d.orden : null,
+        // Descuento de oferta en tienda (inventario). 0 = sin oferta.
+        descuentoPct: (typeof d.descuentoPct === 'number' && d.descuentoPct > 0 && d.descuentoPct <= 100)
+          ? Math.round(d.descuentoPct) : 0,
         stock: s, cat, e
       });
       stockMap[d.id] = s;
