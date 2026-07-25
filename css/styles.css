@@ -373,98 +373,55 @@ body.discount-mode .filter-btn{
 .pd-price-new{font-size:1.75rem;font-weight:800;letter-spacing:-.045em}
 .pd-img .discount-tag{z-index:5}
 
-/* Fuego / plasma pastel alrededor de tarjetas (catálogo) y modal */
+/* Glow pastel liviano (sin SVG filter ni capas pesadas) */
 .pcard-slot{
   min-width:0;animation:fadeUp .5s var(--ease) both;
 }
 .pcard-fire-shell,
 .pd-fire-shell{
-  position:relative;min-width:0;border-radius:calc(var(--r) + 6px);
-  isolation:isolate;animation:fadeUp .5s var(--ease) both;
+  position:relative;min-width:0;border-radius:calc(var(--r) + 4px);
+  animation:fadeUp .5s var(--ease) both;
 }
-.pcard-fire-shell{padding:3px}
+.pcard-fire-shell{
+  padding:2px;
+  transition:transform .35s var(--spring);
+  background:linear-gradient(125deg,#ff8a80,#ffcc80,#ce93d8,#f48fb1,#ff8a80);
+  background-size:220% 220%;
+  animation:fadeUp .5s var(--ease) both, plasmaFlow 5.5s linear infinite;
+  box-shadow:0 0 14px rgba(255,138,128,.28),0 0 22px rgba(206,147,216,.18);
+}
 .pcard-fire-shell .pcard{
-  position:relative;z-index:2;height:100%;
-  background:rgba(255,255,255,.96);
-  border-color:rgba(255,255,255,.7);
+  position:relative;z-index:1;height:100%;
+  background:rgba(255,255,255,.97);
+  border-color:rgba(255,255,255,.75);
   animation:none;
 }
-.pcard-fire-shell{transition:transform .4s var(--spring)}
-.pcard-fire-shell:hover{transform:translateY(-6px)}
-.pcard-fire-shell:hover .pcard{transform:none;border-color:rgba(206,147,216,.4);box-shadow:var(--sh3)}
+.pcard-fire-shell:hover{transform:translateY(-5px)}
+.pcard-fire-shell:hover .pcard{transform:none;border-color:rgba(206,147,216,.35);box-shadow:var(--sh2)}
+
 .pd-fire-shell{
   width:100%;max-width:480px;padding:0;
   transform:scale(.93) translateY(14px);transition:transform .4s var(--spring);
 }
 #productDetailModal.open .pd-fire-shell{transform:scale(1) translateY(0)}
-.pd-fire-shell .modal{position:relative;z-index:2;max-width:none;width:100%;transform:none!important;
+.pd-fire-shell .modal{
+  position:relative;z-index:1;max-width:none;width:100%;transform:none!important;
   background:linear-gradient(160deg,#fffafb 0%,#fffdf8 50%,#faf7ff 100%);
-  border-color:rgba(255,255,255,.75)}
-.pd-fire{
-  position:absolute;inset:-12px;border-radius:calc(var(--r) + 14px);
-  pointer-events:none;z-index:0;
-  filter:url(#wetFireFilter) blur(1.2px);
-  opacity:.9;
+  border-color:rgba(255,255,255,.75);
 }
-.pd-fire-shell .pd-fire{opacity:0;visibility:hidden;transition:opacity .35s var(--ease),visibility .35s}
-.pd-fire-shell.has-fire .pd-fire{opacity:.95;visibility:visible}
-.pd-fire-1{
-  background:
-    radial-gradient(ellipse 70% 55% at 18% 88%,rgba(255,138,128,.7) 0%,transparent 55%),
-    radial-gradient(ellipse 60% 50% at 82% 86%,rgba(255,204,128,.65) 0%,transparent 52%),
-    radial-gradient(ellipse 50% 40% at 50% 100%,rgba(255,245,157,.55) 0%,transparent 55%),
-    radial-gradient(ellipse 42% 36% at 28% 8%,rgba(206,147,216,.45) 0%,transparent 60%);
-  animation:fireLick 2.8s ease-in-out infinite;
-}
-.pd-fire-2{
-  inset:-18px;
-  background:
-    radial-gradient(ellipse 55% 45% at 75% 94%,rgba(244,143,177,.5) 0%,transparent 55%),
-    radial-gradient(ellipse 45% 40% at 22% 92%,rgba(255,183,77,.45) 0%,transparent 50%),
-    radial-gradient(ellipse 35% 30% at 55% 6%,rgba(179,157,219,.4) 0%,transparent 60%);
-  filter:url(#wetFireFilter) blur(5px);
-  animation:fireLick 3.6s ease-in-out infinite reverse;
-  opacity:.75;
-}
-.pd-fire-shell.has-fire .pd-fire-2{opacity:.8}
-.pd-fire-3{
-  inset:-7px;
-  background:conic-gradient(from 180deg at 50% 70%,
-    transparent 0%,rgba(255,138,128,.4) 12%,rgba(255,204,128,.42) 22%,
-    transparent 32%,rgba(206,147,216,.35) 48%,transparent 60%,
-    rgba(255,245,157,.38) 75%,transparent 100%);
-  filter:url(#wetFireFilter) blur(2.5px);
-  animation:fireSpin 7s linear infinite;
-  opacity:.55;
-}
-.pd-fire-shell.has-fire .pd-fire-3{opacity:.6}
-.pd-fire-gloss{
-  inset:-5px;z-index:1;
-  background:linear-gradient(125deg,
-    rgba(255,255,255,.55) 0%,transparent 28%,
-    rgba(255,224,178,.35) 48%,transparent 62%,
-    rgba(255,255,255,.4) 100%);
-  background-size:200% 200%;
-  filter:blur(2px);
-  animation:fireGloss 3.2s ease-in-out infinite;
-  opacity:.65;
-}
-.pd-fire-shell.has-fire .pd-fire-gloss{opacity:.7}
-.pcard-fire-shell .pd-fire{border-radius:calc(var(--r) + 10px)}
-@keyframes fireLick{
-  0%,100%{transform:translateY(3px) scaleY(1) scaleX(1)}
-  40%{transform:translateY(-2px) scaleY(1.05) scaleX(.98)}
-  70%{transform:translateY(2px) scaleY(.97) scaleX(1.02)}
-}
-@keyframes fireSpin{to{transform:rotate(360deg)}}
-@keyframes fireGloss{
-  0%,100%{background-position:0% 40%;opacity:.4}
-  50%{background-position:100% 60%;opacity:.8}
+/* Solo cuando hay descuento: borde glow animado (box-shadow, sin blur/filter) */
+.pd-fire-shell.has-fire{
+  padding:2px;
+  background:linear-gradient(125deg,#ff8a80,#ffcc80,#ce93d8,#f48fb1,#ff8a80);
+  background-size:220% 220%;
+  animation:plasmaFlow 5.5s linear infinite;
+  box-shadow:0 0 18px rgba(255,138,128,.32),0 0 28px rgba(206,147,216,.2);
 }
 @media(max-width:580px){
   .discount-plasma-inner{padding:10px 15px;font-size:.8rem}
   .discount-tag{width:38px;height:45px;top:6px;left:6px}
   .pgrid{gap:18px}
+  .pcard-fire-shell,.pd-fire-shell.has-fire{box-shadow:0 0 10px rgba(255,138,128,.22)}
 }
 
 /* ─── PRODUCT GRID (tarjetas recompuestas) ─── */

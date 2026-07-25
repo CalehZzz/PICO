@@ -100,19 +100,9 @@ function _renderVisibleSlice() {
           `</div>` +
         `</div>` +
       `</article>`;
-    if (pct <= 0) {
-      return `<div class="pcard-slot" style="animation-delay:${Math.min(i, 9) * .04}s">${card}</div>`;
-    }
-    // Misma tarjeta del catálogo, con plasma/fuego alrededor
-    return (
-      `<div class="pcard-fire-shell" style="animation-delay:${Math.min(i, 9) * .04}s">` +
-        `<div class="pd-fire pd-fire-1" aria-hidden="true"></div>` +
-        `<div class="pd-fire pd-fire-2" aria-hidden="true"></div>` +
-        `<div class="pd-fire pd-fire-3" aria-hidden="true"></div>` +
-        `<div class="pd-fire pd-fire-gloss" aria-hidden="true"></div>` +
-        card +
-      `</div>`
-    );
+    // Shell liviano (solo CSS ::before/::after) si tiene descuento
+    const shellClass = pct > 0 ? 'pcard-fire-shell' : 'pcard-slot';
+    return `<div class="${shellClass}" style="animation-delay:${Math.min(i, 9) * .04}s">${card}</div>`;
   }).join('');
 
   // Controles de paginación (arriba y abajo)
@@ -250,10 +240,6 @@ function _ensureProductDetailModal() {
   m.id = 'productDetailModal';
   m.innerHTML =
     '<div class="pd-fire-shell" id="productDetailShell">' +
-      '<div class="pd-fire pd-fire-1" aria-hidden="true"></div>' +
-      '<div class="pd-fire pd-fire-2" aria-hidden="true"></div>' +
-      '<div class="pd-fire pd-fire-3" aria-hidden="true"></div>' +
-      '<div class="pd-fire pd-fire-gloss" aria-hidden="true"></div>' +
       '<div class="modal" id="productDetailBox">' +
         '<div class="mhd">' +
           '<h2>🔎 Detalle del producto</h2>' +

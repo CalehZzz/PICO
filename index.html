@@ -138,15 +138,6 @@
       </div>
     </div>
 
-    <!-- Filtro SVG para textura de fuego mojado del modal de producto -->
-    <svg width="0" height="0" style="position:absolute;overflow:hidden" aria-hidden="true" focusable="false">
-      <filter id="wetFireFilter" x="-20%" y="-20%" width="140%" height="140%">
-        <feTurbulence type="fractalNoise" baseFrequency="0.028" numOctaves="3" seed="2" result="noise">
-          <animate attributeName="baseFrequency" dur="6s" values="0.024;0.034;0.024" repeatCount="indefinite"/>
-        </feTurbulence>
-        <feDisplacementMap in="SourceGraphic" in2="noise" scale="14" xChannelSelector="R" yChannelSelector="G"/>
-      </filter>
-    </svg>
     <div id="loadingProducts" class="nores">
       <div class="ni">⚡</div>
       <p>Cargando productos...</p>
