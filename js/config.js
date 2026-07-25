@@ -46,6 +46,7 @@ function findLoadedOrder(firestoreId) {
 let adminUnsubscribe = null;
 let currentCat       = 'Todos';
 let currentSearch    = '';
+let discountMode     = false; // vista de catálogo filtrada por descuentos (preview admin)
 
 // Descuentos: lista global (leída de Firestore) y descuentos asignados al usuario
 let allDescuentos       = [];   // [{id, nombre, porcentaje}]

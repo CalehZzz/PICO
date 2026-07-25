@@ -19,7 +19,8 @@ function renderProducts() {
     const ms = p.name.toLowerCase().includes(currentSearch) ||
                p.cat.toLowerCase().includes(currentSearch)  ||
                (p.desc || '').toLowerCase().includes(currentSearch);
-    return mc && ms;
+    const md = !discountMode || _productDiscountPct(p.id) > 0;
+    return mc && ms && md;
   });
   // Orden: primero el orden MANUAL del admin (menor número = primero),
   // luego popularidad y alfabético para los que no tienen orden asignado.
@@ -62,20 +63,38 @@ function _renderVisibleSlice() {
   grid.innerHTML = slice.map((p, i) => {
     const s       = stockMap[p.id] !== undefined ? stockMap[p.id] : p.stock;
     const noStock = s === 0;
-    return `<article class="pcard" style="animation-delay:${Math.min(i, 9) * .04}s">
+    const pct     = discountMode ? _productDiscountPct(p.id) : 0;
+    const oldP    = typeof p.price === 'number' ? p.price : 0;
+    const newP    = pct > 0 ? oldP * (1 - pct / 100) : oldP;
+    const tagHtml = pct > 0
+      ? `<span class="discount-tag" title="${pct}% de descuento" aria-label="${pct}% de descuento">` +
+          `<svg viewBox="0 0 48 56" width="44" height="52" aria-hidden="true">` +
+            `<path d="M24 3.2l15.8 14V48.2c0 2-1.6 3.6-3.6 3.6H11.8c-2 0-3.6-1.6-3.6-3.6V17.2L24 3.2z" fill="#e53935"/>` +
+            `<circle cx="24" cy="16.2" r="3.1" fill="#fff"/>` +
+            `<path d="M24 9.4c2.2-2.4 1.1-4.9 0-5.9-1.1.9-2.2 3.4 0 5.9z" stroke="#1d1d1f" stroke-width="1.15" fill="none"/>` +
+            `<path d="M12.2 37.8h23.6" stroke="#fff" stroke-width="1.5" stroke-dasharray="2 2.1" stroke-linecap="round"/>` +
+            `<text x="24" y="31.5" text-anchor="middle" fill="#fff" font-size="11" font-weight="800" font-family="var(--font),sans-serif">-${pct}%</text>` +
+          `</svg>` +
+        `</span>`
+      : '';
+    const priceHtml = pct > 0
+      ? `<span class="pprice-wrap"><span class="pprice-old">$${oldP.toFixed(2)}</span><span class="pprice pprice-sale">$${newP.toFixed(2)}</span></span>`
+      : `<span class="pprice">$${oldP.toFixed(2)}</span>`;
+    return `<article class="pcard${pct > 0 ? ' pcard-sale' : ''}" style="animation-delay:${Math.min(i, 9) * .04}s">
       <div class="pimg pimg-clickable" onclick="openProductDetail('${p.id}')">
-        ${p.img ? `<img class="pimg-photo" src="${p.img}" alt="${p.name}" loading="lazy" onerror="this.style.display='none'">` : ''}
+        ${p.img ? `<img class="pimg-photo" src="${_pdEsc(p.img)}" alt="${_pdEsc(p.name)}" loading="lazy" onerror="this.style.display='none'">` : ''}
+        ${tagHtml}
         <span class="pstock ${stockClass(s)}">${stockLabel(s)}</span>
         <span class="pimg-emoji"${p.img ? ' style="display:none"' : ''}>${p.e}</span>
       </div>
       <div class="pbody">
         <div class="pclick" onclick="openProductDetail('${p.id}')">
-          <span class="pcat">${p.cat}</span>
-          <div class="pname">${p.name}</div>
-          <div class="pdesc">${p.desc}</div>
+          <span class="pcat">${_pdEsc(p.cat)}</span>
+          <div class="pname">${_pdEsc(p.name)}</div>
+          <div class="pdesc">${_pdEsc(p.desc)}</div>
         </div>
         <div class="pfooter">
-          <span class="pprice">$${p.price.toFixed(2)}</span>
+          ${priceHtml}
           <div class="add-zone" id="addZone_${p.id}">
             ${renderAddZoneHTML(p.id, noStock)}
           </div>
@@ -218,13 +237,19 @@ function _ensureProductDetailModal() {
   m.className = 'moverlay';
   m.id = 'productDetailModal';
   m.innerHTML =
-    '<div class="modal">' +
-      '<div class="mhd">' +
-        '<h2>🔎 Detalle del producto</h2>' +
-        '<button class="xbtn" onclick="closeModal(\'productDetailModal\')">✕</button>' +
+    '<div class="pd-fire-shell" id="productDetailShell">' +
+      '<div class="pd-fire pd-fire-1" aria-hidden="true"></div>' +
+      '<div class="pd-fire pd-fire-2" aria-hidden="true"></div>' +
+      '<div class="pd-fire pd-fire-3" aria-hidden="true"></div>' +
+      '<div class="pd-fire pd-fire-gloss" aria-hidden="true"></div>' +
+      '<div class="modal" id="productDetailBox">' +
+        '<div class="mhd">' +
+          '<h2>🔎 Detalle del producto</h2>' +
+          '<button class="xbtn" onclick="closeModal(\'productDetailModal\')">✕</button>' +
+        '</div>' +
+        '<div class="mbody" id="productDetailBody"></div>' +
+        '<div class="mfoot" id="productDetailFoot"></div>' +
       '</div>' +
-      '<div class="mbody" id="productDetailBody"></div>' +
-      '<div class="mfoot" id="productDetailFoot"></div>' +
     '</div>';
   document.body.appendChild(m);
   // Cerrar al tocar el fondo (fuera del modal)
@@ -241,9 +266,15 @@ function openProductDetail(id) {
   _ensureProductDetailModal();
   const body = document.getElementById('productDetailBody');
   const foot = document.getElementById('productDetailFoot');
+  const shell = document.getElementById('productDetailShell');
 
   const s       = stockMap[p.id] !== undefined ? stockMap[p.id] : p.stock;
   const noStock = s === 0;
+  const pct     = discountMode ? _productDiscountPct(p.id) : 0;
+  const oldP    = typeof p.price === 'number' ? p.price : 0;
+  const newP    = pct > 0 ? oldP * (1 - pct / 100) : oldP;
+
+  if (shell) shell.classList.toggle('has-fire', pct > 0);
 
   const imgHtml = p.img
     ? `<img src="${_pdEsc(p.img)}" alt="${_pdEsc(p.name)}" onerror="this.style.display='none';this.parentNode.innerHTML='${_pdEsc(p.e || '📦')}'">`
@@ -258,14 +289,29 @@ function openProductDetail(id) {
     ? `<div class="pd-desc-h">Descripción <button class="pd-edit-btn" onclick="startEditProductDesc('${p.id}')"><span>✏️</span> Editar</button></div>`
     : `<div class="pd-desc-h">Descripción</div>`;
 
+  const tagHtml = pct > 0
+    ? `<span class="discount-tag discount-tag-lg" title="${pct}% de descuento">` +
+        `<svg viewBox="0 0 48 56" width="54" height="64" aria-hidden="true">` +
+          `<path d="M24 3.2l15.8 14V48.2c0 2-1.6 3.6-3.6 3.6H11.8c-2 0-3.6-1.6-3.6-3.6V17.2L24 3.2z" fill="#e53935"/>` +
+          `<circle cx="24" cy="16.2" r="3.1" fill="#fff"/>` +
+          `<path d="M24 9.4c2.2-2.4 1.1-4.9 0-5.9-1.1.9-2.2 3.4 0 5.9z" stroke="#1d1d1f" stroke-width="1.15" fill="none"/>` +
+          `<path d="M12.2 37.8h23.6" stroke="#fff" stroke-width="1.5" stroke-dasharray="2 2.1" stroke-linecap="round"/>` +
+          `<text x="24" y="31.5" text-anchor="middle" fill="#fff" font-size="11" font-weight="800" font-family="var(--font),sans-serif">-${pct}%</text>` +
+        `</svg></span>`
+    : '';
+
+  const priceHtml = pct > 0
+    ? `<div class="pd-price pd-price-sale"><span class="pprice-old">$${oldP.toFixed(2)}</span><span class="pd-price-new">$${newP.toFixed(2)}</span></div>`
+    : `<div class="pd-price">$${oldP.toFixed(2)}</div>`;
+
   body.innerHTML =
-    `<div class="pd-img">${imgHtml}</div>` +
+    `<div class="pd-img">${imgHtml}${tagHtml}</div>` +
     `<div class="pd-tags">` +
       `<span class="pd-tag">${_pdEsc(p.cat)}</span>` +
       `<span class="pd-tag ${stockClass(s)}" style="background:transparent">${_pdEsc(stockLabel(s))}</span>` +
     `</div>` +
     `<div class="pd-name">${_pdEsc(p.name)}</div>` +
-    `<div class="pd-price">$${p.price.toFixed(2)}</div>` +
+    priceHtml +
     descHeader +
     `<div id="pdDescArea">${descHtml}</div>`;
 
@@ -371,85 +417,71 @@ function _pop(p) {
 }
 
 // ═══════════════════════════════════════════════════
-//  DESCUENTOS — preview UI (próximamente / admin mock)
-//  Aún no aplica descuentos reales en catálogo; solo diseño.
+//  DESCUENTOS — modo catálogo (preview) / próximamente
+//  Porcentajes simulados solo para diseñar la UI.
 // ═══════════════════════════════════════════════════
-function _mockDiscountPct(id) {
-  const tiers = [10, 15, 20, 25, 30, 40];
+
+/** % mock: 0 = sin descuento (queda fuera del filtro). */
+function _productDiscountPct(id) {
+  const tiers = [0, 10, 15, 20, 25, 30, 40];
   let h = 0;
   const s = String(id || '');
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
   return tiers[h % tiers.length];
 }
 
-function openDescuentosPreview() {
-  const body = document.getElementById('descuentosModalBody');
-  const title = document.getElementById('descuentosModalTitle');
-  const shell = document.getElementById('descuentosModalShell');
-  if (!body) return;
-  if (shell) shell.classList.toggle('is-wide', !!isAdmin);
+function _playDiscountBurst(originEl) {
+  const burst = document.getElementById('discountBurst');
+  if (!burst) return;
+  let x = window.innerWidth / 2;
+  let y = window.innerHeight * 0.22;
+  if (originEl && originEl.getBoundingClientRect) {
+    const r = originEl.getBoundingClientRect();
+    x = r.left + r.width / 2;
+    y = r.top + r.height / 2;
+  }
+  burst.style.setProperty('--bx', x + 'px');
+  burst.style.setProperty('--by', y + 'px');
+  burst.classList.remove('is-on');
+  // reflow para reiniciar animación
+  void burst.offsetWidth;
+  burst.classList.add('is-on');
+  window.setTimeout(() => burst.classList.remove('is-on'), 900);
+}
+
+function _syncDescuentosBtn() {
+  const btn = document.getElementById('descuentosBtn');
+  const label = document.getElementById('descuentosBtnLabel');
+  if (btn) {
+    btn.classList.toggle('is-active', !!discountMode);
+    btn.setAttribute('aria-pressed', discountMode ? 'true' : 'false');
+  }
+  if (label) label.textContent = discountMode ? 'Salir de ofertas' : 'Descuentos';
+}
+
+function toggleDescuentosMode(e) {
+  const btn = document.getElementById('descuentosBtn');
+  if (btn) {
+    btn.classList.remove('is-igniting');
+    void btn.offsetWidth;
+    btn.classList.add('is-igniting');
+    window.setTimeout(() => btn.classList.remove('is-igniting'), 780);
+  }
+  _playDiscountBurst(btn || (e && e.currentTarget));
 
   if (!isAdmin) {
-    if (title) title.textContent = 'Descuentos';
-    body.innerHTML =
-      '<div class="discount-soon">' +
-        '<div class="discount-soon-ico" aria-hidden="true">' +
-          '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>' +
-        '</div>' +
-        '<h3>Próximamente...</h3>' +
-        '<p>Estamos preparando ofertas especiales. Muy pronto vas a ver descuentos aquí.</p>' +
-      '</div>' +
-      '<div class="mfoot" style="padding:0 0 8px">' +
-        '<button class="btn-pri" style="flex:none;width:100%" onclick="closeDescuentosPreview()">Entendido</button>' +
-      '</div>';
-    openModal('descuentosModal');
+    window.setTimeout(() => openModal('descuentosModal'), 280);
     return;
   }
 
-  if (title) title.textContent = 'Descuentos · preview';
-  const list = (products || []).slice().sort((a, b) => {
-    const ao = (a.orden == null ? Infinity : a.orden);
-    const bo = (b.orden == null ? Infinity : b.orden);
-    if (ao !== bo) return ao - bo;
-    return _pop(b) - _pop(a) || a.name.localeCompare(b.name, 'es');
-  });
-
-  const cards = list.map((p, i) => {
-    const pct = _mockDiscountPct(p.id);
-    const oldP = typeof p.price === 'number' ? p.price : 0;
-    const newP = oldP * (1 - pct / 100);
-    const img = p.img
-      ? `<img src="${_pdEsc(p.img)}" alt="${_pdEsc(p.name)}" loading="lazy" onerror="this.style.display='none'">`
-      : '';
-    const emoji = `<span${p.img ? ' style="display:none"' : ''}>${_pdEsc(p.e || '📦')}</span>`;
-    return (
-      `<article class="dcard" style="animation-delay:${Math.min(i, 12) * .03}s">` +
-        `<div class="dcard-badge" title="${pct}% de descuento"><span>-${pct}%</span><small>OFF</small></div>` +
-        `<div class="dcard-img">${img}${emoji}</div>` +
-        `<div class="dcard-body">` +
-          `<span class="dcard-cat">${_pdEsc(p.cat || '')}</span>` +
-          `<div class="dcard-name">${_pdEsc(p.name)}</div>` +
-          `<div class="dcard-prices">` +
-            `<span class="dcard-old">$${oldP.toFixed(2)}</span>` +
-            `<span class="dcard-new">$${newP.toFixed(2)}</span>` +
-          `</div>` +
-        `</div>` +
-      `</article>`
-    );
-  }).join('');
-
-  body.innerHTML =
-    '<div class="discount-admin-note">' +
-      '<span>Preview admin</span>' +
-      'Diseño de prueba con descuentos simulados. Aún no se aplican en la tienda.' +
-    '</div>' +
-    (cards
-      ? `<div class="discount-pgrid">${cards}</div>`
-      : '<div class="discount-soon"><p>No hay productos cargados para previsualizar.</p></div>');
-
-  openModal('descuentosModal');
+  discountMode = !discountMode;
+  document.body.classList.toggle('discount-mode', !!discountMode);
+  _syncDescuentosBtn();
+  renderProducts();
+  const wrap = document.querySelector('.catalog-wrap');
+  if (wrap) wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-function closeDescuentosPreview() {
+function closeDescuentosSoon() {
   closeModal('descuentosModal');
 }
