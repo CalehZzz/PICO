@@ -113,6 +113,13 @@ function updateNavAuth() {
     adminBtn.classList.add('hidden');
     document.body.classList.remove('is-admin');
     document.getElementById('inventoryNavBtn').classList.add('hidden');
+    // Salir del preview de descuentos si ya no hay sesión admin
+    if (typeof discountMode !== 'undefined' && discountMode) {
+      discountMode = false;
+      document.body.classList.remove('discount-mode');
+      if (typeof _syncDescuentosBtn === 'function') _syncDescuentosBtn();
+      if (typeof renderProducts === 'function') renderProducts();
+    }
   }
 }
 
