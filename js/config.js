@@ -26,7 +26,8 @@ let currentUser      = null;
 let isAdmin          = false;
 let products         = [];
 let stockMap         = {};
-// Grupos de variantes (indexados por groupId) construidos al cargar productos.
+// Grupos multi-doc por valor (o color legado), indexados por groupId.
+// Color nuevo: un solo producto con `groupColors` (no entra aquí).
 // { [groupId]: { id, name, kind:'valor'|'color', cat, e, orden, variants:[product...] } }
 let productGroups    = {};
 // Ítems del catálogo a renderizar: { type:'product'|'group', ... }
