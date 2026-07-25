@@ -69,38 +69,50 @@ function _renderVisibleSlice() {
     const tagHtml = pct > 0
       ? `<span class="discount-tag" title="${pct}% de descuento" aria-label="${pct}% de descuento">` +
           `<svg viewBox="0 0 48 56" width="44" height="52" aria-hidden="true">` +
-            `<path d="M24 3.2l15.8 14V48.2c0 2-1.6 3.6-3.6 3.6H11.8c-2 0-3.6-1.6-3.6-3.6V17.2L24 3.2z" fill="#e53935"/>` +
+            `<path d="M24 3.2l15.8 14V48.2c0 2-1.6 3.6-3.6 3.6H11.8c-2 0-3.6-1.6-3.6-3.6V17.2L24 3.2z" fill="#ff8a80"/>` +
             `<circle cx="24" cy="16.2" r="3.1" fill="#fff"/>` +
-            `<path d="M24 9.4c2.2-2.4 1.1-4.9 0-5.9-1.1.9-2.2 3.4 0 5.9z" stroke="#1d1d1f" stroke-width="1.15" fill="none"/>` +
+            `<path d="M24 9.4c2.2-2.4 1.1-4.9 0-5.9-1.1.9-2.2 3.4 0 5.9z" stroke="#8d6e63" stroke-width="1.15" fill="none"/>` +
             `<path d="M12.2 37.8h23.6" stroke="#fff" stroke-width="1.5" stroke-dasharray="2 2.1" stroke-linecap="round"/>` +
-            `<text x="24" y="31.5" text-anchor="middle" fill="#fff" font-size="11" font-weight="800" font-family="var(--font),sans-serif">-${pct}%</text>` +
+            `<text x="24" y="31.5" text-anchor="middle" fill="#fff" font-size="11" font-weight="800" font-family="Plus Jakarta Sans,sans-serif">-${pct}%</text>` +
           `</svg>` +
         `</span>`
       : '';
     const priceHtml = pct > 0
       ? `<span class="pprice-wrap"><span class="pprice-old">$${oldP.toFixed(2)}</span><span class="pprice pprice-sale">$${newP.toFixed(2)}</span></span>`
       : `<span class="pprice">$${oldP.toFixed(2)}</span>`;
-    return `<article class="pcard${pct > 0 ? ' pcard-sale' : ''}" style="animation-delay:${Math.min(i, 9) * .04}s">
-      <div class="pimg pimg-clickable" onclick="openProductDetail('${p.id}')">
-        ${p.img ? `<img class="pimg-photo" src="${_pdEsc(p.img)}" alt="${_pdEsc(p.name)}" loading="lazy" onerror="this.style.display='none'">` : ''}
-        ${tagHtml}
-        <span class="pstock ${stockClass(s)}">${stockLabel(s)}</span>
-        <span class="pimg-emoji"${p.img ? ' style="display:none"' : ''}>${p.e}</span>
-      </div>
-      <div class="pbody">
-        <div class="pclick" onclick="openProductDetail('${p.id}')">
-          <span class="pcat">${_pdEsc(p.cat)}</span>
-          <div class="pname">${_pdEsc(p.name)}</div>
-          <div class="pdesc">${_pdEsc(p.desc)}</div>
-        </div>
-        <div class="pfooter">
-          ${priceHtml}
-          <div class="add-zone" id="addZone_${p.id}">
-            ${renderAddZoneHTML(p.id, noStock)}
-          </div>
-        </div>
-      </div>
-    </article>`;
+    const card =
+      `<article class="pcard${pct > 0 ? ' pcard-sale' : ''}">` +
+        `<div class="pimg pimg-clickable" onclick="openProductDetail('${p.id}')">` +
+          `${p.img ? `<img class="pimg-photo" src="${_pdEsc(p.img)}" alt="${_pdEsc(p.name)}" loading="lazy" onerror="this.style.display='none'">` : ''}` +
+          `${tagHtml}` +
+          `<span class="pstock ${stockClass(s)}">${stockLabel(s)}</span>` +
+          `<span class="pimg-emoji"${p.img ? ' style="display:none"' : ''}>${p.e}</span>` +
+        `</div>` +
+        `<div class="pbody">` +
+          `<div class="pclick" onclick="openProductDetail('${p.id}')">` +
+            `<span class="pcat">${_pdEsc(p.cat)}</span>` +
+            `<div class="pname">${_pdEsc(p.name)}</div>` +
+            `<div class="pdesc">${_pdEsc(p.desc)}</div>` +
+          `</div>` +
+          `<div class="pfooter">` +
+            `${priceHtml}` +
+            `<div class="add-zone" id="addZone_${p.id}">${renderAddZoneHTML(p.id, noStock)}</div>` +
+          `</div>` +
+        `</div>` +
+      `</article>`;
+    if (pct <= 0) {
+      return `<div class="pcard-slot" style="animation-delay:${Math.min(i, 9) * .04}s">${card}</div>`;
+    }
+    // Misma tarjeta del catálogo, con plasma/fuego alrededor
+    return (
+      `<div class="pcard-fire-shell" style="animation-delay:${Math.min(i, 9) * .04}s">` +
+        `<div class="pd-fire pd-fire-1" aria-hidden="true"></div>` +
+        `<div class="pd-fire pd-fire-2" aria-hidden="true"></div>` +
+        `<div class="pd-fire pd-fire-3" aria-hidden="true"></div>` +
+        `<div class="pd-fire pd-fire-gloss" aria-hidden="true"></div>` +
+        card +
+      `</div>`
+    );
   }).join('');
 
   // Controles de paginación (arriba y abajo)
@@ -292,11 +304,11 @@ function openProductDetail(id) {
   const tagHtml = pct > 0
     ? `<span class="discount-tag discount-tag-lg" title="${pct}% de descuento">` +
         `<svg viewBox="0 0 48 56" width="54" height="64" aria-hidden="true">` +
-          `<path d="M24 3.2l15.8 14V48.2c0 2-1.6 3.6-3.6 3.6H11.8c-2 0-3.6-1.6-3.6-3.6V17.2L24 3.2z" fill="#e53935"/>` +
+          `<path d="M24 3.2l15.8 14V48.2c0 2-1.6 3.6-3.6 3.6H11.8c-2 0-3.6-1.6-3.6-3.6V17.2L24 3.2z" fill="#ff8a80"/>` +
           `<circle cx="24" cy="16.2" r="3.1" fill="#fff"/>` +
-          `<path d="M24 9.4c2.2-2.4 1.1-4.9 0-5.9-1.1.9-2.2 3.4 0 5.9z" stroke="#1d1d1f" stroke-width="1.15" fill="none"/>` +
+          `<path d="M24 9.4c2.2-2.4 1.1-4.9 0-5.9-1.1.9-2.2 3.4 0 5.9z" stroke="#8d6e63" stroke-width="1.15" fill="none"/>` +
           `<path d="M12.2 37.8h23.6" stroke="#fff" stroke-width="1.5" stroke-dasharray="2 2.1" stroke-linecap="round"/>` +
-          `<text x="24" y="31.5" text-anchor="middle" fill="#fff" font-size="11" font-weight="800" font-family="var(--font),sans-serif">-${pct}%</text>` +
+          `<text x="24" y="31.5" text-anchor="middle" fill="#fff" font-size="11" font-weight="800" font-family="Plus Jakarta Sans,sans-serif">-${pct}%</text>` +
         `</svg></span>`
     : '';
 
