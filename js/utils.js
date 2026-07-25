@@ -175,6 +175,25 @@ function showSucursalGate() {
   if (otros) otros.style.display = 'none';
   m.classList.add('open');
   document.body.style.overflow = 'hidden';
+  document.body.style.touchAction = 'none';
+}
+
+/** Cierra el gate sin elegir entrega (se vuelve a pedir al agregar). */
+function closeSucursalGate() {
+  const m = document.getElementById('sucursalGateModal');
+  if (m) m.classList.remove('open');
+  if (!document.querySelector('.moverlay.open')) {
+    document.body.style.overflow = '';
+    document.body.style.touchAction = '';
+  }
+}
+
+/** true si ya hay entrega; si no, reabre el modal y bloquea la acción. */
+function requireSucursalForCart() {
+  if (selectedSucursal) return true;
+  showToast('⚠️ Elegí cómo recibir tu pedido para agregar productos');
+  showSucursalGate();
+  return false;
 }
 
 // Etiqueta PÚBLICA (cliente): nunca nombra la institución.
@@ -238,7 +257,10 @@ function chooseGateSucursal(suc) {
   syncSucursalToProfile(suc);
   const m = document.getElementById('sucursalGateModal');
   if (m) m.classList.remove('open');
-  if (!document.querySelector('.moverlay.open')) document.body.style.overflow = '';
+  if (!document.querySelector('.moverlay.open')) {
+    document.body.style.overflow = '';
+    document.body.style.touchAction = '';
+  }
   showToast(suc === 'domicilio' ? '🚚 Entrega: Envío a domicilio' : '🏫 Entrega: Retiro en sucursal');
   updateSucursalBadge();
   // Inventario ÚNICO: el stock no depende de la entrega → NO vaciamos el carrito.
