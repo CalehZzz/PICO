@@ -369,3 +369,87 @@ function _pop(p) {
   if (p._pop === undefined) p._pop = productPopularity(p);
   return p._pop;
 }
+
+// ═══════════════════════════════════════════════════
+//  DESCUENTOS — preview UI (próximamente / admin mock)
+//  Aún no aplica descuentos reales en catálogo; solo diseño.
+// ═══════════════════════════════════════════════════
+function _mockDiscountPct(id) {
+  const tiers = [10, 15, 20, 25, 30, 40];
+  let h = 0;
+  const s = String(id || '');
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return tiers[h % tiers.length];
+}
+
+function openDescuentosPreview() {
+  const body = document.getElementById('descuentosModalBody');
+  const title = document.getElementById('descuentosModalTitle');
+  const shell = document.getElementById('descuentosModalShell');
+  if (!body) return;
+  if (shell) shell.classList.toggle('is-wide', !!isAdmin);
+
+  if (!isAdmin) {
+    if (title) title.textContent = 'Descuentos';
+    body.innerHTML =
+      '<div class="discount-soon">' +
+        '<div class="discount-soon-ico" aria-hidden="true">' +
+          '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>' +
+        '</div>' +
+        '<h3>Próximamente...</h3>' +
+        '<p>Estamos preparando ofertas especiales. Muy pronto vas a ver descuentos aquí.</p>' +
+      '</div>' +
+      '<div class="mfoot" style="padding:0 0 8px">' +
+        '<button class="btn-pri" style="flex:none;width:100%" onclick="closeDescuentosPreview()">Entendido</button>' +
+      '</div>';
+    openModal('descuentosModal');
+    return;
+  }
+
+  if (title) title.textContent = 'Descuentos · preview';
+  const list = (products || []).slice().sort((a, b) => {
+    const ao = (a.orden == null ? Infinity : a.orden);
+    const bo = (b.orden == null ? Infinity : b.orden);
+    if (ao !== bo) return ao - bo;
+    return _pop(b) - _pop(a) || a.name.localeCompare(b.name, 'es');
+  });
+
+  const cards = list.map((p, i) => {
+    const pct = _mockDiscountPct(p.id);
+    const oldP = typeof p.price === 'number' ? p.price : 0;
+    const newP = oldP * (1 - pct / 100);
+    const img = p.img
+      ? `<img src="${_pdEsc(p.img)}" alt="${_pdEsc(p.name)}" loading="lazy" onerror="this.style.display='none'">`
+      : '';
+    const emoji = `<span${p.img ? ' style="display:none"' : ''}>${_pdEsc(p.e || '📦')}</span>`;
+    return (
+      `<article class="dcard" style="animation-delay:${Math.min(i, 12) * .03}s">` +
+        `<div class="dcard-badge" title="${pct}% de descuento"><span>-${pct}%</span><small>OFF</small></div>` +
+        `<div class="dcard-img">${img}${emoji}</div>` +
+        `<div class="dcard-body">` +
+          `<span class="dcard-cat">${_pdEsc(p.cat || '')}</span>` +
+          `<div class="dcard-name">${_pdEsc(p.name)}</div>` +
+          `<div class="dcard-prices">` +
+            `<span class="dcard-old">$${oldP.toFixed(2)}</span>` +
+            `<span class="dcard-new">$${newP.toFixed(2)}</span>` +
+          `</div>` +
+        `</div>` +
+      `</article>`
+    );
+  }).join('');
+
+  body.innerHTML =
+    '<div class="discount-admin-note">' +
+      '<span>Preview admin</span>' +
+      'Diseño de prueba con descuentos simulados. Aún no se aplican en la tienda.' +
+    '</div>' +
+    (cards
+      ? `<div class="discount-pgrid">${cards}</div>`
+      : '<div class="discount-soon"><p>No hay productos cargados para previsualizar.</p></div>');
+
+  openModal('descuentosModal');
+}
+
+function closeDescuentosPreview() {
+  closeModal('descuentosModal');
+}

@@ -101,6 +101,29 @@
           <button class="filter-item active" type="button" role="menuitemradio" onclick="filterCat('Todos',this)">Todos<svg class="filter-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></button>
         </div>
       </div>
+      <button class="discount-plasma-btn" id="descuentosBtn" type="button" onclick="openDescuentosPreview()" aria-label="Descuentos">
+        <span class="plasma-aura" aria-hidden="true"></span>
+        <span class="plasma-aura plasma-aura-2" aria-hidden="true"></span>
+        <span class="discount-plasma-inner">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+          Descuentos
+        </span>
+      </button>
+    </div>
+
+    <!-- Modal Descuentos: próximamente (usuarios) / preview admin -->
+    <div class="moverlay" id="descuentosModal" style="z-index:520" onclick="if(event.target===this)closeDescuentosPreview()">
+      <div class="discount-modal-shell" id="descuentosModalShell">
+        <span class="plasma-aura" aria-hidden="true"></span>
+        <span class="plasma-aura plasma-aura-2" aria-hidden="true"></span>
+        <div class="modal discount-modal" id="descuentosModalBox" role="dialog" aria-modal="true" aria-labelledby="descuentosModalTitle">
+          <div class="mhd">
+            <h2 id="descuentosModalTitle">Descuentos</h2>
+            <button type="button" class="xbtn" onclick="closeDescuentosPreview()" aria-label="Cerrar">✕</button>
+          </div>
+          <div class="mbody" id="descuentosModalBody"></div>
+        </div>
+      </div>
     </div>
     <div id="loadingProducts" class="nores">
       <div class="ni">⚡</div>

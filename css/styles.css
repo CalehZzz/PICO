@@ -153,7 +153,7 @@ nav{position:sticky;top:12px;z-index:200;
 .search-wrap input::placeholder{color:var(--g400)}
 
 /* ── FILTRAR POR (dropdown) ── */
-.filter-bar{display:flex;margin-bottom:26px}
+.filter-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:26px}
 .filter-dd{position:relative;display:inline-block}
 .filter-btn{display:flex;align-items:center;gap:9px;padding:11px 19px;border-radius:999px;
   border:1px solid rgba(17,24,39,.09);background:#fff;
@@ -179,6 +179,145 @@ nav{position:sticky;top:12px;z-index:200;
 .filter-item.active{background:rgba(0,113,227,.1);color:var(--b600);font-weight:700}
 .filter-item .filter-check{opacity:0;color:var(--b600);transform:scale(.6);transition:opacity .16s,transform .2s var(--spring)}
 .filter-item.active .filter-check{opacity:1;transform:scale(1)}
+
+/* ── BOTÓN DESCUENTOS (plasma / fueguito) ── */
+.discount-plasma-btn{
+  position:relative;display:inline-flex;align-items:center;justify-content:center;
+  padding:2px;border:none;border-radius:999px;background:transparent;cursor:pointer;
+  isolation:isolate;font-family:var(--font);-webkit-tap-highlight-color:transparent;
+}
+.discount-plasma-btn .plasma-aura,
+.discount-modal-shell .plasma-aura{
+  position:absolute;inset:-3px;border-radius:inherit;z-index:0;pointer-events:none;
+  background:linear-gradient(120deg,#ff3b30,#ff9f0a,#ffd60a,#bf5af2,#ff375f,#ff3b30);
+  background-size:300% 300%;
+  filter:blur(7px);opacity:.55;
+  animation:plasmaFlow 4.2s linear infinite, plasmaPulse 2.8s ease-in-out infinite;
+}
+.discount-plasma-btn .plasma-aura-2,
+.discount-modal-shell .plasma-aura-2{
+  inset:-7px;filter:blur(14px);opacity:.28;
+  animation:plasmaFlow 6.5s linear infinite reverse, plasmaPulse 3.4s ease-in-out infinite .35s;
+}
+.discount-plasma-inner{
+  position:relative;z-index:1;display:inline-flex;align-items:center;gap:8px;
+  padding:11px 18px;border-radius:999px;
+  background:linear-gradient(135deg,#1d1d1f 0%,#2c1a24 45%,#1a1428 100%);
+  color:#fff;font-size:.84rem;font-weight:700;letter-spacing:-.01em;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.08);
+  transition:transform .22s var(--ease),background .35s var(--ease);
+}
+.discount-plasma-btn:hover .discount-plasma-inner{
+  transform:translateY(-1px);
+  background:linear-gradient(135deg,#2a1f22 0%,#3a1f2e 45%,#241833 100%);
+}
+.discount-plasma-btn:active .discount-plasma-inner{transform:translateY(0) scale(.98)}
+.discount-plasma-inner svg{flex-shrink:0;opacity:.95}
+@keyframes plasmaFlow{
+  0%{background-position:0% 50%}
+  50%{background-position:100% 50%}
+  100%{background-position:0% 50%}
+}
+@keyframes plasmaPulse{
+  0%,100%{opacity:.4}
+  50%{opacity:.7}
+}
+.discount-modal-shell .plasma-aura{inset:-4px;filter:blur(10px)}
+.discount-modal-shell .plasma-aura-2{inset:-8px;filter:blur(18px)}
+.discount-modal-shell .plasma-aura{animation:plasmaFlow 5s linear infinite, plasmaPulse 3s ease-in-out infinite}
+.discount-modal-shell .plasma-aura-2{animation:plasmaFlow 7.5s linear infinite reverse, plasmaPulse 3.6s ease-in-out infinite .4s}
+
+/* ── MODAL DESCUENTOS (preview admin + próximamente) ── */
+#descuentosModal{align-items:flex-start;padding-top:min(6vh,48px);padding-bottom:28px}
+.discount-modal-shell{
+  position:relative;width:100%;max-width:420px;border-radius:calc(var(--rlg) + 4px);
+  padding:3px;isolation:isolate;
+  transform:scale(.93) translateY(14px);transition:transform .4s var(--spring),max-width .3s var(--ease);
+}
+.discount-modal-shell.is-wide{max-width:920px}
+#descuentosModal.open .discount-modal-shell{transform:scale(1) translateY(0)}
+.discount-modal-shell .plasma-aura{border-radius:calc(var(--rlg) + 6px)}
+.discount-modal-shell .plasma-aura-2{border-radius:calc(var(--rlg) + 10px)}
+.discount-modal{
+  position:relative;z-index:1;max-width:none;width:100%;
+  transform:none;
+  background:linear-gradient(145deg,
+    rgba(255,245,245,.97) 0%,
+    rgba(255,250,235,.97) 35%,
+    rgba(248,240,255,.97) 70%,
+    rgba(255,240,245,.97) 100%);
+  background-size:220% 220%;
+  animation:discountModalTint 8s ease-in-out infinite;
+  border:1px solid rgba(255,255,255,.55);
+  overflow:hidden;
+}
+#descuentosModal.open .discount-modal{transform:none}
+@keyframes discountModalTint{
+  0%{background-position:0% 40%;box-shadow:0 34px 80px rgba(255,59,48,.14),0 14px 32px rgba(17,24,39,.1)}
+  33%{background-position:50% 60%;box-shadow:0 34px 80px rgba(255,159,10,.16),0 14px 32px rgba(17,24,39,.1)}
+  66%{background-position:100% 45%;box-shadow:0 34px 80px rgba(191,90,242,.16),0 14px 32px rgba(17,24,39,.1)}
+  100%{background-position:0% 40%;box-shadow:0 34px 80px rgba(255,59,48,.14),0 14px 32px rgba(17,24,39,.1)}
+}
+.discount-soon{
+  text-align:center;padding:28px 12px 18px;
+}
+.discount-soon-ico{
+  width:64px;height:64px;margin:0 auto 16px;border-radius:20px;
+  display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(145deg,rgba(255,59,48,.12),rgba(191,90,242,.14));
+  color:#c9342a;box-shadow:inset 0 0 0 1px rgba(255,59,48,.12);
+}
+.discount-soon h3{font-size:1.35rem;font-weight:800;color:var(--g900);letter-spacing:-.03em;margin-bottom:8px}
+.discount-soon p{font-size:.92rem;color:var(--g500);line-height:1.55;max-width:320px;margin:0 auto}
+.discount-admin-note{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  margin:0 0 16px;padding:10px 14px;border-radius:14px;
+  background:rgba(17,24,39,.04);border:1px solid rgba(17,24,39,.06);
+  font-size:.78rem;font-weight:600;color:var(--g600);
+}
+.discount-admin-note span{color:var(--amber);font-weight:800;letter-spacing:.02em;text-transform:uppercase;font-size:.68rem}
+.discount-pgrid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:14px;
+}
+.dcard{
+  position:relative;background:rgba(255,255,255,.88);border-radius:18px;
+  border:1px solid rgba(17,24,39,.06);overflow:hidden;
+  box-shadow:var(--sh1);display:flex;flex-direction:column;
+  transition:transform .3s var(--spring),box-shadow .3s var(--ease);
+  animation:fadeUp .45s var(--ease) both;
+}
+.dcard:hover{transform:translateY(-4px);box-shadow:var(--sh2)}
+.dcard-badge{
+  position:absolute;top:10px;right:10px;z-index:3;
+  min-width:46px;height:46px;padding:0 6px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;flex-direction:column;
+  background:linear-gradient(145deg,#ff3b30,#ff9f0a 55%,#bf5af2);
+  color:#fff;font-weight:800;font-size:.72rem;line-height:1.05;letter-spacing:-.02em;
+  box-shadow:0 6px 16px rgba(255,59,48,.35);text-align:center;
+  animation:badgeGlow 2.8s ease-in-out infinite;
+}
+.dcard-badge small{font-size:.58rem;font-weight:700;opacity:.9;letter-spacing:.02em}
+@keyframes badgeGlow{
+  0%,100%{box-shadow:0 6px 16px rgba(255,59,48,.32)}
+  50%{box-shadow:0 6px 18px rgba(191,90,242,.4)}
+}
+.dcard-img{
+  aspect-ratio:4/3;background:linear-gradient(140deg,var(--b50),var(--s100));
+  display:flex;align-items:center;justify-content:center;font-size:2.4rem;position:relative;overflow:hidden;
+}
+.dcard-img img{width:100%;height:100%;object-fit:cover;display:block;position:absolute;inset:0}
+.dcard-body{padding:12px 12px 14px;display:flex;flex-direction:column;gap:4px;flex:1}
+.dcard-cat{font-size:.65rem;font-weight:700;color:var(--g400);text-transform:uppercase;letter-spacing:.06em}
+.dcard-name{font-size:.86rem;font-weight:700;color:var(--g900);letter-spacing:-.02em;line-height:1.25;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.dcard-prices{margin-top:auto;padding-top:8px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.dcard-old{font-size:.82rem;font-weight:600;color:var(--g400);text-decoration:line-through;letter-spacing:-.01em}
+.dcard-new{font-size:1.08rem;font-weight:800;color:#c9342a;letter-spacing:-.03em}
+@media(max-width:580px){
+  .discount-pgrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .dcard-badge{min-width:40px;height:40px;font-size:.64rem;top:8px;right:8px}
+  .discount-plasma-inner{padding:10px 15px;font-size:.8rem}
+}
 
 /* ─── PRODUCT GRID (tarjetas recompuestas) ─── */
 .pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:22px}
