@@ -285,15 +285,21 @@ function escHtml(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-/** % de descuento de oferta del producto (0–100). Definido en inventario. */
-function getProductDiscountPct(p) {
+/** % configurado en inventario (siempre, aunque aún no esté “en vivo”). */
+function getProductDiscountPctRaw(p) {
   if (!p) return 0;
   const n = typeof p.descuentoPct === 'number' ? p.descuentoPct : 0;
   if (!isFinite(n) || n <= 0) return 0;
   return Math.min(100, Math.round(n));
 }
 
-/** Precio unitario a cobrar (aplica descuento de producto si existe). */
+/** % de oferta que SÍ se cobra. Mientras PRODUCT_DISCOUNTS_LIVE sea false → 0. */
+function getProductDiscountPct(p) {
+  if (typeof PRODUCT_DISCOUNTS_LIVE !== 'undefined' && !PRODUCT_DISCOUNTS_LIVE) return 0;
+  return getProductDiscountPctRaw(p);
+}
+
+/** Precio unitario a cobrar (aplica descuento de producto solo si está en vivo). */
 function getProductSalePrice(p) {
   if (!p) return 0;
   const pct = getProductDiscountPct(p);
