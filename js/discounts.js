@@ -310,8 +310,9 @@ function getProductSalePrice(p) {
 
 /** true si algún ítem del carrito ya tiene descuento de producto. */
 function cartHasProductDiscount() {
-  return Object.keys(cart || {}).some(id => {
-    const p = products.find(x => x.id === id);
+  return Object.keys(cart || {}).some(key => {
+    const productId = (typeof parseCartKey === 'function') ? parseCartKey(key).productId : key;
+    const p = products.find(x => x.id === productId);
     return getProductDiscountPct(p) > 0;
   });
 }
@@ -324,10 +325,11 @@ function getCartTotal() {
   const cartPct = (!hasProd && selectedDiscount && selectedDiscount.porcentaje)
     ? selectedDiscount.porcentaje : 0;
   let total = 0;
-  Object.keys(cart || {}).forEach(id => {
-    const p = products.find(x => x.id === id);
+  Object.keys(cart || {}).forEach(key => {
+    const productId = (typeof parseCartKey === 'function') ? parseCartKey(key).productId : key;
+    const p = products.find(x => x.id === productId);
     if (!p) return;
-    const qty = cart[id] || 0;
+    const qty = cart[key] || 0;
     const prodPct = getProductDiscountPct(p);
     let unit = typeof p.price === 'number' ? p.price : 0;
     if (prodPct > 0) unit = unit * (1 - prodPct / 100);
@@ -339,17 +341,19 @@ function getCartTotal() {
 
 function getCartRawTotal() {
   // Subtotal "antes" del descuento de carrito: precios de lista con oferta de producto ya aplicada.
-  return Object.keys(cart || {}).reduce((s, id) => {
-    const p = products.find(x => x.id === id);
-    return s + (p ? getProductSalePrice(p) * (cart[id] || 0) : 0);
+  return Object.keys(cart || {}).reduce((s, key) => {
+    const productId = (typeof parseCartKey === 'function') ? parseCartKey(key).productId : key;
+    const p = products.find(x => x.id === productId);
+    return s + (p ? getProductSalePrice(p) * (cart[key] || 0) : 0);
   }, 0);
 }
 
 /** Subtotal a precio de lista (sin ningún descuento) — útil para mostrar tachado. */
 function getCartListTotal() {
-  return Object.keys(cart || {}).reduce((s, id) => {
-    const p = products.find(x => x.id === id);
-    return s + (p ? (p.price || 0) * (cart[id] || 0) : 0);
+  return Object.keys(cart || {}).reduce((s, key) => {
+    const productId = (typeof parseCartKey === 'function') ? parseCartKey(key).productId : key;
+    const p = products.find(x => x.id === productId);
+    return s + (p ? (p.price || 0) * (cart[key] || 0) : 0);
   }, 0);
 }
 

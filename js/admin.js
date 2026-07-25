@@ -461,13 +461,16 @@ async function changeStatus(firestoreId, val) {
           totalVentasEfectivo += itemTotal;
           ventaItems.push({
             pid: item.id || null,
-            productName: item.name,
+            productName: (typeof orderItemDisplayName === 'function') ? orderItemDisplayName(item) : item.name,
             qty,
             precioUnit: unitPrice,
             costTotal: +(unitCost * qty).toFixed(2),
             total: itemTotal,
             descPct: freshData.discountPct || 0,
-            descNombre: freshData.discountName || ''
+            descNombre: freshData.discountName || '',
+            colorId: item.colorId || null,
+            colorLabel: item.colorLabel || null,
+            color: item.color || null
           });
         }
 
@@ -818,7 +821,7 @@ function showOrderDetail(firestoreId) {
   const items = (o.items || []).map(i => `
     <div class="odetail-item">
       <div>
-        <div class="odetail-item-name">${i.name}</div>
+        <div class="odetail-item-name">${_pdEsc(i.name || '')}${(typeof orderItemColorBadgeHtml === 'function') ? orderItemColorBadgeHtml(i) : ''}</div>
         <div class="odetail-item-sub">$${(i.price||0).toFixed(2)} × ${i.qty}</div>
       </div>
       <div class="odetail-item-price">$${((i.price||0) * i.qty).toFixed(2)}</div>

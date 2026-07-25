@@ -172,7 +172,7 @@ function _renderMyOrdersList(el, myOrders) {
           ${(o.items || []).map(i => `
             <div class="odetail-item">
               <div>
-                <div class="odetail-item-name">${i.name}</div>
+                <div class="odetail-item-name">${(typeof _pdEsc === 'function') ? _pdEsc(i.name || '') : (i.name || '')}${(typeof orderItemColorBadgeHtml === 'function') ? orderItemColorBadgeHtml(i) : ''}</div>
                 <div class="odetail-item-sub">$${(i.price||0).toFixed(2)} × ${i.qty}</div>
               </div>
               <div class="odetail-item-price">$${((i.price||0)*i.qty).toFixed(2)}</div>
@@ -313,7 +313,7 @@ async function trackOrder() {
             ${(o.items || []).map(i => `
               <div class="odetail-item">
                 <div>
-                  <div class="odetail-item-name">${i.name}</div>
+                  <div class="odetail-item-name">${(typeof _pdEsc === 'function') ? _pdEsc(i.name || '') : (i.name || '')}${(typeof orderItemColorBadgeHtml === 'function') ? orderItemColorBadgeHtml(i) : ''}</div>
                   <div class="odetail-item-sub">$${(i.price||0).toFixed(2)} × ${i.qty}</div>
                 </div>
                 <div class="odetail-item-price">$${((i.price||0)*i.qty).toFixed(2)}</div>
