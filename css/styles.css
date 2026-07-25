@@ -380,7 +380,6 @@ body.discount-mode .filter-btn{
 .pcard-fire-shell,
 .pd-fire-shell{
   position:relative;min-width:0;border-radius:calc(var(--r) + 4px);
-  animation:fadeUp .5s var(--ease) both;
 }
 .pcard-fire-shell{
   padding:2px;
