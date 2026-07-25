@@ -436,13 +436,10 @@ function _pop(p) {
 //  Porcentajes simulados solo para diseñar la UI.
 // ═══════════════════════════════════════════════════
 
-/** % mock: 0 = sin descuento (queda fuera del filtro). */
+/** % de oferta del producto (desde inventario). 0 = sin oferta. */
 function _productDiscountPct(id) {
-  const tiers = [0, 10, 15, 20, 25, 30, 40];
-  let h = 0;
-  const s = String(id || '');
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return tiers[h % tiers.length];
+  const p = (products || []).find(x => x.id === id);
+  return (typeof getProductDiscountPct === 'function') ? getProductDiscountPct(p) : 0;
 }
 
 function _playDiscountBurst(originEl) {
@@ -486,8 +483,14 @@ function toggleDescuentosMode(e) {
 
   // Dejar que la animación arranque antes de cambiar la vista
   const apply = () => {
-    if (!isAdmin) {
+    // Entrar: solo productos con descuentoPct > 0 (inventario)
+    const hasOffers = (products || []).some(p => _productDiscountPct(p.id) > 0);
+    if (!discountMode && !hasOffers) {
       openModal('descuentosModal');
+      const body = document.querySelector('#descuentosModal .discount-soon h3');
+      const p = document.querySelector('#descuentosModal .discount-soon p');
+      if (body) body.textContent = 'Sin ofertas por ahora';
+      if (p) p.textContent = 'Cuando haya productos con descuento en el inventario, aparecerán aquí.';
       return;
     }
     discountMode = !discountMode;

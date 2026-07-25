@@ -253,6 +253,16 @@ function addToCart(id) {
   if (typeof requireSucursalForCart === 'function' && !requireSucursalForCart()) return;
   const s = stockMap[id] || 0;
   if (s < 1) { showToast('⚠️ Sin stock disponible'); return; }
+  const p = products.find(x => x.id === id);
+  const prodPct = (typeof getProductDiscountPct === 'function') ? getProductDiscountPct(p) : 0;
+  // No combinar oferta de producto con descuento de carrito (código/asignado/sellos)
+  if (prodPct > 0 && selectedDiscount) {
+    selectedDiscount = null;
+    showToast('⚠️ Se quitó el descuento del carrito: no se combina con ofertas');
+  } else if (prodPct <= 0 && selectedDiscount && typeof cartHasProductDiscount === 'function' && cartHasProductDiscount()) {
+    showToast('⚠️ No se puede combinar descuento de carrito con ofertas de producto');
+    return;
+  }
   const fromBtn = document.querySelector('#addZone_' + id + ' .add-btn')
     || document.querySelector('#addZoneModal_' + id + ' .add-btn');
   cart[id] = 1;
@@ -363,10 +373,11 @@ function updateCartUI() {
   badge.textContent = count;
   count > 0 ? badge.classList.remove('hidden') : badge.classList.add('hidden');
 
-  // Mostrar precio original tachado si hay descuento
+  // Mostrar precio original tachado si hay descuento (producto o carrito)
   const totalEl = document.getElementById('cartTotal');
-  if (selectedDiscount && rawTotal !== total) {
-    totalEl.innerHTML = `<span style="text-decoration:line-through;color:var(--g400);font-size:.88rem;font-weight:500">$${rawTotal.toFixed(2)}</span> <span style="color:var(--b600)">$${total.toFixed(2)}</span>`;
+  const listTotal = (typeof getCartListTotal === 'function') ? getCartListTotal() : rawTotal;
+  if (listTotal > total + 0.001) {
+    totalEl.innerHTML = `<span style="text-decoration:line-through;color:var(--g400);font-size:.88rem;font-weight:500">$${listTotal.toFixed(2)}</span> <span style="color:var(--b600)">$${total.toFixed(2)}</span>`;
   } else {
     totalEl.textContent = '$' + total.toFixed(2);
   }
@@ -384,14 +395,20 @@ function updateCartUI() {
   el.innerHTML = Object.keys(cart).map(id => {
     const p = products.find(x => x.id === id);
     if (!p) return '';
+    const qty = cart[id] || 0;
+    const unitSale = (typeof getProductSalePrice === 'function') ? getProductSalePrice(p) : p.price;
+    const prodPct = (typeof getProductDiscountPct === 'function') ? getProductDiscountPct(p) : 0;
+    const priceHtml = prodPct > 0
+      ? `<div class="citem-price"><span style="text-decoration:line-through;color:var(--g400);font-size:.78rem;font-weight:500;margin-right:6px">$${(p.price * qty).toFixed(2)}</span>$${(unitSale * qty).toFixed(2)}</div>`
+      : `<div class="citem-price">$${(unitSale * qty).toFixed(2)}</div>`;
     const thumbHtml = p.img
       ? `<div class="citem-emoji" style="overflow:hidden;padding:0"><img src="${p.img}" alt="${p.name}" style="width:100%;height:100%;object-fit:cover;border-radius:9px" onerror="this.parentElement.innerHTML='${p.e}'"></div>`
       : `<div class="citem-emoji">${p.e}</div>`;
     return `<div class="citem">
       ${thumbHtml}
       <div class="citem-info">
-        <div class="citem-name">${p.name}</div>
-        <div class="citem-price">$${(p.price * (cart[id] || 0)).toFixed(2)}</div>
+        <div class="citem-name">${p.name}${prodPct > 0 ? ` <span style="color:#e57373;font-size:.72rem;font-weight:800">−${prodPct}%</span>` : ''}</div>
+        ${priceHtml}
       </div>
       <div class="cqty">
         <button class="cqbtn" onclick="changeQty('${id}', -1)">−</button>
@@ -773,12 +790,23 @@ async function placeOrder() {
   const code  = genCode();
   const items = Object.keys(cart).map(id => {
     const p = products.find(x => x.id === id);
-    return { id, name: p.name, qty: cart[id], price: p.price, cost: p.cost };
+    const prodPct = (typeof getProductDiscountPct === 'function') ? getProductDiscountPct(p) : 0;
+    const unit = (typeof getProductSalePrice === 'function') ? getProductSalePrice(p) : p.price;
+    return {
+      id, name: p.name, qty: cart[id],
+      price: unit,
+      listPrice: p.price,
+      productDiscPct: prodPct > 0 ? prodPct : null,
+      cost: p.cost
+    };
   });
-  const rawTotal   = items.reduce((s, i) => s + i.qty * i.price, 0);
-  const finalTotal = selectedDiscount
-    ? +(rawTotal * (1 - selectedDiscount.porcentaje / 100)).toFixed(2)
-    : +rawTotal.toFixed(2);
+  const listTotal  = items.reduce((s, i) => s + i.qty * (i.listPrice != null ? i.listPrice : i.price), 0);
+  const rawTotal   = items.reduce((s, i) => s + i.qty * i.price, 0); // tras oferta de producto
+  const finalTotal = (typeof getCartTotal === 'function')
+    ? getCartTotal()
+    : (selectedDiscount
+      ? +(rawTotal * (1 - selectedDiscount.porcentaje / 100)).toFixed(2)
+      : +rawTotal.toFixed(2));
 
   // Capturamos el % de descuento ANTES de resetear selectedDiscount (se usa más abajo en el pago).
   const pagoDiscPct = selectedDiscount ? selectedDiscount.porcentaje : 0;
