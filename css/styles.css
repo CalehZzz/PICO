@@ -387,8 +387,11 @@ body.discount-mode .filter-btn{
   position:relative;z-index:2;height:100%;
   background:rgba(255,255,255,.96);
   border-color:rgba(255,255,255,.7);
+  animation:none;
 }
-.pcard-fire-shell:hover .pcard{transform:translateY(-7px);border-color:rgba(206,147,216,.35)}
+.pcard-fire-shell{transition:transform .4s var(--spring)}
+.pcard-fire-shell:hover{transform:translateY(-6px)}
+.pcard-fire-shell:hover .pcard{transform:none;border-color:rgba(206,147,216,.4);box-shadow:var(--sh3)}
 .pd-fire-shell{
   width:100%;max-width:480px;padding:0;
   transform:scale(.93) translateY(14px);transition:transform .4s var(--spring);
