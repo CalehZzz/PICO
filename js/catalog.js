@@ -494,8 +494,11 @@ function toggleDescuentosMode(e) {
     document.body.classList.toggle('discount-mode', !!discountMode);
     _syncDescuentosBtn();
     renderProducts();
-    const wrap = document.querySelector('.catalog-wrap');
-    if (wrap) wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // Solo subir al salir de ofertas (no al entrar)
+    if (!discountMode) {
+      const wrap = document.querySelector('.catalog-wrap');
+      if (wrap) wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   };
   window.setTimeout(apply, 220);
 }
