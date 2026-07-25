@@ -542,11 +542,11 @@ body.discount-mode .pcard-fire-shell .add-btn{
 .pbody{padding:16px 17px 17px;display:flex;flex-direction:column;flex:1}
 .pcat{display:inline-flex;align-items:center;flex-wrap:wrap;gap:6px;font-size:.63rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase;
   color:var(--b600);margin-bottom:7px}
-.pgroup-badge{display:inline-block;font-size:.58rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
-  color:#0f766e;background:rgba(20,184,166,.12);border:1px solid rgba(20,184,166,.22);
-  border-radius:999px;padding:2px 8px}
 .pcard-group .pname{letter-spacing:-.025em}
 .pname{font-size:.98rem;font-weight:700;color:var(--g900);margin-bottom:5px;line-height:1.28;letter-spacing:-.02em}
+.pcolor-dots{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin:0 0 8px}
+.pcolor-dot{width:12px;height:12px;border-radius:50%;background:var(--swatch,#9ca3af);
+  border:1px solid rgba(17,24,39,.16);box-shadow:inset 0 0 0 1px rgba(255,255,255,.28);flex-shrink:0}
 .pdesc{font-size:.77rem;color:var(--g500);margin-bottom:14px;line-height:1.5;
   display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;
   overflow:hidden;text-overflow:ellipsis}

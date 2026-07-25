@@ -43,6 +43,26 @@ function detectCatEmoji(name, desc) {
   return { cat: 'Módulos', e: '⚙️' };
 }
 
+// Normaliza `groupColors` del inventario (colores en un solo documento).
+// Cada entrada: { id?, label, color (hex), imageUrl?, enabled }.
+function _normalizeGroupColors(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  raw.forEach((c, i) => {
+    if (!c || typeof c !== 'object') return;
+    const label = (c.label != null && String(c.label).trim()) ? String(c.label).trim() : '';
+    const color = (c.color != null && String(c.color).trim()) ? String(c.color).trim() : '';
+    const imageUrl = (c.imageUrl != null && String(c.imageUrl).trim()) ? String(c.imageUrl).trim() : '';
+    const enabled = c.enabled === false ? false : true;
+    if (!label && !color) return;
+    const id = (c.id != null && String(c.id).trim())
+      ? String(c.id).trim()
+      : ('c' + i + '_' + (label || color).toLowerCase().replace(/\s+/g, '-'));
+    out.push({ id, label: label || color, color: color || '#9ca3af', imageUrl, enabled });
+  });
+  return out;
+}
+
 // ═══════════════════════════════════════════════════
 //  LOAD PRODUCTS FROM FIRESTORE
 // ═══════════════════════════════════════════════════
@@ -107,6 +127,12 @@ async function loadProducts() {
     // Procesar productos (detectar cat/emoji, calcular stock)
     // INVENTARIO ÚNICO: tras eliminar EXSAL, todo (domicilio, Colegio Don Bosco,
     // Universidad Don Bosco y "Otros") sale del mismo stock: 'stockCdb'.
+    //
+    // Grupos en tienda:
+    // - Por color: UN solo documento con `groupColors` [{label,color,imageUrl?,enabled}].
+    //   Stock compartido del producto raíz; no se listan productos extra.
+    // - Por valor: varios docs con el mismo `groupId` + groupKind:'valor'.
+    // - Legado color multi-doc (groupKind:'color' sin groupColors): se agrupa como antes.
     products = [];
     productGroups = {};
     rawProducts.forEach(d => {
@@ -118,8 +144,12 @@ async function loadProducts() {
       // Stock único: 'stockCdb'. Fallback al 'stock' legado si el producto viejo no tiene stockCdb.
       let s = typeof d.stockCdb === 'number' ? d.stockCdb
             : (typeof d.stock === 'number' ? d.stock : 0);
+      const groupColors = _normalizeGroupColors(d.groupColors);
       const groupId = (d.groupId && String(d.groupId).trim()) ? String(d.groupId).trim() : '';
-      const groupKind = (d.groupKind === 'color') ? 'color' : (d.groupKind === 'valor' ? 'valor' : '');
+      // Si trae groupColors, el color vive en este doc: no es variante multi-doc.
+      const groupKind = groupColors.length
+        ? 'color'
+        : ((d.groupKind === 'color') ? 'color' : (d.groupKind === 'valor' ? 'valor' : ''));
       const groupName = (d.groupName && String(d.groupName).trim()) ? String(d.groupName).trim() : '';
       const variantLabel = (d.variantLabel && String(d.variantLabel).trim()) ? String(d.variantLabel).trim() : '';
       const variantColor = (d.variantColor && String(d.variantColor).trim()) ? String(d.variantColor).trim() : '';
@@ -138,13 +168,15 @@ async function loadProducts() {
         descuentoPct: (typeof d.descuentoPct === 'number' && d.descuentoPct > 0 && d.descuentoPct <= 100)
           ? Math.round(d.descuentoPct) : 0,
         stock: s, cat, e,
-        groupId, groupKind, groupName, variantLabel, variantColor, variantEnabled
+        groupId, groupKind, groupName, variantLabel, variantColor, variantEnabled,
+        groupColors
       };
       products.push(p);
       stockMap[d.id] = s;
 
-      // Índice de grupos (solo si tiene groupId válido)
-      if (groupId) {
+      // Índice de grupos multi-doc (valor, o color legado sin groupColors).
+      // Productos con groupColors NO entran: son la tarjeta raíz ellos mismos.
+      if (groupId && !groupColors.length) {
         if (!productGroups[groupId]) {
           productGroups[groupId] = {
             id: groupId,

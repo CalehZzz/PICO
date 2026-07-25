@@ -8,11 +8,15 @@
 function stockClass(s) { return s === 0 ? 'stock-none' : s <= 5 ? 'stock-low' : 'stock-ok'; }
 function stockLabel(s) { return s === 0 ? 'Sin stock'  : s <= 5 ? `Pocas (${s})` : `${s} disp.`; }
 
-/** Texto buscable de un producto (incluye etiqueta/grupo de variante). */
+/** Texto buscable de un producto (incluye colores embebidos y etiquetas legado). */
 function _productSearchHay(p) {
+  const colorHay = (p.groupColors || [])
+    .map(c => [c.label || '', c.color || ''].join(' '))
+    .join(' ');
   return [
     p.name, p.cat, p.desc || '',
-    p.variantLabel || '', p.groupName || '', p.variantColor || ''
+    p.variantLabel || '', p.groupName || '', p.variantColor || '',
+    colorHay
   ].join(' ').toLowerCase();
 }
 function _productMatchesSearch(p, q) {
@@ -31,7 +35,14 @@ function _variantStock(v) {
   if (!v) return 0;
   return stockMap[v.id] !== undefined ? stockMap[v.id] : (v.stock || 0);
 }
-/** Variantes habilitadas del grupo (incluye sin stock; el UI las marca aparte). */
+/** Colores habilitados de un producto con groupColors. */
+function _productEnabledColors(p) {
+  return (p && p.groupColors || []).filter(c => c && c.enabled !== false);
+}
+function _colorIsEnabled(c) {
+  return c && c.enabled !== false;
+}
+/** Variantes habilitadas del grupo multi-doc (incluye sin stock; el UI las marca aparte). */
 function _groupEnabledVariants(g) {
   return (g.variants || []).filter(_variantIsEnabled);
 }
@@ -53,6 +64,25 @@ function _groupDiscountPct(g) {
   });
   return best;
 }
+/** Circulitos de color para la tarjeta (sin leyendas). */
+function _colorDotsHtml(colors) {
+  const list = (colors || []).filter(c => c && c.enabled !== false && (c.color || c.label));
+  if (!list.length) return '';
+  return `<div class="pcolor-dots" aria-hidden="true">` +
+    list.map(c =>
+      `<span class="pcolor-dot" style="--swatch:${_pdEsc(c.color || '#9ca3af')}" title="${_pdEsc(c.label || '')}"></span>`
+    ).join('') +
+  `</div>`;
+}
+function _groupColorDots(g) {
+  if (!g || g.kind !== 'color') return '';
+  const colors = _groupEnabledVariants(g).map(v => ({
+    label: v.variantLabel || v.name,
+    color: v.variantColor || '#9ca3af',
+    enabled: _variantIsEnabled(v)
+  }));
+  return _colorDotsHtml(colors);
+}
 function _itemSortKey(item) {
   if (item.type === 'group') {
     const g = item.group;
@@ -73,61 +103,36 @@ function _itemSortKey(item) {
 
 /**
  * Construye la lista del catálogo:
- * - Sin búsqueda: 1 tarjeta por grupo + productos sin grupo.
- * - Con búsqueda: variantes individuales que coinciden + sus grupos a la par.
+ * - 1 tarjeta por grupo multi-doc (valor / color legado) + productos raíz.
+ * - Productos con groupColors = una sola tarjeta raíz (nunca variantes sueltas).
+ * - En búsqueda tampoco se listan variantes sueltas: solo el grupo / raíz.
  */
 function _buildCatalogItems() {
   const q = (currentSearch || '').trim();
   const searching = q.length > 0;
   const items = [];
-  const seenGroups = new Set();
 
   const inCat = (cat) => currentCat === 'Todos' || cat === currentCat;
   const groupHasOffer = (g) => !discountMode || (g.variants || []).some(v => _productDiscountPct(v.id) > 0);
   const prodHasOffer = (p) => !discountMode || _productDiscountPct(p.id) > 0;
 
-  if (!searching) {
-    Object.keys(productGroups || {}).forEach(gid => {
-      const g = productGroups[gid];
-      if (!g || !_groupEnabledVariants(g).length) return;
-      if (!inCat(g.cat)) return;
-      if (!groupHasOffer(g)) return;
-      items.push({ type: 'group', group: g });
-      seenGroups.add(gid);
-    });
-    (products || []).forEach(p => {
-      // Las variantes agrupadas NO aparecen sueltas al navegar.
-      if (p.groupId && productGroups[p.groupId]) return;
-      if (!inCat(p.cat)) return;
-      if (!prodHasOffer(p)) return;
-      items.push({ type: 'product', product: p });
-    });
-  } else {
-    (products || []).forEach(p => {
-      if (!_productMatchesSearch(p, q)) return;
-      if (!inCat(p.cat)) return;
-      if (!prodHasOffer(p)) return;
-      // Hit individual (aunque pertenezca a un grupo)
-      items.push({ type: 'product', product: p, searchHit: true });
-      if (p.groupId && productGroups[p.groupId] && !seenGroups.has(p.groupId)) {
-        const g = productGroups[p.groupId];
-        if (inCat(g.cat) && groupHasOffer(g) && _groupEnabledVariants(g).length) {
-          items.push({ type: 'group', group: g });
-          seenGroups.add(p.groupId);
-        }
-      }
-    });
-    // Grupos que coinciden por nombre aunque ninguna variante se listó aún
-    Object.keys(productGroups || {}).forEach(gid => {
-      if (seenGroups.has(gid)) return;
-      const g = productGroups[gid];
-      if (!g || !_groupMatchesSearch(g, q)) return;
-      if (!inCat(g.cat) || !groupHasOffer(g)) return;
-      if (!_groupEnabledVariants(g).length) return;
-      items.push({ type: 'group', group: g });
-      seenGroups.add(gid);
-    });
-  }
+  Object.keys(productGroups || {}).forEach(gid => {
+    const g = productGroups[gid];
+    if (!g || !_groupEnabledVariants(g).length) return;
+    if (!inCat(g.cat)) return;
+    if (!groupHasOffer(g)) return;
+    if (searching && !_groupMatchesSearch(g, q)) return;
+    items.push({ type: 'group', group: g });
+  });
+
+  (products || []).forEach(p => {
+    // Variantes de un grupo multi-doc: nunca aparecen sueltas (ni al buscar).
+    if (p.groupId && productGroups[p.groupId]) return;
+    if (!inCat(p.cat)) return;
+    if (!prodHasOffer(p)) return;
+    if (searching && !_productMatchesSearch(p, q)) return;
+    items.push({ type: 'product', product: p });
+  });
 
   items.sort((a, b) => {
     const ka = _itemSortKey(a), kb = _itemSortKey(b);
@@ -144,8 +149,7 @@ function renderProducts() {
   // Cada vez que cambia el filtro/búsqueda, volver a la primera página
   currentPage = 1;
   catalogItems = _buildCatalogItems();
-  // Compat: currentFiltered sigue siendo lista de productos "planos" para
-  // código legado; en búsqueda incluye hits individuales.
+  // Compat: currentFiltered = productos raíz listados (sin variantes de grupo).
   currentFiltered = catalogItems
     .filter(it => it.type === 'product')
     .map(it => it.product);
@@ -198,20 +202,25 @@ function _renderProductCard(p, i) {
   const noStock = s === 0;
   const pct     = discountMode ? _productDiscountPct(p.id) : 0;
   const oldP    = typeof p.price === 'number' ? p.price : 0;
-  const groupBadge = (p.groupId && productGroups[p.groupId] && (currentSearch || '').trim())
-    ? `<span class="pgroup-badge">En grupo</span>` : '';
+  const colorDots = _colorDotsHtml(p.groupColors);
+  // Imagen de tarjeta: primer color con foto, si hay groupColors.
+  const coverImg = (() => {
+    const withImg = _productEnabledColors(p).find(c => c.imageUrl);
+    return (withImg && withImg.imageUrl) || p.img || '';
+  })();
   const card =
     `<article class="pcard${pct > 0 ? ' pcard-sale' : ''}">` +
       `<div class="pimg pimg-clickable" onclick="openProductDetail('${p.id}')">` +
-        `${p.img ? `<img class="pimg-photo" src="${_pdEsc(p.img)}" alt="${_pdEsc(p.name)}" loading="lazy" onerror="this.style.display='none'">` : ''}` +
+        `${coverImg ? `<img class="pimg-photo" src="${_pdEsc(coverImg)}" alt="${_pdEsc(p.name)}" loading="lazy" onerror="this.style.display='none'">` : ''}` +
         `${_discountTagHtml(pct)}` +
         `<span class="pstock ${stockClass(s)}">${stockLabel(s)}</span>` +
-        `<span class="pimg-emoji"${p.img ? ' style="display:none"' : ''}>${p.e}</span>` +
+        `<span class="pimg-emoji"${coverImg ? ' style="display:none"' : ''}>${p.e}</span>` +
       `</div>` +
       `<div class="pbody">` +
         `<div class="pclick" onclick="openProductDetail('${p.id}')">` +
-          `<span class="pcat">${_pdEsc(p.cat)}${groupBadge}</span>` +
+          `<span class="pcat">${_pdEsc(p.cat)}</span>` +
           `<div class="pname">${_pdEsc(p.name)}</div>` +
+          `${colorDots}` +
           `<div class="pdesc">${_pdEsc(p.desc)}</div>` +
         `</div>` +
         `<div class="pfooter">` +
@@ -235,6 +244,7 @@ function _renderGroupCard(g, i) {
     : `${enabled.length} opciones`;
   const stockTxt = s === 0 ? 'Sin stock' : (s <= 5 ? `Pocas · ${optsLabel}` : `${optsLabel}`);
   const gid = _pdEsc(g.id).replace(/'/g, "\\'");
+  const colorDots = _groupColorDots(g);
   const card =
     `<article class="pcard pcard-group${pct > 0 ? ' pcard-sale' : ''}">` +
       `<div class="pimg pimg-clickable" onclick="openGroupDetail('${gid}')">` +
@@ -245,9 +255,10 @@ function _renderGroupCard(g, i) {
       `</div>` +
       `<div class="pbody">` +
         `<div class="pclick" onclick="openGroupDetail('${gid}')">` +
-          `<span class="pcat">${_pdEsc(g.cat || '')}<span class="pgroup-badge">${g.kind === 'color' ? 'Por color' : 'Por valor'}</span></span>` +
+          `<span class="pcat">${_pdEsc(g.cat || '')}</span>` +
           `<div class="pname">${_pdEsc(g.name)}</div>` +
-          `<div class="pdesc">${_pdEsc((rep && rep.desc) || 'Elige la variante dentro del producto')}</div>` +
+          `${colorDots}` +
+          `<div class="pdesc">${_pdEsc((rep && rep.desc) || '')}</div>` +
         `</div>` +
         `<div class="pfooter">` +
           `${_pricePairHtml(oldP, pct, true)}` +
@@ -287,9 +298,11 @@ function _renderVisibleSlice() {
   _updatePagers(true, currentPage, totalPages);
 }
 
-// Estado del modal de grupo (variante seleccionada)
+// Estado del modal de grupo / color embebido
 let _pdSelectedVariantId = null;
 let _pdActiveGroupId = null;
+let _pdSelectedColorId = null; // id dentro de product.groupColors
+let _pdColorProductId = null;  // producto raíz con groupColors
 
 // Actualiza ambos paginadores (superior e inferior) a la vez.
 function _updatePagers(show, page, totalPages) {
@@ -451,13 +464,20 @@ function _ensureProductDetailModal() {
 function openProductDetail(id) {
   const p = products.find(x => x.id === id);
   if (!p) return;
-  // Si pertenece a un grupo, abrir el modal de grupo con esa variante preseleccionada.
-  if (p.groupId && productGroups[p.groupId]) {
+  // Grupo multi-doc (valor / color legado): modal de grupo.
+  if (p.groupId && productGroups[p.groupId] && !(p.groupColors && p.groupColors.length)) {
     openGroupDetail(p.groupId, p.id);
     return;
   }
   _pdActiveGroupId = null;
   _pdSelectedVariantId = p.id;
+  _pdColorProductId = (p.groupColors && p.groupColors.length) ? p.id : null;
+  _pdSelectedColorId = null;
+  if (_pdColorProductId) {
+    const enabled = _productEnabledColors(p);
+    const first = enabled.find(c => c.imageUrl) || enabled[0] || p.groupColors[0] || null;
+    _pdSelectedColorId = first ? first.id : null;
+  }
   _fillProductDetailModal(p, null);
 }
 
@@ -473,6 +493,8 @@ function openGroupDetail(groupId, preselectId) {
   if (!selected) return;
   _pdActiveGroupId = groupId;
   _pdSelectedVariantId = selected.id;
+  _pdColorProductId = null;
+  _pdSelectedColorId = null;
   _fillProductDetailModal(selected, g);
 }
 
@@ -484,6 +506,41 @@ function selectGroupVariant(variantId) {
   if (!v || !_variantIsEnabled(v)) return;
   _pdSelectedVariantId = v.id;
   _fillProductDetailModal(v, g);
+}
+
+/** Elige un color del array groupColors del producto raíz (stock/id compartidos). */
+function selectProductColor(colorId) {
+  if (!_pdColorProductId) return;
+  const p = products.find(x => x.id === _pdColorProductId);
+  if (!p) return;
+  const c = (p.groupColors || []).find(x => x.id === colorId);
+  if (!c || !_colorIsEnabled(c)) return;
+  _pdSelectedColorId = c.id;
+  _fillProductDetailModal(p, null);
+}
+
+/** Picker de colores desde groupColors (producto raíz, stock compartido). */
+function _renderEmbeddedColorPicker(p, selectedColorId) {
+  const colors = p && p.groupColors || [];
+  if (!colors.length) return '';
+  const chips = colors.map(c => {
+    const enabled = _colorIsEnabled(c);
+    const sel = c.id === selectedColorId;
+    const title = enabled
+      ? (c.label || c.color)
+      : `${c.label || c.color} (no disponible)`;
+    const safeId = String(c.id).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    return `<button type="button" class="pd-swatch${sel ? ' is-selected' : ''}${enabled ? '' : ' is-disabled'}"` +
+      ` style="--swatch:${_pdEsc(c.color || '#9ca3af')}"` +
+      ` title="${_pdEsc(title)}"` +
+      ` aria-label="${_pdEsc(title)}"` +
+      (enabled ? ` onclick="selectProductColor('${safeId}')"` : ' disabled') +
+      `></button>`;
+  }).join('');
+  return `<div class="pd-variant-block">` +
+    `<div class="pd-variant-label">Color</div>` +
+    `<div class="pd-variant-options pd-variant-color">${chips}</div>` +
+  `</div>`;
 }
 
 function _renderVariantPicker(g, selectedId) {
@@ -498,18 +555,19 @@ function _renderVariantPicker(g, selectedId) {
     const title = disabled
       ? `${v.variantLabel || v.name} (no disponible)`
       : `${v.variantLabel || v.name}${stock === 0 ? ' · sin stock' : ''}`;
+    const safeId = String(v.id).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     if (kind === 'color') {
       const color = v.variantColor || '#9ca3af';
       return `<button type="button" class="pd-swatch${sel ? ' is-selected' : ''}${disabled ? ' is-disabled' : ''}${stock === 0 && enabled ? ' is-oustock' : ''}"` +
         ` style="--swatch:${_pdEsc(color)}"` +
         ` title="${_pdEsc(title)}"` +
         ` aria-label="${_pdEsc(title)}"` +
-        (disabled ? ' disabled' : ` onclick="selectGroupVariant('${v.id}')"`) +
+        (disabled ? ' disabled' : ` onclick="selectGroupVariant('${safeId}')"`) +
         `></button>`;
     }
     return `<button type="button" class="pd-chip${sel ? ' is-selected' : ''}${disabled ? ' is-disabled' : ''}${stock === 0 && enabled ? ' is-oustock' : ''}"` +
       ` title="${_pdEsc(title)}"` +
-      (disabled ? ' disabled' : ` onclick="selectGroupVariant('${v.id}')"`) +
+      (disabled ? ' disabled' : ` onclick="selectGroupVariant('${safeId}')"`) +
       `>${_pdEsc(v.variantLabel || v.name)}</button>`;
   }).join('');
   return `<div class="pd-variant-block">` +
@@ -524,11 +582,27 @@ function _fillProductDetailModal(p, g) {
   const foot = document.getElementById('productDetailFoot');
   const shell = document.getElementById('productDetailShell');
 
+  // Color embebido (groupColors): stock e id del producto raíz siempre.
+  const embeddedColors = (!g && p.groupColors && p.groupColors.length) ? p.groupColors : null;
+  let selectedColor = null;
+  if (embeddedColors) {
+    selectedColor = embeddedColors.find(c => c.id === _pdSelectedColorId) || null;
+    if (!selectedColor || !_colorIsEnabled(selectedColor)) {
+      selectedColor = _productEnabledColors(p).find(c => c.imageUrl)
+        || _productEnabledColors(p)[0]
+        || embeddedColors[0]
+        || null;
+      _pdSelectedColorId = selectedColor ? selectedColor.id : null;
+    }
+  }
+
+  // Stock: raíz para groupColors; variante elegida en grupos multi-doc.
   const s       = _variantStock(p);
-  const noStock = s === 0 || !_variantIsEnabled(p);
+  const noStock = s === 0 || (g ? !_variantIsEnabled(p) : false);
   const pct     = discountMode ? _productDiscountPct(p.id) : 0;
   const oldP    = typeof p.price === 'number' ? p.price : 0;
   const displayName = g ? (g.name || p.groupName || p.name) : p.name;
+  const displayImg = (selectedColor && selectedColor.imageUrl) || p.img || '';
 
   if (shell) {
     shell.classList.toggle('has-fire', pct > 0);
@@ -539,8 +613,8 @@ function _fillProductDetailModal(p, g) {
   const overlay = document.getElementById('productDetailModal');
   if (overlay) overlay.classList.toggle('pd-sale-overlay', pct > 0);
 
-  const imgHtml = p.img
-    ? `<img src="${_pdEsc(p.img)}" alt="${_pdEsc(displayName)}" onerror="this.style.display='none';this.parentNode.innerHTML='${_pdEsc(p.e || '📦')}'">`
+  const imgHtml = displayImg
+    ? `<img src="${_pdEsc(displayImg)}" alt="${_pdEsc(displayName)}" onerror="this.style.display='none';this.parentNode.innerHTML='${_pdEsc(p.e || '📦')}'">`
     : _pdEsc(p.e || '📦');
 
   const descHtml = (p.desc && p.desc.trim())
@@ -551,9 +625,14 @@ function _fillProductDetailModal(p, g) {
     ? `<div class="pd-desc-h">Descripción <button class="pd-edit-btn" onclick="startEditProductDesc('${p.id}')"><span>✏️</span> Editar</button></div>`
     : `<div class="pd-desc-h">Descripción</div>`;
 
-  const variantPicker = g ? _renderVariantPicker(g, p.id) : '';
-  const variantNote = g && p.variantLabel
-    ? `<div class="pd-selected-variant">Seleccionado: <strong>${_pdEsc(p.variantLabel)}</strong></div>`
+  const variantPicker = g
+    ? _renderVariantPicker(g, p.id)
+    : (embeddedColors ? _renderEmbeddedColorPicker(p, _pdSelectedColorId) : '');
+  const selectedLabel = g
+    ? (p.variantLabel || '')
+    : (selectedColor ? (selectedColor.label || '') : '');
+  const variantNote = selectedLabel
+    ? `<div class="pd-selected-variant">Seleccionado: <strong>${_pdEsc(selectedLabel)}</strong></div>`
     : '';
 
   body.innerHTML =
@@ -561,7 +640,6 @@ function _fillProductDetailModal(p, g) {
     `<div class="pd-tags">` +
       `<span class="pd-tag">${_pdEsc(p.cat)}</span>` +
       `<span class="pd-tag ${stockClass(s)}" style="background:transparent">${_pdEsc(stockLabel(s))}</span>` +
-      (g ? `<span class="pd-tag">${g.kind === 'color' ? 'Grupo · color' : 'Grupo · valor'}</span>` : '') +
     `</div>` +
     `<div class="pd-name">${_pdEsc(displayName)}</div>` +
     variantNote +
@@ -570,6 +648,7 @@ function _fillProductDetailModal(p, g) {
     descHeader +
     `<div id="pdDescArea">${descHtml}</div>`;
 
+  // Carrito: siempre el id del producto mostrado. Con groupColors es el raíz.
   foot.innerHTML =
     `<button class="btn-sec" onclick="closeModal('productDetailModal')">Cerrar</button>` +
     `<div class="add-zone pd-add" id="addZoneModal_${p.id}">${renderAddZoneHTML(p.id, noStock)}</div>`;
