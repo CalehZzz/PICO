@@ -47,6 +47,9 @@ let adminUnsubscribe = null;
 let currentCat       = 'Todos';
 let currentSearch    = '';
 let discountMode     = false; // preview admin: catálogo filtrado por descuentoPct
+// false = nadie compra a precio de oferta (solo preview admin en UI).
+// true  = descuentoPct del inventario aplica en carrito/checkout.
+const PRODUCT_DISCOUNTS_LIVE = false;
 
 // Descuentos: lista global (leída de Firestore) y descuentos asignados al usuario
 let allDescuentos       = [];   // [{id, nombre, porcentaje}]

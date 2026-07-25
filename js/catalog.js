@@ -436,9 +436,10 @@ function _pop(p) {
 //  Porcentajes simulados solo para diseñar la UI.
 // ═══════════════════════════════════════════════════
 
-/** % de oferta del producto (desde inventario). 0 = sin oferta. */
+/** % de oferta del producto para preview del catálogo (inventario). 0 = sin oferta. */
 function _productDiscountPct(id) {
   const p = (products || []).find(x => x.id === id);
+  if (typeof getProductDiscountPctRaw === 'function') return getProductDiscountPctRaw(p);
   return (typeof getProductDiscountPct === 'function') ? getProductDiscountPct(p) : 0;
 }
 
