@@ -250,6 +250,7 @@ function loadCart() {
 }
 
 function addToCart(id) {
+  if (typeof requireSucursalForCart === 'function' && !requireSucursalForCart()) return;
   const s = stockMap[id] || 0;
   if (s < 1) { showToast('⚠️ Sin stock disponible'); return; }
   cart[id] = 1;
