@@ -106,6 +106,13 @@ function updateNavAuth() {
     document.body.classList.toggle('is-admin', !!isAdmin);
     const invBtn = document.getElementById('inventoryNavBtn');
     isAdmin ? invBtn.classList.remove('hidden') : invBtn.classList.add('hidden');
+    // Preview de Descuentos solo para admin
+    if (!isAdmin && typeof discountMode !== 'undefined' && discountMode) {
+      discountMode = false;
+      document.body.classList.remove('discount-mode');
+      if (typeof _syncDescuentosBtn === 'function') _syncDescuentosBtn();
+      if (typeof renderProducts === 'function') renderProducts();
+    }
   } else {
     area.innerHTML = `<button class="nbtn nbtn-outline" onclick="closeNavMenu();toggleAuth()">Iniciar Sesión</button>`;
     if (profBtn) profBtn.classList.add('hidden');
