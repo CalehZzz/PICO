@@ -821,6 +821,22 @@ function _playDiscountBurst(originEl) {
   window.setTimeout(() => burst.classList.remove('is-on'), 1100);
 }
 
+function _syncDiscountBrandLogo() {
+  const img = document.querySelector('#mainNav .brand-icon');
+  if (!img) return;
+  const next = discountMode ? '/logo-discount.png' : '/logo.png';
+  if (img.getAttribute('src') === next) return;
+  img.style.opacity = '0';
+  img.style.transform = 'scale(.86) rotate(-6deg)';
+  window.setTimeout(() => {
+    img.src = next;
+    img.alt = discountMode ? 'PICO Ofertas' : 'PICO';
+    void img.offsetWidth;
+    img.style.opacity = '1';
+    img.style.transform = '';
+  }, 160);
+}
+
 function _syncDescuentosBtn() {
   const btn = document.getElementById('descuentosBtn');
   const label = document.getElementById('descuentosBtnLabel');
@@ -829,6 +845,7 @@ function _syncDescuentosBtn() {
     btn.setAttribute('aria-pressed', discountMode ? 'true' : 'false');
   }
   if (label) label.textContent = discountMode ? 'Salir de ofertas' : 'Descuentos';
+  _syncDiscountBrandLogo();
 }
 
 function toggleDescuentosMode(e) {
