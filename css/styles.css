@@ -180,7 +180,7 @@ nav{position:sticky;top:12px;z-index:200;
 .filter-item .filter-check{opacity:0;color:var(--b600);transform:scale(.6);transition:opacity .16s,transform .2s var(--spring)}
 .filter-item.active .filter-check{opacity:1;transform:scale(1)}
 
-/* ── BOTÓN DESCUENTOS (plasma / fueguito) ── */
+/* ── BOTÓN DESCUENTOS (plasma pastel) ── */
 .discount-plasma-btn{
   position:relative;display:inline-flex;align-items:center;justify-content:center;
   padding:2px;border:none;border-radius:999px;background:transparent;cursor:pointer;
@@ -189,31 +189,33 @@ nav{position:sticky;top:12px;z-index:200;
 .discount-plasma-btn .plasma-aura,
 .discount-modal-shell .plasma-aura{
   position:absolute;inset:-3px;border-radius:inherit;z-index:0;pointer-events:none;
-  background:linear-gradient(120deg,#ff3b30,#ff9f0a,#ffd60a,#bf5af2,#ff375f,#ff3b30);
+  background:linear-gradient(120deg,#ff8a80,#ffcc80,#fff59d,#ce93d8,#f48fb1,#ff8a80);
   background-size:300% 300%;
-  filter:blur(7px);opacity:.55;
+  filter:blur(7px);opacity:.7;
   animation:plasmaFlow 4.2s linear infinite, plasmaPulse 2.8s ease-in-out infinite;
 }
 .discount-plasma-btn .plasma-aura-2,
 .discount-modal-shell .plasma-aura-2{
-  inset:-7px;filter:blur(14px);opacity:.28;
+  inset:-7px;filter:blur(14px);opacity:.4;
   animation:plasmaFlow 6.5s linear infinite reverse, plasmaPulse 3.4s ease-in-out infinite .35s;
 }
 .discount-plasma-inner{
   position:relative;z-index:1;display:inline-flex;align-items:center;gap:8px;
   padding:11px 18px;border-radius:999px;
-  background:linear-gradient(135deg,#1d1d1f 0%,#2c1a24 45%,#1a1428 100%);
-  color:#fff;font-size:.84rem;font-weight:700;letter-spacing:-.01em;
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.08);
+  background:linear-gradient(135deg,#fff0f3 0%,#f3e8ff 48%,#fff6e8 100%);
+  color:#6d4c63;font-size:.84rem;font-weight:700;letter-spacing:-.01em;
+  border:1px solid rgba(244,143,177,.35);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.8),0 4px 14px rgba(206,147,216,.18);
   transition:transform .22s var(--ease),background .35s var(--ease),box-shadow .3s var(--ease);
 }
 .discount-plasma-btn:hover .discount-plasma-inner{
   transform:translateY(-1px);
-  background:linear-gradient(135deg,#2a1f22 0%,#3a1f2e 45%,#241833 100%);
+  background:linear-gradient(135deg,#ffe4ea 0%,#ebe0ff 48%,#ffefd6 100%);
 }
 .discount-plasma-btn:active .discount-plasma-inner{transform:translateY(0) scale(.98)}
 .discount-plasma-btn.is-active .discount-plasma-inner{
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.1),0 0 0 1px rgba(255,159,10,.35);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 0 0 2px rgba(244,143,177,.45),0 6px 18px rgba(206,147,216,.22);
+  color:#5a3d55;
 }
 .discount-plasma-btn.is-igniting .discount-plasma-inner{
   animation:discountIgnite .72s var(--spring);
@@ -224,15 +226,15 @@ nav{position:sticky;top:12px;z-index:200;
 .discount-plasma-btn.is-igniting .plasma-aura-2{
   animation:plasmaBurst .9s ease-out .05s, plasmaFlow 6.5s linear infinite reverse;
 }
-.discount-plasma-inner svg{flex-shrink:0;opacity:.95}
+.discount-plasma-inner svg{flex-shrink:0;opacity:.95;color:#e57373}
 @keyframes plasmaFlow{
   0%{background-position:0% 50%}
   50%{background-position:100% 50%}
   100%{background-position:0% 50%}
 }
 @keyframes plasmaPulse{
-  0%,100%{opacity:.4}
-  50%{opacity:.7}
+  0%,100%{opacity:.45}
+  50%{opacity:.8}
 }
 @keyframes discountIgnite{
   0%{transform:scale(1) rotate(0)}
@@ -244,7 +246,7 @@ nav{position:sticky;top:12px;z-index:200;
 @keyframes plasmaBurst{
   0%{opacity:.55;filter:blur(7px);transform:scale(1)}
   35%{opacity:1;filter:blur(12px);transform:scale(1.55)}
-  100%{opacity:.45;filter:blur(8px);transform:scale(1)}
+  100%{opacity:.55;filter:blur(8px);transform:scale(1)}
 }
 
 /* Explosión creativa al pulsar Descuentos */
@@ -252,23 +254,22 @@ nav{position:sticky;top:12px;z-index:200;
   position:fixed;left:var(--bx,50%);top:var(--by,20%);
   width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;
   pointer-events:none;z-index:700;opacity:0;
-  background:radial-gradient(circle,rgba(255,214,10,.95) 0%,rgba(255,59,48,.55) 35%,rgba(191,90,242,.2) 60%,transparent 72%);
-  mix-blend-mode:screen;
+  background:radial-gradient(circle,rgba(255,245,157,.95) 0%,rgba(255,138,128,.55) 35%,rgba(206,147,216,.28) 60%,transparent 72%);
 }
 .discount-burst.is-on{animation:discountBurstPop .85s cubic-bezier(.16,1,.3,1) forwards}
 .discount-burst.is-on::before,
 .discount-burst.is-on::after{
   content:'';position:absolute;inset:-10px;border-radius:50%;
-  border:2px solid rgba(255,159,10,.55);
+  border:2px solid rgba(255,204,128,.65);
   animation:discountRing .85s ease-out forwards;
 }
 .discount-burst.is-on::after{
-  inset:-22px;border-color:rgba(191,90,242,.4);
+  inset:-22px;border-color:rgba(206,147,216,.5);
   animation-delay:.08s;
 }
 @keyframes discountBurstPop{
   0%{opacity:.9;transform:scale(.2)}
-  40%{opacity:.85;transform:scale(18)}
+  40%{opacity:.75;transform:scale(18)}
   100%{opacity:0;transform:scale(34)}
 }
 @keyframes discountRing{
@@ -276,25 +277,43 @@ nav{position:sticky;top:12px;z-index:200;
   100%{opacity:0;transform:scale(2.8)}
 }
 
-/* Página entera con el gradiente del botón */
+/* Página en pasteles (legible, no tapa textos) */
 body.discount-mode{
-  color:#d2d2d7;
-  background:linear-gradient(145deg,#1d1d1f 0%,#2c1a24 42%,#1a1428 100%);
+  color:#5c4a55;
+  background:linear-gradient(145deg,#fff5f7 0%,#f7f0ff 45%,#fff8ef 100%);
   transition:background .55s var(--ease),color .35s var(--ease);
 }
 body.discount-mode::before{
   background:
-    radial-gradient(55% 45% at 12% 0%,rgba(255,59,48,.18) 0%,transparent 58%),
-    radial-gradient(50% 40% at 88% 8%,rgba(191,90,242,.16) 0%,transparent 55%),
-    radial-gradient(40% 35% at 50% 100%,rgba(255,159,10,.1) 0%,transparent 55%),
-    linear-gradient(145deg,#1d1d1f 0%,#2c1a24 42%,#1a1428 100%);
+    radial-gradient(55% 45% at 12% 0%,rgba(255,138,128,.22) 0%,transparent 58%),
+    radial-gradient(50% 40% at 88% 8%,rgba(206,147,216,.2) 0%,transparent 55%),
+    radial-gradient(40% 35% at 50% 100%,rgba(255,204,128,.16) 0%,transparent 55%),
+    linear-gradient(145deg,#fff5f7 0%,#f7f0ff 45%,#fff8ef 100%);
 }
-body.discount-mode .cat-hero h1,
-body.discount-mode .cat-hero p,
-body.discount-mode .page-info-text{color:#f5f5f7}
-body.discount-mode .nores p{color:#d2d2d7}
-body.discount-mode .pcard{border-color:rgba(255,255,255,.08)}
-body.discount-mode .pcard:hover{border-color:rgba(255,159,10,.35)}
+body.discount-mode .cat-hero-eyebrow{color:#c4788a;background:rgba(255,255,255,.72)}
+body.discount-mode .cat-hero-title{color:#3d2f38}
+body.discount-mode .cat-hero-title .grad{
+  background:linear-gradient(115deg,#e57373,#ce93d8,#ffb74d);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+body.discount-mode .cat-hero-sub,
+body.discount-mode .page-info-text,
+body.discount-mode .nores p{color:#7a6570}
+body.discount-mode .pgrid{gap:28px}
+body.discount-mode .pcard{
+  background:rgba(255,255,255,.96);
+  border-color:rgba(244,143,177,.2);
+}
+body.discount-mode .pcard:hover{border-color:rgba(206,147,216,.45)}
+body.discount-mode .page-arrow,
+body.discount-mode .page-input{
+  background:#fff;color:#5c4a55;border-color:rgba(206,147,216,.28);
+}
+body.discount-mode .filter-btn{
+  background:rgba(255,255,255,.92);
+  border-color:rgba(206,147,216,.25);
+  color:#5c4a55;
+}
 
 /* Modal próximamente (no-admin) */
 .discount-modal-shell{
@@ -309,30 +328,31 @@ body.discount-mode .pcard:hover{border-color:rgba(255,159,10,.35)}
   animation:plasmaFlow 7.5s linear infinite reverse, plasmaPulse 3.6s ease-in-out infinite .4s}
 .discount-modal{
   position:relative;z-index:1;max-width:none;width:100%;transform:none;
-  background:linear-gradient(145deg,rgba(255,245,245,.97),rgba(255,250,235,.97) 40%,rgba(248,240,255,.97));
-  border:1px solid rgba(255,255,255,.55);overflow:hidden;
+  background:linear-gradient(145deg,#fff7f8,#fffaf2 40%,#faf5ff);
+  border:1px solid rgba(255,255,255,.8);overflow:hidden;
 }
 #descuentosModal.open .discount-modal{transform:none}
 .discount-soon{text-align:center;padding:18px 8px 8px}
 .discount-soon-ico{
   width:64px;height:64px;margin:0 auto 16px;border-radius:20px;
   display:flex;align-items:center;justify-content:center;
-  background:linear-gradient(145deg,rgba(255,59,48,.12),rgba(191,90,242,.14));
-  box-shadow:inset 0 0 0 1px rgba(255,59,48,.12);
+  background:linear-gradient(145deg,rgba(255,138,128,.16),rgba(206,147,216,.18));
+  box-shadow:inset 0 0 0 1px rgba(255,138,128,.18);
 }
-.discount-soon h3{font-size:1.35rem;font-weight:800;color:var(--g900);letter-spacing:-.03em;margin-bottom:8px}
-.discount-soon p{font-size:.92rem;color:var(--g500);line-height:1.55;max-width:320px;margin:0 auto}
+.discount-soon h3{font-size:1.35rem;font-weight:800;color:#3d2f38;letter-spacing:-.03em;margin-bottom:8px}
+.discount-soon p{font-size:.92rem;color:#7a6570;line-height:1.55;max-width:320px;margin:0 auto}
 
-/* Etiqueta de descuento (tag) en tarjetas */
+/* Etiqueta de descuento (tag pastel) */
 .discount-tag{
   position:absolute;top:8px;left:8px;z-index:4;
   width:44px;height:52px;display:block;pointer-events:none;
   transform:rotate(-18deg);transform-origin:50% 20%;
-  filter:drop-shadow(0 4px 8px rgba(180,20,20,.35));
+  filter:drop-shadow(0 4px 10px rgba(255,138,128,.35));
   transition:transform .35s var(--spring);
 }
 .discount-tag svg{display:block;width:100%;height:100%}
-.pcard-sale:hover .discount-tag{
+.pcard-sale:hover .discount-tag,
+.pcard-fire-shell:hover .discount-tag{
   animation:tagWiggle .7s var(--spring);
 }
 .discount-tag-lg{
@@ -346,83 +366,102 @@ body.discount-mode .pcard:hover{border-color:rgba(255,159,10,.35)}
   100%{transform:rotate(-18deg) translateY(0)}
 }
 .pprice-wrap{display:flex;flex-direction:column;align-items:flex-start;gap:1px;line-height:1.15}
-.pprice-old{font-size:.78rem;font-weight:600;color:var(--g400);text-decoration:line-through;letter-spacing:-.01em}
-.pprice-sale,.pd-price-new{color:#c9342a!important}
+.pprice-old{font-size:.78rem;font-weight:600;color:#a8989f;text-decoration:line-through;letter-spacing:-.01em}
+.pprice-sale,.pd-price-new{color:#e57373!important}
 .pd-price-sale{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .pd-price-sale .pprice-old{font-size:1.05rem}
 .pd-price-new{font-size:1.75rem;font-weight:800;letter-spacing:-.045em}
 .pd-img .discount-tag{z-index:5}
 
-/* Fuego mojado alrededor del modal de producto */
+/* Fuego / plasma pastel alrededor de tarjetas (catálogo) y modal */
+.pcard-slot{
+  min-width:0;animation:fadeUp .5s var(--ease) both;
+}
+.pcard-fire-shell,
 .pd-fire-shell{
-  position:relative;width:100%;max-width:480px;
-  border-radius:calc(var(--rlg) + 6px);padding:0;
+  position:relative;min-width:0;border-radius:calc(var(--r) + 6px);
+  isolation:isolate;animation:fadeUp .5s var(--ease) both;
+}
+.pcard-fire-shell{padding:3px}
+.pcard-fire-shell .pcard{
+  position:relative;z-index:2;height:100%;
+  background:rgba(255,255,255,.96);
+  border-color:rgba(255,255,255,.7);
+}
+.pcard-fire-shell:hover .pcard{transform:translateY(-7px);border-color:rgba(206,147,216,.35)}
+.pd-fire-shell{
+  width:100%;max-width:480px;padding:0;
   transform:scale(.93) translateY(14px);transition:transform .4s var(--spring);
 }
 #productDetailModal.open .pd-fire-shell{transform:scale(1) translateY(0)}
-.pd-fire-shell .modal{position:relative;z-index:2;max-width:none;width:100%;transform:none!important}
+.pd-fire-shell .modal{position:relative;z-index:2;max-width:none;width:100%;transform:none!important;
+  background:linear-gradient(160deg,#fffafb 0%,#fffdf8 50%,#faf7ff 100%);
+  border-color:rgba(255,255,255,.75)}
 .pd-fire{
-  position:absolute;inset:-14px;border-radius:calc(var(--rlg) + 14px);
-  pointer-events:none;z-index:0;opacity:0;visibility:hidden;
-  filter:url(#wetFireFilter) blur(1.5px);
-  mix-blend-mode:screen;
-  transition:opacity .35s var(--ease),visibility .35s;
+  position:absolute;inset:-12px;border-radius:calc(var(--r) + 14px);
+  pointer-events:none;z-index:0;
+  filter:url(#wetFireFilter) blur(1.2px);
+  opacity:.9;
 }
-.pd-fire-shell.has-fire .pd-fire{opacity:1;visibility:visible}
+.pd-fire-shell .pd-fire{opacity:0;visibility:hidden;transition:opacity .35s var(--ease),visibility .35s}
+.pd-fire-shell.has-fire .pd-fire{opacity:.95;visibility:visible}
 .pd-fire-1{
   background:
-    radial-gradient(ellipse 70% 55% at 20% 90%,rgba(255,59,48,.75) 0%,transparent 55%),
-    radial-gradient(ellipse 60% 50% at 80% 85%,rgba(255,159,10,.7) 0%,transparent 50%),
-    radial-gradient(ellipse 50% 40% at 50% 100%,rgba(255,214,10,.55) 0%,transparent 55%),
-    radial-gradient(ellipse 40% 35% at 30% 10%,rgba(191,90,242,.35) 0%,transparent 60%);
+    radial-gradient(ellipse 70% 55% at 18% 88%,rgba(255,138,128,.7) 0%,transparent 55%),
+    radial-gradient(ellipse 60% 50% at 82% 86%,rgba(255,204,128,.65) 0%,transparent 52%),
+    radial-gradient(ellipse 50% 40% at 50% 100%,rgba(255,245,157,.55) 0%,transparent 55%),
+    radial-gradient(ellipse 42% 36% at 28% 8%,rgba(206,147,216,.45) 0%,transparent 60%);
   animation:fireLick 2.8s ease-in-out infinite;
 }
 .pd-fire-2{
-  inset:-22px;
+  inset:-18px;
   background:
-    radial-gradient(ellipse 55% 45% at 75% 95%,rgba(255,69,0,.55) 0%,transparent 55%),
-    radial-gradient(ellipse 45% 40% at 25% 92%,rgba(255,149,0,.5) 0%,transparent 50%),
-    radial-gradient(ellipse 35% 30% at 55% 8%,rgba(255,45,85,.3) 0%,transparent 60%);
-  opacity:0;filter:url(#wetFireFilter) blur(6px);
+    radial-gradient(ellipse 55% 45% at 75% 94%,rgba(244,143,177,.5) 0%,transparent 55%),
+    radial-gradient(ellipse 45% 40% at 22% 92%,rgba(255,183,77,.45) 0%,transparent 50%),
+    radial-gradient(ellipse 35% 30% at 55% 6%,rgba(179,157,219,.4) 0%,transparent 60%);
+  filter:url(#wetFireFilter) blur(5px);
   animation:fireLick 3.6s ease-in-out infinite reverse;
+  opacity:.75;
 }
-.pd-fire-shell.has-fire .pd-fire-2{opacity:.85}
+.pd-fire-shell.has-fire .pd-fire-2{opacity:.8}
 .pd-fire-3{
-  inset:-8px;
+  inset:-7px;
   background:conic-gradient(from 180deg at 50% 70%,
-    transparent 0%,rgba(255,59,48,.35) 12%,rgba(255,159,10,.4) 22%,
-    transparent 32%,rgba(191,90,242,.28) 48%,transparent 60%,
-    rgba(255,214,10,.35) 75%,transparent 100%);
-  filter:url(#wetFireFilter) blur(3px);
+    transparent 0%,rgba(255,138,128,.4) 12%,rgba(255,204,128,.42) 22%,
+    transparent 32%,rgba(206,147,216,.35) 48%,transparent 60%,
+    rgba(255,245,157,.38) 75%,transparent 100%);
+  filter:url(#wetFireFilter) blur(2.5px);
   animation:fireSpin 7s linear infinite;
-  opacity:0;
+  opacity:.55;
 }
-.pd-fire-shell.has-fire .pd-fire-3{opacity:.55}
+.pd-fire-shell.has-fire .pd-fire-3{opacity:.6}
 .pd-fire-gloss{
-  inset:-6px;z-index:1;mix-blend-mode:soft-light;
+  inset:-5px;z-index:1;
   background:linear-gradient(125deg,
-    rgba(255,255,255,.35) 0%,transparent 28%,
-    rgba(255,200,120,.2) 48%,transparent 62%,
-    rgba(255,255,255,.25) 100%);
+    rgba(255,255,255,.55) 0%,transparent 28%,
+    rgba(255,224,178,.35) 48%,transparent 62%,
+    rgba(255,255,255,.4) 100%);
   background-size:200% 200%;
   filter:blur(2px);
   animation:fireGloss 3.2s ease-in-out infinite;
-  opacity:0;
+  opacity:.65;
 }
 .pd-fire-shell.has-fire .pd-fire-gloss{opacity:.7}
+.pcard-fire-shell .pd-fire{border-radius:calc(var(--r) + 10px)}
 @keyframes fireLick{
-  0%,100%{transform:translateY(4px) scaleY(1) scaleX(1)}
-  40%{transform:translateY(-3px) scaleY(1.06) scaleX(.98)}
-  70%{transform:translateY(2px) scaleY(.97) scaleX(1.03)}
+  0%,100%{transform:translateY(3px) scaleY(1) scaleX(1)}
+  40%{transform:translateY(-2px) scaleY(1.05) scaleX(.98)}
+  70%{transform:translateY(2px) scaleY(.97) scaleX(1.02)}
 }
 @keyframes fireSpin{to{transform:rotate(360deg)}}
 @keyframes fireGloss{
-  0%,100%{background-position:0% 40%;opacity:.45}
-  50%{background-position:100% 60%;opacity:.85}
+  0%,100%{background-position:0% 40%;opacity:.4}
+  50%{background-position:100% 60%;opacity:.8}
 }
 @media(max-width:580px){
   .discount-plasma-inner{padding:10px 15px;font-size:.8rem}
   .discount-tag{width:38px;height:45px;top:6px;left:6px}
+  .pgrid{gap:18px}
 }
 
 /* ─── PRODUCT GRID (tarjetas recompuestas) ─── */
