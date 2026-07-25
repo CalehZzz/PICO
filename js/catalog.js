@@ -444,7 +444,7 @@ function _playDiscountBurst(originEl) {
   // reflow para reiniciar animación
   void burst.offsetWidth;
   burst.classList.add('is-on');
-  window.setTimeout(() => burst.classList.remove('is-on'), 900);
+  window.setTimeout(() => burst.classList.remove('is-on'), 1100);
 }
 
 function _syncDescuentosBtn() {
