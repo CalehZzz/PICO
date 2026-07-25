@@ -68,7 +68,7 @@ function _renderVisibleSlice() {
     const newP    = pct > 0 ? oldP * (1 - pct / 100) : oldP;
     const tagHtml = pct > 0
       ? `<span class="discount-tag" title="${pct}% de descuento" aria-label="${pct}% de descuento">` +
-          `<svg viewBox="0 0 48 56" width="44" height="52" aria-hidden="true">` +
+          `<svg viewBox="0 0 48 56" width="58" height="68" aria-hidden="true">` +
             `<path d="M24 3.2l15.8 14V48.2c0 2-1.6 3.6-3.6 3.6H11.8c-2 0-3.6-1.6-3.6-3.6V17.2L24 3.2z" fill="#ff8a80"/>` +
             `<circle cx="24" cy="16.2" r="3.1" fill="#fff"/>` +
             `<path d="M24 9.4c2.2-2.4 1.1-4.9 0-5.9-1.1.9-2.2 3.4 0 5.9z" stroke="#8d6e63" stroke-width="1.15" fill="none"/>` +
@@ -289,7 +289,7 @@ function openProductDetail(id) {
 
   const tagHtml = pct > 0
     ? `<span class="discount-tag discount-tag-lg" title="${pct}% de descuento">` +
-        `<svg viewBox="0 0 48 56" width="54" height="64" aria-hidden="true">` +
+        `<svg viewBox="0 0 48 56" width="72" height="84" aria-hidden="true">` +
           `<path d="M24 3.2l15.8 14V48.2c0 2-1.6 3.6-3.6 3.6H11.8c-2 0-3.6-1.6-3.6-3.6V17.2L24 3.2z" fill="#ff8a80"/>` +
           `<circle cx="24" cy="16.2" r="3.1" fill="#fff"/>` +
           `<path d="M24 9.4c2.2-2.4 1.1-4.9 0-5.9-1.1.9-2.2 3.4 0 5.9z" stroke="#8d6e63" stroke-width="1.15" fill="none"/>` +
@@ -463,21 +463,24 @@ function toggleDescuentosMode(e) {
     btn.classList.remove('is-igniting');
     void btn.offsetWidth;
     btn.classList.add('is-igniting');
-    window.setTimeout(() => btn.classList.remove('is-igniting'), 780);
+    window.setTimeout(() => btn.classList.remove('is-igniting'), 1100);
   }
   _playDiscountBurst(btn || (e && e.currentTarget));
 
-  if (!isAdmin) {
-    window.setTimeout(() => openModal('descuentosModal'), 280);
-    return;
-  }
-
-  discountMode = !discountMode;
-  document.body.classList.toggle('discount-mode', !!discountMode);
-  _syncDescuentosBtn();
-  renderProducts();
-  const wrap = document.querySelector('.catalog-wrap');
-  if (wrap) wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // Dejar que la animación arranque antes de cambiar la vista
+  const apply = () => {
+    if (!isAdmin) {
+      openModal('descuentosModal');
+      return;
+    }
+    discountMode = !discountMode;
+    document.body.classList.toggle('discount-mode', !!discountMode);
+    _syncDescuentosBtn();
+    renderProducts();
+    const wrap = document.querySelector('.catalog-wrap');
+    if (wrap) wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  window.setTimeout(apply, 220);
 }
 
 function closeDescuentosSoon() {
