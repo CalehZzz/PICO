@@ -258,7 +258,10 @@ function addToCart(id) {
   cart[id] = 1;
   saveCart();
   updateCartUI();
-  if (fromBtn) playAddToCartAnim(fromBtn);
+  // Animación de vuelo solo en modo Descuentos
+  if (typeof discountMode !== 'undefined' && discountMode && fromBtn) {
+    playAddToCartAnim(fromBtn);
+  }
   updateAddZone(id);
   showToast('✅ Agregado al carrito');
 }

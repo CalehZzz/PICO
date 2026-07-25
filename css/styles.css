@@ -553,22 +553,29 @@ body.discount-mode .pcard-fire-shell .add-btn{
 .pprice{font-size:1.2rem;font-weight:800;color:var(--g900);letter-spacing:-.035em}
 .add-zone{display:flex;align-items:center;gap:6px}
 .qty-spin{display:flex;align-items:center;gap:2px;background:var(--g50);border:1px solid rgba(17,24,39,.08);border-radius:999px;padding:3px 5px}
-.qspin-btn{width:27px;height:27px;border:none;background:transparent;cursor:pointer;font-size:.95rem;font-weight:700;color:#e57373;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:background .16s var(--ease),transform .16s var(--ease)}
-.qspin-btn:hover{background:rgba(255,138,128,.14)}
+.qspin-btn{width:27px;height:27px;border:none;background:transparent;cursor:pointer;font-size:.95rem;font-weight:700;color:var(--b600);border-radius:50%;display:flex;align-items:center;justify-content:center;transition:background .16s var(--ease),transform .16s var(--ease)}
+.qspin-btn:hover{background:rgba(0,113,227,.12)}
 .qspin-btn:active{transform:scale(.86)}
 .qspin-input{font-size:.82rem;font-weight:700;color:var(--g900);width:32px;text-align:center;border:none;background:transparent;outline:none;padding:0;font-family:var(--font)}
 .qspin-input::-webkit-outer-spin-button,.qspin-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .qspin-input[type=number]{-moz-appearance:textfield}
-.add-btn{width:40px;height:40px;border-radius:50%;
-  background:linear-gradient(135deg,#ff8a80 0%,#f48fb1 48%,#ce93d8 100%);
+.add-btn{width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,var(--b500),var(--b600));
   border:none;cursor:pointer;color:#fff;display:flex;align-items:center;justify-content:center;
-  font-size:1.35rem;font-weight:400;line-height:1;
-  box-shadow:0 4px 12px rgba(255,138,128,.35),0 2px 6px rgba(206,147,216,.22);
-  transition:transform .3s var(--spring),box-shadow .3s var(--ease);flex-shrink:0}
-.add-btn:hover{transform:scale(1.12) rotate(90deg);
-  box-shadow:0 8px 20px rgba(255,138,128,.45),0 4px 12px rgba(206,147,216,.3)}
+  font-size:1.35rem;font-weight:400;line-height:1;box-shadow:var(--glow-sm);transition:transform .3s var(--spring),box-shadow .3s var(--ease);flex-shrink:0}
+.add-btn:hover{transform:scale(1.12) rotate(90deg);box-shadow:var(--glow)}
 .add-btn:active{transform:scale(.9)}
 .add-btn:disabled{background:var(--g200);color:var(--g400);box-shadow:none;cursor:not-allowed;transform:none}
+
+/* Solo en modo Descuentos: + pastel + animación de vuelo */
+body.discount-mode .add-btn{
+  background:linear-gradient(135deg,#ff8a80 0%,#f48fb1 48%,#ce93d8 100%);
+  box-shadow:0 4px 12px rgba(255,138,128,.35),0 2px 6px rgba(206,147,216,.22);
+}
+body.discount-mode .add-btn:hover{
+  box-shadow:0 8px 20px rgba(255,138,128,.45),0 4px 12px rgba(206,147,216,.3);
+}
+body.discount-mode .qspin-btn{color:#e57373}
+body.discount-mode .qspin-btn:hover{background:rgba(255,138,128,.14)}
 .add-btn.add-btn-pop{animation:addBtnPop .45s cubic-bezier(.22,1,.36,1)}
 @keyframes addBtnPop{
   0%{transform:scale(1)}
@@ -577,7 +584,7 @@ body.discount-mode .pcard-fire-shell .add-btn{
   100%{transform:scale(1) rotate(90deg)}
 }
 
-/* Partícula que vuela al carrito */
+/* Partícula que vuela al carrito (solo se dispara en modo descuentos) */
 .cart-flyer{
   position:fixed;z-index:900;pointer-events:none;
   width:28px;height:28px;margin:-14px 0 0 -14px;border-radius:50%;
