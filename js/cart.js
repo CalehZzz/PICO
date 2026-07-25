@@ -253,11 +253,48 @@ function addToCart(id) {
   if (typeof requireSucursalForCart === 'function' && !requireSucursalForCart()) return;
   const s = stockMap[id] || 0;
   if (s < 1) { showToast('⚠️ Sin stock disponible'); return; }
+  const fromBtn = document.querySelector('#addZone_' + id + ' .add-btn')
+    || document.querySelector('#addZoneModal_' + id + ' .add-btn');
   cart[id] = 1;
   saveCart();
   updateCartUI();
+  if (fromBtn) playAddToCartAnim(fromBtn);
   updateAddZone(id);
   showToast('✅ Agregado al carrito');
+}
+
+/** Animación dopamínica: el + vuela al botón del carrito y este hace bump. */
+function playAddToCartAnim(fromEl) {
+  const cartBtn = document.querySelector('.cart-btn');
+  if (!fromEl || !cartBtn) return;
+  const a = fromEl.getBoundingClientRect();
+  const b = cartBtn.getBoundingClientRect();
+  if (!a.width || !b.width) return;
+
+  const flyer = document.createElement('div');
+  flyer.className = 'cart-flyer';
+  flyer.textContent = '+';
+  flyer.setAttribute('aria-hidden', 'true');
+  const x0 = a.left + a.width / 2;
+  const y0 = a.top + a.height / 2;
+  const x1 = b.left + b.width / 2;
+  const y1 = b.top + b.height / 2;
+  flyer.style.left = x0 + 'px';
+  flyer.style.top = y0 + 'px';
+  document.body.appendChild(flyer);
+
+  // Forzar layout y luego volar
+  void flyer.offsetWidth;
+  flyer.style.transform = 'translate(' + (x1 - x0) + 'px,' + (y1 - y0) + 'px) scale(.4)';
+  flyer.style.opacity = '0.15';
+
+  window.setTimeout(function () {
+    flyer.remove();
+    cartBtn.classList.remove('cart-btn-bump');
+    void cartBtn.offsetWidth;
+    cartBtn.classList.add('cart-btn-bump');
+    window.setTimeout(function () { cartBtn.classList.remove('cart-btn-bump'); }, 560);
+  }, 560);
 }
 
 function cartInc(id) {
