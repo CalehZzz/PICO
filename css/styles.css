@@ -41,13 +41,15 @@
 html{scroll-behavior:smooth;touch-action:manipulation;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
 /* Móvil: quita el zoom por doble-tap para poder tocar rápido sin que la pantalla haga zoom. */
 button,a,.add-btn,.qspin-btn,.qty-spin,.pcard,.add-zone,.pay-opt,.nbtn,.cart-btn,[onclick]{touch-action:manipulation}
-body{font-family:var(--font);background:#f4f4f6;color:var(--g700);min-height:100vh;overflow-x:hidden;letter-spacing:-.006em}
+body{font-family:var(--font);background:#f4f4f6;color:var(--g700);min-height:100vh;overflow-x:hidden;letter-spacing:-.006em;
+  transition:background .55s var(--ease),color .35s var(--ease)}
 /* Fondo aireado: 2 neblinas pastel estáticas (compositor-friendly, no repinta en scroll). */
 body::before{content:'';position:fixed;inset:0;z-index:-1;
   background:
     radial-gradient(70% 55% at 8% -8%,rgba(0,113,227,.09) 0%,transparent 60%),
     radial-gradient(60% 50% at 96% 2%,rgba(138,166,255,.11) 0%,transparent 58%),
-    #f4f4f6}
+    #f4f4f6;
+  transition:background .55s var(--ease),opacity .45s var(--ease)}
 
 ::selection{background:rgba(0,113,227,.18);color:var(--g900)}
 
@@ -75,7 +77,7 @@ nav{position:sticky;top:12px;z-index:200;
 .brand:hover{transform:scale(1.04)}
 .brand:active{transform:scale(.96)}
 .brand-icon{height:32px;width:auto;border-radius:0;object-fit:contain;display:block;background:transparent;box-shadow:none;
-  transition:opacity .18s var(--ease),transform .22s var(--spring)}
+  transition:opacity .35s var(--ease),transform .45s var(--spring)}
 .brand-name{font-size:1.05rem;font-weight:800;color:var(--g900);letter-spacing:-.03em}
 .nav-right{display:flex;align-items:center;gap:5px;flex-wrap:nowrap;position:relative;min-width:0}
 .nav-menu{display:flex;align-items:center;position:relative}
@@ -217,13 +219,13 @@ nav{position:sticky;top:12px;z-index:200;
   color:#5a3d55;
   animation:activeBtnHeartbeat 2.8s ease-in-out infinite;
 }
-/* Ignición corta y snappy (~380ms) — sin delay de arranque */
+/* Ignición al pulsar — arranca al instante (sin delay de JS) */
 .discount-plasma-btn.is-igniting .discount-plasma-inner{
-  animation:discountIgnite .38s cubic-bezier(.22,1,.36,1) both;
+  animation:discountIgnite 1.05s cubic-bezier(.22,1,.36,1) both;
   will-change:transform;
 }
 .discount-plasma-btn.is-igniting .plasma-aura{
-  animation:discountAuraBloom .38s cubic-bezier(.22,1,.36,1) both;
+  animation:discountAuraBloom 1.05s cubic-bezier(.22,1,.36,1) both;
 }
 .discount-plasma-inner svg{flex-shrink:0;opacity:.95;color:#e57373}
 @keyframes saleSoftPulse{
@@ -236,46 +238,58 @@ nav{position:sticky;top:12px;z-index:200;
 }
 @keyframes discountIgnite{
   0%{transform:scale(1)}
-  30%{transform:scale(.92)}
-  65%{transform:scale(1.06)}
+  22%{transform:scale(.9)}
+  48%{transform:scale(1.08)}
+  68%{transform:scale(.97)}
   100%{transform:scale(1)}
 }
 @keyframes discountAuraBloom{
-  0%{opacity:.6;box-shadow:0 6px 14px rgba(255,138,128,.22),0 10px 18px rgba(206,147,216,.12)}
-  45%{opacity:1;box-shadow:0 10px 22px rgba(255,138,128,.45),0 14px 26px rgba(206,147,216,.28)}
+  0%{opacity:.55;box-shadow:0 6px 14px rgba(255,138,128,.22),0 10px 18px rgba(206,147,216,.12)}
+  40%{opacity:1;box-shadow:0 12px 28px rgba(255,138,128,.48),0 18px 34px rgba(206,147,216,.3)}
   100%{opacity:.8;box-shadow:0 8px 18px rgba(255,138,128,.34),0 12px 24px rgba(206,147,216,.22)}
 }
 
-/* Onda rápida al pulsar Descuentos (GPU: solo transform/opacity, escala contenida) */
+/* Onda expansiva que “pinta” la pantalla de pasteles (GPU: transform/opacity) */
 .discount-burst{
   position:fixed;left:var(--bx,50%);top:var(--by,20%);
-  width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;
+  width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;
   pointer-events:none;z-index:700;opacity:0;
-  background:radial-gradient(circle,rgba(255,245,157,.7) 0%,rgba(255,138,128,.34) 42%,transparent 72%);
+  background:radial-gradient(circle,
+    rgba(255,245,157,.7) 0%,
+    rgba(255,138,128,.42) 28%,
+    rgba(244,143,177,.28) 48%,
+    rgba(206,147,216,.16) 62%,
+    transparent 72%);
   transform:translateZ(0);
-  contain:strict;
 }
 .discount-burst.is-on{
-  animation:discountBurstPop .38s cubic-bezier(.16,1,.3,1) forwards;
+  animation:discountBurstPop 1.05s cubic-bezier(.16,1,.3,1) forwards;
   will-change:transform,opacity;
 }
 .discount-burst.is-on::before,
 .discount-burst.is-on::after{
-  content:'';position:absolute;inset:-6px;border-radius:50%;
-  border:1.5px solid rgba(255,168,160,.55);
-  animation:discountRing .38s cubic-bezier(.16,1,.3,1) forwards;
+  content:'';position:absolute;inset:-8px;border-radius:50%;
+  border:1.5px solid rgba(255,168,160,.5);
+  animation:discountRing 1.05s cubic-bezier(.16,1,.3,1) forwards;
 }
 .discount-burst.is-on::after{
-  inset:-14px;border-color:rgba(206,147,216,.42);
+  inset:-18px;border-color:rgba(206,147,216,.4);
+  animation-delay:.08s;
 }
 @keyframes discountBurstPop{
-  0%{opacity:.85;transform:scale(.35)}
-  55%{opacity:.45;transform:scale(9)}
-  100%{opacity:0;transform:scale(12)}
+  0%{opacity:.85;transform:scale(.3)}
+  45%{opacity:.55;transform:scale(16)}
+  100%{opacity:0;transform:scale(28)}
 }
 @keyframes discountRing{
-  0%{opacity:.75;transform:scale(.5)}
-  100%{opacity:0;transform:scale(2.2)}
+  0%{opacity:.7;transform:scale(.45)}
+  100%{opacity:0;transform:scale(2.5)}
+}
+
+/* Morph del logo al cambiar de color */
+.brand-icon.is-swapping{
+  opacity:0;
+  transform:scale(.86) rotate(-6deg);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -296,7 +310,6 @@ body.discount-mode{
   --sh3:0 18px 44px rgba(90,40,60,.12),0 8px 18px rgba(90,40,60,.07);
   color:var(--g700);
   background:linear-gradient(145deg,#fff5f7 0%,#f7f0ff 45%,#fff8ef 100%);
-  transition:background .28s var(--ease),color .2s var(--ease);
 }
 body.discount-mode::before{
   background:
@@ -312,9 +325,6 @@ body.discount-mode nav{
   background:rgba(255,255,255,.88);
   border-color:rgba(244,143,177,.35);
   box-shadow:0 10px 30px rgba(255,138,128,.14),0 2px 8px rgba(206,147,216,.1);
-}
-body.discount-mode .brand-icon{
-  transition:opacity .35s var(--ease),transform .45s var(--spring),filter .35s var(--ease);
 }
 body.discount-mode .brand:hover .brand-icon{transform:scale(1.06) rotate(-2deg)}
 body.discount-mode .nbtn{background:rgba(255,138,128,.12);color:var(--b600)}

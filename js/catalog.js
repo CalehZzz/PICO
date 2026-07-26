@@ -805,7 +805,8 @@ function _productDiscountPct(id) {
 // Timers del FX de Descuentos (evitar apilar timeouts al spamear el botón).
 let _discountIgniteTimer = null;
 let _discountBurstTimer = null;
-const DISCOUNT_FX_MS = 380;
+let _discountLogoTimer = null;
+const DISCOUNT_FX_MS = 1050; // onda expansiva completa
 
 function _playDiscountBurst(originEl) {
   const burst = document.getElementById('discountBurst');
@@ -822,7 +823,7 @@ function _playDiscountBurst(originEl) {
   burst.style.setProperty('--bx', x + 'px');
   burst.style.setProperty('--by', y + 'px');
   burst.classList.remove('is-on');
-  // Reinicio en el siguiente frame (sin forzar reflow síncrono).
+  // Reinicio en el siguiente frame (sin forzar reflow síncrono → menos lag).
   requestAnimationFrame(() => {
     burst.classList.add('is-on');
     _discountBurstTimer = window.setTimeout(() => {
@@ -853,9 +854,19 @@ function _syncDiscountBrandLogo() {
   if (!img) return;
   const next = discountMode ? '/logo-discount.png' : '/logo.png';
   if (img.getAttribute('src') === next) return;
-  // Swap inmediato (sin delay) — el PNG ya está precargado.
-  img.src = next;
-  img.alt = discountMode ? 'PICO Ofertas' : 'PICO';
+  if (_discountLogoTimer) { clearTimeout(_discountLogoTimer); _discountLogoTimer = null; }
+
+  // Morph: sale → cambia src → entra (arranca al instante al cambiar el modo).
+  img.classList.add('is-swapping');
+  _discountLogoTimer = window.setTimeout(() => {
+    img.src = next;
+    img.alt = discountMode ? 'PICO Ofertas' : 'PICO';
+    // Forzar un frame con el nuevo src aún “out”, luego entrar.
+    requestAnimationFrame(() => {
+      img.classList.remove('is-swapping');
+      _discountLogoTimer = null;
+    });
+  }, 180);
 }
 
 function _syncDescuentosBtn() {
@@ -873,13 +884,13 @@ function toggleDescuentosMode(e) {
   const btn = document.getElementById('descuentosBtn');
   const origin = btn || (e && e.currentTarget);
 
-  // FX al instante (sin setTimeout de arranque).
+  // Todo arranca al pulsar: onda + ignite + cambio de paleta (sin delay de bloqueo).
   _igniteDescuentosBtn(btn);
   _playDiscountBurst(origin);
 
-  // Cambio de modo YA — sin delay de 220ms que trababa todo.
   // Solo admins pueden entrar al modo Descuentos (preview / pruebas).
   // El resto ve "Próximamente".
+
   if (!isAdmin) {
     if (discountMode) {
       discountMode = false;
