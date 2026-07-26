@@ -802,9 +802,15 @@ function _productDiscountPct(id) {
   return (typeof getProductDiscountPct === 'function') ? getProductDiscountPct(p) : 0;
 }
 
+// Timers del FX de Descuentos (evitar apilar timeouts al spamear el botón).
+let _discountIgniteTimer = null;
+let _discountBurstTimer = null;
+const DISCOUNT_FX_MS = 380;
+
 function _playDiscountBurst(originEl) {
   const burst = document.getElementById('discountBurst');
   if (!burst) return;
+  // Lecturas de layout PRIMERO (antes de escribir clases/estilos).
   let x = window.innerWidth / 2;
   let y = window.innerHeight * 0.22;
   if (originEl && originEl.getBoundingClientRect) {
@@ -812,29 +818,44 @@ function _playDiscountBurst(originEl) {
     x = r.left + r.width / 2;
     y = r.top + r.height / 2;
   }
+  if (_discountBurstTimer) { clearTimeout(_discountBurstTimer); _discountBurstTimer = null; }
   burst.style.setProperty('--bx', x + 'px');
   burst.style.setProperty('--by', y + 'px');
   burst.classList.remove('is-on');
-  // reflow para reiniciar animación
-  void burst.offsetWidth;
-  burst.classList.add('is-on');
-  window.setTimeout(() => burst.classList.remove('is-on'), 1100);
+  // Reinicio en el siguiente frame (sin forzar reflow síncrono).
+  requestAnimationFrame(() => {
+    burst.classList.add('is-on');
+    _discountBurstTimer = window.setTimeout(() => {
+      burst.classList.remove('is-on');
+      _discountBurstTimer = null;
+    }, DISCOUNT_FX_MS);
+  });
 }
+
+function _igniteDescuentosBtn(btn) {
+  if (!btn) return;
+  if (_discountIgniteTimer) { clearTimeout(_discountIgniteTimer); _discountIgniteTimer = null; }
+  btn.classList.remove('is-igniting');
+  requestAnimationFrame(() => {
+    btn.classList.add('is-igniting');
+    _discountIgniteTimer = window.setTimeout(() => {
+      btn.classList.remove('is-igniting');
+      _discountIgniteTimer = null;
+    }, DISCOUNT_FX_MS);
+  });
+}
+
+// Precarga el logo pastel para el swap al entrar a Descuentos.
+try { (new Image()).src = '/logo-discount.png'; } catch (_) {}
 
 function _syncDiscountBrandLogo() {
   const img = document.querySelector('#mainNav .brand-icon');
   if (!img) return;
   const next = discountMode ? '/logo-discount.png' : '/logo.png';
   if (img.getAttribute('src') === next) return;
-  img.style.opacity = '0';
-  img.style.transform = 'scale(.86) rotate(-6deg)';
-  window.setTimeout(() => {
-    img.src = next;
-    img.alt = discountMode ? 'PICO Ofertas' : 'PICO';
-    void img.offsetWidth;
-    img.style.opacity = '1';
-    img.style.transform = '';
-  }, 160);
+  // Swap inmediato (sin delay) — el PNG ya está precargado.
+  img.src = next;
+  img.alt = discountMode ? 'PICO Ofertas' : 'PICO';
 }
 
 function _syncDescuentosBtn() {
@@ -850,54 +871,54 @@ function _syncDescuentosBtn() {
 
 function toggleDescuentosMode(e) {
   const btn = document.getElementById('descuentosBtn');
-  if (btn) {
-    btn.classList.remove('is-igniting');
-    void btn.offsetWidth;
-    btn.classList.add('is-igniting');
-    window.setTimeout(() => btn.classList.remove('is-igniting'), 1100);
+  const origin = btn || (e && e.currentTarget);
+
+  // FX al instante (sin setTimeout de arranque).
+  _igniteDescuentosBtn(btn);
+  _playDiscountBurst(origin);
+
+  // Cambio de modo YA — sin delay de 220ms que trababa todo.
+  // Solo admins pueden entrar al modo Descuentos (preview / pruebas).
+  // El resto ve "Próximamente".
+  if (!isAdmin) {
+    if (discountMode) {
+      discountMode = false;
+      document.body.classList.remove('discount-mode');
+      _syncDescuentosBtn();
+      requestAnimationFrame(() => { if (typeof renderProducts === 'function') renderProducts(); });
+    }
+    openModal('descuentosModal');
+    const body = document.querySelector('#descuentosModal .discount-soon h3');
+    const p = document.querySelector('#descuentosModal .discount-soon p');
+    if (body) body.textContent = 'Próximamente...';
+    if (p) p.textContent = 'Estamos preparando ofertas especiales. Muy pronto vas a ver descuentos aquí.';
+    return;
   }
-  _playDiscountBurst(btn || (e && e.currentTarget));
 
-  // Dejar que la animación arranque antes de cambiar la vista
-  const apply = () => {
-    // Solo admins pueden entrar al modo Descuentos (preview / pruebas).
-    // El resto ve "Próximamente".
-    if (!isAdmin) {
-      if (discountMode) {
-        discountMode = false;
-        document.body.classList.remove('discount-mode');
-        _syncDescuentosBtn();
-        renderProducts();
-      }
-      openModal('descuentosModal');
-      const body = document.querySelector('#descuentosModal .discount-soon h3');
-      const p = document.querySelector('#descuentosModal .discount-soon p');
-      if (body) body.textContent = 'Próximamente...';
-      if (p) p.textContent = 'Estamos preparando ofertas especiales. Muy pronto vas a ver descuentos aquí.';
-      return;
-    }
+  // Admin: solo productos con descuentoPct > 0 (inventario)
+  const hasOffers = (products || []).some(p => _productDiscountPct(p.id) > 0);
+  if (!discountMode && !hasOffers) {
+    openModal('descuentosModal');
+    const body = document.querySelector('#descuentosModal .discount-soon h3');
+    const p = document.querySelector('#descuentosModal .discount-soon p');
+    if (body) body.textContent = 'Sin ofertas por ahora';
+    if (p) p.textContent = 'Cuando haya productos con descuento en el inventario, aparecerán aquí.';
+    return;
+  }
 
-    // Admin: solo productos con descuentoPct > 0 (inventario)
-    const hasOffers = (products || []).some(p => _productDiscountPct(p.id) > 0);
-    if (!discountMode && !hasOffers) {
-      openModal('descuentosModal');
-      const body = document.querySelector('#descuentosModal .discount-soon h3');
-      const p = document.querySelector('#descuentosModal .discount-soon p');
-      if (body) body.textContent = 'Sin ofertas por ahora';
-      if (p) p.textContent = 'Cuando haya productos con descuento en el inventario, aparecerán aquí.';
-      return;
-    }
-    discountMode = !discountMode;
-    document.body.classList.toggle('discount-mode', !!discountMode);
-    _syncDescuentosBtn();
-    renderProducts();
+  discountMode = !discountMode;
+  document.body.classList.toggle('discount-mode', !!discountMode);
+  _syncDescuentosBtn();
+
+  // Re-render del catálogo DESPUÉS del paint del tema (evita jank en el click).
+  requestAnimationFrame(() => {
+    if (typeof renderProducts === 'function') renderProducts();
     // Solo subir al salir de ofertas (no al entrar)
     if (!discountMode) {
       const wrap = document.querySelector('.catalog-wrap');
       if (wrap) wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-  };
-  window.setTimeout(apply, 220);
+  });
 }
 
 function closeDescuentosSoon() {
