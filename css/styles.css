@@ -75,7 +75,7 @@ nav{position:sticky;top:12px;z-index:200;
 .brand:hover{transform:scale(1.04)}
 .brand:active{transform:scale(.96)}
 .brand-icon{height:32px;width:auto;border-radius:0;object-fit:contain;display:block;background:transparent;box-shadow:none;
-  transition:opacity .35s var(--ease),transform .45s var(--spring)}
+  transition:opacity .18s var(--ease),transform .22s var(--spring)}
 .brand-name{font-size:1.05rem;font-weight:800;color:var(--g900);letter-spacing:-.03em}
 .nav-right{display:flex;align-items:center;gap:5px;flex-wrap:nowrap;position:relative;min-width:0}
 .nav-menu{display:flex;align-items:center;position:relative}
@@ -186,13 +186,15 @@ nav{position:sticky;top:12px;z-index:200;
   position:relative;display:inline-flex;align-items:center;justify-content:center;
   padding:0;border:none;border-radius:999px;background:transparent;cursor:pointer;
   isolation:isolate;font-family:var(--font);-webkit-tap-highlight-color:transparent;
+  contain:layout style;
 }
 .discount-plasma-btn .plasma-aura,
 .discount-modal-shell .plasma-aura{
   position:absolute;inset:0;border-radius:inherit;z-index:0;pointer-events:none;
   background:transparent;filter:none;
   box-shadow:0 8px 18px rgba(255,138,128,.34),0 12px 24px rgba(206,147,216,.22);
-  animation:saleSoftPulse 2.2s ease-in-out infinite;
+  animation:saleSoftPulse 2.8s ease-in-out infinite;
+  will-change:transform,opacity;
 }
 .discount-plasma-btn .plasma-aura-2,
 .discount-modal-shell .plasma-aura-2{display:none}
@@ -203,7 +205,7 @@ nav{position:sticky;top:12px;z-index:200;
   color:#6d4c63;font-size:.84rem;font-weight:700;letter-spacing:-.01em;
   border:1px solid rgba(244,143,177,.4);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.85);
-  transition:transform .45s cubic-bezier(.22,1,.36,1),background .4s var(--ease),box-shadow .4s var(--ease);
+  transition:transform .18s cubic-bezier(.22,1,.36,1),background .2s var(--ease),box-shadow .2s var(--ease);
 }
 .discount-plasma-btn:hover .discount-plasma-inner{
   transform:translateY(-2px) scale(1.02);
@@ -213,64 +215,67 @@ nav{position:sticky;top:12px;z-index:200;
 .discount-plasma-btn.is-active .discount-plasma-inner{
   box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 0 0 2px rgba(244,143,177,.45),0 8px 20px rgba(206,147,216,.25);
   color:#5a3d55;
-  animation:activeBtnHeartbeat 2.4s ease-in-out infinite;
+  animation:activeBtnHeartbeat 2.8s ease-in-out infinite;
 }
+/* Ignición corta y snappy (~380ms) — sin delay de arranque */
 .discount-plasma-btn.is-igniting .discount-plasma-inner{
-  animation:discountIgnite 1.05s cubic-bezier(.22,1,.36,1);
+  animation:discountIgnite .38s cubic-bezier(.22,1,.36,1) both;
+  will-change:transform;
 }
 .discount-plasma-btn.is-igniting .plasma-aura{
-  animation:discountAuraBloom 1.05s cubic-bezier(.22,1,.36,1);
+  animation:discountAuraBloom .38s cubic-bezier(.22,1,.36,1) both;
 }
 .discount-plasma-inner svg{flex-shrink:0;opacity:.95;color:#e57373}
 @keyframes saleSoftPulse{
-  0%,100%{opacity:.65;transform:scale(1)}
-  50%{opacity:1;transform:scale(1.03)}
+  0%,100%{opacity:.7;transform:scale(1)}
+  50%{opacity:1;transform:scale(1.02)}
 }
 @keyframes activeBtnHeartbeat{
   0%,100%{transform:scale(1)}
-  40%{transform:scale(1.035)}
-  55%{transform:scale(1.01)}
-  70%{transform:scale(1.04)}
+  50%{transform:scale(1.03)}
 }
 @keyframes discountIgnite{
   0%{transform:scale(1)}
-  22%{transform:scale(.9)}
-  48%{transform:scale(1.08)}
-  68%{transform:scale(.97)}
+  30%{transform:scale(.92)}
+  65%{transform:scale(1.06)}
   100%{transform:scale(1)}
 }
 @keyframes discountAuraBloom{
-  0%{opacity:.55;box-shadow:0 6px 14px rgba(255,138,128,.22),0 10px 18px rgba(206,147,216,.12)}
-  40%{opacity:1;box-shadow:0 12px 28px rgba(255,138,128,.48),0 18px 34px rgba(206,147,216,.3)}
+  0%{opacity:.6;box-shadow:0 6px 14px rgba(255,138,128,.22),0 10px 18px rgba(206,147,216,.12)}
+  45%{opacity:1;box-shadow:0 10px 22px rgba(255,138,128,.45),0 14px 26px rgba(206,147,216,.28)}
   100%{opacity:.8;box-shadow:0 8px 18px rgba(255,138,128,.34),0 12px 24px rgba(206,147,216,.22)}
 }
 
-/* Onda suave al pulsar Descuentos */
+/* Onda rápida al pulsar Descuentos (GPU: solo transform/opacity, escala contenida) */
 .discount-burst{
   position:fixed;left:var(--bx,50%);top:var(--by,20%);
-  width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;
+  width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;
   pointer-events:none;z-index:700;opacity:0;
-  background:radial-gradient(circle,rgba(255,245,157,.65) 0%,rgba(255,138,128,.32) 40%,transparent 70%);
+  background:radial-gradient(circle,rgba(255,245,157,.7) 0%,rgba(255,138,128,.34) 42%,transparent 72%);
+  transform:translateZ(0);
+  contain:strict;
 }
-.discount-burst.is-on{animation:discountBurstPop 1.05s cubic-bezier(.16,1,.3,1) forwards}
+.discount-burst.is-on{
+  animation:discountBurstPop .38s cubic-bezier(.16,1,.3,1) forwards;
+  will-change:transform,opacity;
+}
 .discount-burst.is-on::before,
 .discount-burst.is-on::after{
-  content:'';position:absolute;inset:-8px;border-radius:50%;
-  border:1.5px solid rgba(255,168,160,.5);
-  animation:discountRing 1.05s cubic-bezier(.16,1,.3,1) forwards;
+  content:'';position:absolute;inset:-6px;border-radius:50%;
+  border:1.5px solid rgba(255,168,160,.55);
+  animation:discountRing .38s cubic-bezier(.16,1,.3,1) forwards;
 }
 .discount-burst.is-on::after{
-  inset:-18px;border-color:rgba(206,147,216,.4);
-  animation-delay:.1s;
+  inset:-14px;border-color:rgba(206,147,216,.42);
 }
 @keyframes discountBurstPop{
-  0%{opacity:.8;transform:scale(.3)}
-  45%{opacity:.5;transform:scale(16)}
-  100%{opacity:0;transform:scale(28)}
+  0%{opacity:.85;transform:scale(.35)}
+  55%{opacity:.45;transform:scale(9)}
+  100%{opacity:0;transform:scale(12)}
 }
 @keyframes discountRing{
-  0%{opacity:.7;transform:scale(.45)}
-  100%{opacity:0;transform:scale(2.5)}
+  0%{opacity:.75;transform:scale(.5)}
+  100%{opacity:0;transform:scale(2.2)}
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -291,7 +296,7 @@ body.discount-mode{
   --sh3:0 18px 44px rgba(90,40,60,.12),0 8px 18px rgba(90,40,60,.07);
   color:var(--g700);
   background:linear-gradient(145deg,#fff5f7 0%,#f7f0ff 45%,#fff8ef 100%);
-  transition:background .55s var(--ease),color .35s var(--ease);
+  transition:background .28s var(--ease),color .2s var(--ease);
 }
 body.discount-mode::before{
   background:
