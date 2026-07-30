@@ -199,6 +199,8 @@ async function recordCardPaymentStats(orderId, wompiTxId) {
     //    • El envío cobrado al cliente se suma a 'ventas' e 'ingresosPedidos'.
     //    • La comisión Wompi se suma a 'costosPedidos' y a 'comisionesWompi'.
     //    • El costo de los PRODUCTOS ya está en 'costos' desde el reabastecimiento → no se re-suma.
+    const creditsUsed = Math.max(0, Number(o.creditsUsed) || 0);
+    const creditsCosto = Math.max(0, Number(o.creditsCosto) || 0);
     const statPayload = {
       'ventas':            admin.firestore.FieldValue.increment(round2(totalVentasEfectivo + envioCobrado)),
       'unidades vendidas': admin.firestore.FieldValue.increment(totalUnidades),
@@ -207,15 +209,28 @@ async function recordCardPaymentStats(orderId, wompiTxId) {
       'costosPedidos':     admin.firestore.FieldValue.increment(round2(productCost + comisionWompi)),
       'comisionesWompi':   admin.firestore.FieldValue.increment(comisionWompi)
     };
+    if (creditsUsed > 0) {
+      statPayload['ventasCreditos'] = admin.firestore.FieldValue.increment(round2(creditsUsed));
+    }
     if (envioCobrado > 0) {
       statPayload['ingresosEnvio'] = admin.firestore.FieldValue.increment(round2(envioCobrado));
     }
     tx.set(db.collection('estadisticas').doc(statDocId), statPayload, { merge: true });
 
+    // Costo de promo (créditos): solo en el doc de créditos, NO en estadisticas.costos
+    if (creditsUsed > 0 && creditsCosto > 0 && o.creditsEmail) {
+      const credRef = db.collection('creditos').doc(String(o.creditsEmail).toLowerCase());
+      tx.set(credRef, {
+        costoInvertido: admin.firestore.FieldValue.increment(round2(creditsCosto)),
+        updatedAt: Date.now()
+      }, { merge: true });
+    }
+
     // 3) Marcar el pedido como pagado y con estadísticas registradas
     tx.update(orderRef, {
       paymentStatus: 'paid',
       statsRecorded: true,
+      creditsStatsRecorded: creditsUsed > 0,
       ingresoEnvioRegistrado: true,
       comisionWompi: comisionWompi,
       costTotalProductos: round2(productCost),
@@ -348,12 +363,17 @@ exports.crearEnlaceWompi = functions
         }
       } catch (_) {}
     }
+    // Créditos no se combinan con descuentos de carrito
+    const creditsUsed = Math.max(0, Number(o.creditsUsed) || 0);
+    if (creditsUsed > 0) pct = 0;
     const conDescuento = pct ? subtotal * (1 - pct / 100) : subtotal;
+    const afterCredits = Math.max(0, conDescuento - creditsUsed);
     const envioCosto = (o.tipoEntrega === 'domicilio') ? SHIPPING_COST : 0;
-    const monto = round2(conDescuento + envioCosto);
+    const monto = round2(afterCredits + envioCosto);
 
-    if (!monto || monto <= 0) {
-      throw new functions.https.HttpsError('failed-precondition', 'Monto del pedido inválido.');
+    // Cubierto 100% con créditos (y sin envío): no hay cobro Wompi
+    if (monto <= 0) {
+      return { ok: true, url: null, fullyCoveredByCredits: true, amount: 0 };
     }
 
     // Si el monto guardado no coincide con el recalculado, "sanamos" el pedido con el
@@ -362,10 +382,11 @@ exports.crearEnlaceWompi = functions
       console.warn('Monto del pedido', orderId, 'corregido de', o.totalConEnvio, 'a', monto);
       await orderRef.update({
         total: round2(subtotal),
-        totalConDescuento: pct ? round2(conDescuento) : null,
+        totalConDescuento: pct ? round2(conDescuento) : (creditsUsed > 0 ? round2(conDescuento) : null),
         discountPct: pct || null,
         discountName: resolvedName,
         totalConEnvio: monto,
+        payableAfterCredits: round2(afterCredits),
         montoVerificadoServidor: true
       }).catch(e => console.warn('No se pudo sanar el monto:', e));
     }
@@ -763,6 +784,12 @@ exports.anadirSelloPorPedido = functions.https.onCall(async (data, context) => {
     const o = snap.data();
     if (o.stampApplied === true) return { ok: true, reason: 'already' };
 
+    // Compras con créditos PICO no suman sellos
+    if ((Number(o.creditsUsed) || 0) > 0) {
+      tx.update(orderRef, { stampApplied: true, stampSkipReason: 'credits' });
+      return { ok: false, reason: 'credits' };
+    }
+
     const emailLower = String(o.email || '').trim().toLowerCase();
     if (!emailLower) {
       tx.update(orderRef, { stampApplied: true, stampSkipReason: 'no-email' });
@@ -820,5 +847,237 @@ exports.anadirSelloPorPedido = functions.https.onCall(async (data, context) => {
     return { ok: true, sellos, rewardAvailable };
   });
 
+  return result;
+});
+
+// ════════════════════════════════════════════════════════════════
+//  Patrocinio feria / CREAJ → email a soporte (sin auth)
+// ════════════════════════════════════════════════════════════════
+function _escMail(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+exports.solicitarPatrocinioCreditos = functions.https.onCall(async (data) => {
+  const schoolKind = String((data && data.schoolKind) || '').trim();
+  const institucion = String((data && data.institucion) || '').trim();
+  const feria = String((data && data.feria) || '').trim();
+  const proyecto = String((data && data.proyecto) || '').trim();
+  const descripcion = String((data && data.descripcion) || '').trim();
+  const integrantes = String((data && data.integrantes) || '').trim();
+  const grado = String((data && data.grado) || '').trim();
+  const seccion = String((data && data.seccion) || '').trim();
+  const telefono = String((data && data.telefono) || '').trim();
+
+  if (!['cdb', 'otros'].includes(schoolKind)) {
+    throw new functions.https.HttpsError('invalid-argument', 'Colegio inválido.');
+  }
+  if (proyecto.length < 2 || proyecto.length > 160) {
+    throw new functions.https.HttpsError('invalid-argument', 'Nombre de proyecto inválido.');
+  }
+  if (descripcion.length < 5 || descripcion.length > 2000) {
+    throw new functions.https.HttpsError('invalid-argument', 'Descripción inválida.');
+  }
+  if (integrantes.length < 2 || integrantes.length > 1000) {
+    throw new functions.https.HttpsError('invalid-argument', 'Integrantes inválidos.');
+  }
+  if (!grado || !seccion) {
+    throw new functions.https.HttpsError('invalid-argument', 'Grado y sección obligatorios.');
+  }
+  if (telefono.length < 8 || telefono.length > 30) {
+    throw new functions.https.HttpsError('invalid-argument', 'Teléfono inválido.');
+  }
+  const instFinal = schoolKind === 'cdb' ? 'Colegio Don Bosco' : institucion;
+  const feriaFinal = schoolKind === 'cdb' ? 'CREAJ' : feria;
+  if (instFinal.length < 2 || feriaFinal.length < 2) {
+    throw new functions.https.HttpsError('invalid-argument', 'Institución / feria inválidas.');
+  }
+
+  const cuando = new Date().toLocaleString('es-SV');
+  const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#0f172a">
+    <h2 style="margin:0 0 8px">💎 Solicitud de créditos por patrocinio</h2>
+    <p style="margin:0 0 16px;color:#64748b">${cuando}</p>
+    <table style="width:100%;border-collapse:collapse;font-size:14px">
+      <tr><td style="padding:6px 0;color:#64748b">Institución</td><td style="padding:6px 0;font-weight:700">${_escMail(instFinal)}</td></tr>
+      <tr><td style="padding:6px 0;color:#64748b">Feria</td><td style="padding:6px 0;font-weight:700">${_escMail(feriaFinal)}</td></tr>
+      <tr><td style="padding:6px 0;color:#64748b">Proyecto</td><td style="padding:6px 0;font-weight:700">${_escMail(proyecto)}</td></tr>
+      <tr><td style="padding:6px 0;color:#64748b">Descripción</td><td style="padding:6px 0">${_escMail(descripcion)}</td></tr>
+      <tr><td style="padding:6px 0;color:#64748b">Integrantes</td><td style="padding:6px 0">${_escMail(integrantes)}</td></tr>
+      <tr><td style="padding:6px 0;color:#64748b">Grado / Sección</td><td style="padding:6px 0">${_escMail(grado)} · ${_escMail(seccion)}</td></tr>
+      <tr><td style="padding:6px 0;color:#64748b">WhatsApp / Tel</td><td style="padding:6px 0;font-weight:700">${_escMail(telefono)}</td></tr>
+    </table>
+    <p style="font-size:13px;color:#94a3b8;margin:18px 0 0">Continuar por WhatsApp. Al confirmar el cartel en el stand, otorgar créditos desde Inventario → Créditos.</p>
+  </div>`;
+
+  await db.collection('mail').add({
+    to: NOTIFY_EMAIL,
+    message: {
+      subject: `💎 Patrocinio créditos: ${proyecto} · ${instFinal}`,
+      html,
+      text: `Patrocinio créditos\nInstitución: ${instFinal}\nFeria: ${feriaFinal}\nProyecto: ${proyecto}\nIntegrantes: ${integrantes}\nGrado/Sección: ${grado} ${seccion}\nTel: ${telefono}\n${descripcion}`
+    }
+  });
+
+  // Registro ligero para seguimiento (opcional)
+  await db.collection('patrocinio-solicitudes').add({
+    schoolKind,
+    institucion: instFinal,
+    feria: feriaFinal,
+    proyecto,
+    descripcion,
+    integrantes,
+    grado,
+    seccion,
+    telefono,
+    createdAt: Date.now(),
+    status: 'pendiente'
+  }).catch(() => {});
+
+  return { ok: true };
+});
+
+// ════════════════════════════════════════════════════════════════
+//  Créditos: aplicar a un pedido (auth). 1 crédito = $1.
+// ════════════════════════════════════════════════════════════════
+exports.aplicarCreditosAPedido = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Debes iniciar sesión.');
+  }
+  const orderId = String((data && data.orderId) || '');
+  const requested = round2(Number((data && data.monto) || 0));
+  if (!orderId) throw new functions.https.HttpsError('invalid-argument', 'Falta orderId.');
+  if (!(requested > 0)) return { ok: true, creditsUsed: 0 };
+
+  const email = String(context.auth.token.email || '').trim().toLowerCase();
+  if (!email) throw new functions.https.HttpsError('failed-precondition', 'Tu cuenta no tiene correo.');
+
+  const orderRef = db.collection('pedidos').doc(orderId);
+  const credRef = db.collection('creditos').doc(email);
+
+  const result = await db.runTransaction(async (tx) => {
+    const [oSnap, cSnap] = await Promise.all([tx.get(orderRef), tx.get(credRef)]);
+    if (!oSnap.exists) throw new functions.https.HttpsError('not-found', 'Pedido no encontrado.');
+    const o = oSnap.data();
+    if (o.userId && o.userId !== context.auth.uid && context.auth.token.admin !== true) {
+      throw new functions.https.HttpsError('permission-denied', 'Este pedido no es tuyo.');
+    }
+    if (o.creditsApplied === true) {
+      return { ok: true, creditsUsed: Number(o.creditsUsed) || 0, already: true };
+    }
+    // No combinar con descuentos de carrito
+    if (o.discountPct || o.discountId || o.discountCode || o.stampCardCode) {
+      throw new functions.https.HttpsError('failed-precondition', 'Los créditos no se combinan con otros descuentos.');
+    }
+    if (!cSnap.exists) {
+      throw new functions.https.HttpsError('failed-precondition', 'No tienes créditos disponibles.');
+    }
+    const c = cSnap.data();
+    let saldo = Number(c.saldo) || 0;
+    if (c.venceAt != null) {
+      const ms = c.venceAt.toMillis ? c.venceAt.toMillis()
+        : (typeof c.venceAt === 'number' ? c.venceAt : Date.parse(c.venceAt));
+      if (ms && Date.now() > ms) {
+        throw new functions.https.HttpsError('failed-precondition', 'Tus créditos ya vencieron.');
+      }
+    }
+    const productTotal = typeof o.totalConDescuento === 'number' ? o.totalConDescuento
+      : (typeof o.total === 'number' ? o.total : 0);
+    const use = round2(Math.min(saldo, requested, productTotal));
+    if (!(use > 0)) return { ok: true, creditsUsed: 0 };
+
+    // Costo proporcional de productos cubiertos por créditos (inversión promo)
+    let costTotal = 0;
+    for (const it of (o.items || [])) {
+      costTotal += (Number(it.cost) || 0) * (it.qty || 1);
+    }
+    const creditsCosto = productTotal > 0 ? round2(costTotal * (use / productTotal)) : 0;
+
+    const payableProducts = round2(Math.max(0, productTotal - use));
+    const ship = (o.tipoEntrega === 'domicilio')
+      ? (typeof o.envioCosto === 'number' ? o.envioCosto : 0) : 0;
+
+    const mov = Array.isArray(c.movimientos) ? c.movimientos.slice(-39) : [];
+    mov.push({
+      tipo: 'uso',
+      monto: use,
+      at: Date.now(),
+      orderId,
+      costo: creditsCosto,
+      nota: 'Pedido ' + (o.code || orderId)
+    });
+
+    tx.update(credRef, {
+      saldo: round2(saldo - use),
+      totalUsado: round2((Number(c.totalUsado) || 0) + use),
+      movimientos: mov,
+      updatedAt: Date.now()
+    });
+    tx.update(orderRef, {
+      creditsApplied: true,
+      creditsUsed: use,
+      creditsEmail: email,
+      creditsCosto,
+      payableAfterCredits: payableProducts,
+      totalConEnvio: round2(payableProducts + ship),
+      // totalConDescuento sigue siendo el subtotal de productos (antes de créditos)
+      // para no romper desgloses; el cobro real usa payableAfterCredits / totalConEnvio.
+      stampSkipReason: 'credits',
+      stampApplied: true
+    });
+    return { ok: true, creditsUsed: use, creditsCosto, payableAfterCredits: payableProducts };
+  });
+
+  return result;
+});
+
+// ════════════════════════════════════════════════════════════════
+//  Créditos: restaurar al cancelar pedido (admin)
+// ════════════════════════════════════════════════════════════════
+exports.restaurarCreditosPedido = functions.https.onCall(async (data, context) => {
+  if (!context.auth || context.auth.token.admin !== true) {
+    throw new functions.https.HttpsError('permission-denied', 'Solo administradores.');
+  }
+  const orderId = String((data && data.orderId) || '');
+  if (!orderId) throw new functions.https.HttpsError('invalid-argument', 'Falta orderId.');
+
+  const orderRef = db.collection('pedidos').doc(orderId);
+  const result = await db.runTransaction(async (tx) => {
+    const oSnap = await tx.get(orderRef);
+    if (!oSnap.exists) return { ok: false, reason: 'not-found' };
+    const o = oSnap.data();
+    if (o.creditsRestored === true) return { ok: true, reason: 'already' };
+    const used = Number(o.creditsUsed) || 0;
+    if (!(used > 0) || !o.creditsApplied) {
+      tx.update(orderRef, { creditsRestored: true });
+      return { ok: true, reason: 'none' };
+    }
+    const email = String(o.creditsEmail || o.email || '').toLowerCase();
+    if (!email) {
+      tx.update(orderRef, { creditsRestored: true });
+      return { ok: false, reason: 'no-email' };
+    }
+    const credRef = db.collection('creditos').doc(email);
+    const cSnap = await tx.get(credRef);
+    const costo = Number(o.creditsCosto) || 0;
+    const statsDone = o.creditsStatsRecorded === true || (o.statsRecorded === true && used > 0);
+
+    if (cSnap.exists) {
+      const c = cSnap.data();
+      const mov = Array.isArray(c.movimientos) ? c.movimientos.slice(-39) : [];
+      mov.push({ tipo: 'reverso', monto: used, at: Date.now(), orderId, costo, nota: 'Cancelación pedido' });
+      const patch = {
+        saldo: round2((Number(c.saldo) || 0) + used),
+        totalUsado: round2(Math.max(0, (Number(c.totalUsado) || 0) - used)),
+        movimientos: mov,
+        updatedAt: Date.now()
+      };
+      // Solo revertir costoInvertido si ya se había contabilizado en stats
+      if (statsDone && costo > 0) {
+        patch.costoInvertido = round2(Math.max(0, (Number(c.costoInvertido) || 0) - costo));
+      }
+      tx.update(credRef, patch);
+    }
+    tx.update(orderRef, { creditsRestored: true });
+    return { ok: true, restored: used };
+  });
   return result;
 });

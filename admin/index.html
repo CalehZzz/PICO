@@ -41,8 +41,9 @@
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
           <input type="email" id="adminRoleEmail" class="finput" placeholder="correo@ejemplo.com" style="flex:1;min-width:200px" autocomplete="off">
           <button class="btn-pri" style="flex:none" onclick="setUserAdmin(true)">Hacer admin</button>
-          <button class="btn-sec" style="flex:none" onclick="setUserAdmin(false)">Quitar admin</button>
+          <button class="btn-sec" style="flex:none" onclick="setUserAdmin(false)">Quitar admin (escribir correo)</button>
         </div>
+        <p style="font-size:.75rem;color:var(--g400);margin:0 0 10px">Para quitar el rol debes escribir el correo completo arriba (ya no hay botón rápido por fila, para evitar accidentes).</p>
         <div id="adminRoleMsg" style="font-size:.82rem;margin-bottom:12px;min-height:1em"></div>
         <div id="adminsListSection"><p style="font-size:.82rem;color:var(--g400)">Cargando administradores...</p></div>
       </div>
@@ -140,6 +141,7 @@
 <script src="/js/products.js"></script>
 <script src="/js/auth.js"></script>
 <script src="/js/discounts.js"></script>
+<script src="/js/credits.js"></script>
 <script src="/js/admin.js"></script>
 <script src="/js/cart.js"></script>
 <script src="/js/orders.js"></script>

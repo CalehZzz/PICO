@@ -450,19 +450,34 @@ function removeFromCart(key) {
 function updateCartUI() {
   const rawTotal = getCartRawTotal();
   const total    = getCartTotal();
+  const payable  = (typeof getCartPayableTotal === 'function') ? getCartPayableTotal() : total;
+  const credAmt  = (typeof getCreditsAppliedAmount === 'function') ? getCreditsAppliedAmount(total) : 0;
   const count = Object.values(cart).reduce((s, n) => s + n, 0);
 
   const badge = document.getElementById('cartBadge');
   badge.textContent = count;
   count > 0 ? badge.classList.remove('hidden') : badge.classList.add('hidden');
 
-  // Mostrar precio original tachado si hay descuento (producto o carrito)
+  // Mostrar precio original tachado si hay descuento/créditos
   const totalEl = document.getElementById('cartTotal');
   const listTotal = (typeof getCartListTotal === 'function') ? getCartListTotal() : rawTotal;
-  if (listTotal > total + 0.001) {
-    totalEl.innerHTML = `<span style="text-decoration:line-through;color:var(--g400);font-size:.88rem;font-weight:500">$${listTotal.toFixed(2)}</span> <span style="color:var(--b600)">$${total.toFixed(2)}</span>`;
+  if (listTotal > payable + 0.001) {
+    totalEl.innerHTML = `<span style="text-decoration:line-through;color:var(--g400);font-size:.88rem;font-weight:500">$${listTotal.toFixed(2)}</span> <span style="color:var(--b600)">$${payable.toFixed(2)}</span>`;
   } else {
-    totalEl.textContent = '$' + total.toFixed(2);
+    totalEl.textContent = '$' + payable.toFixed(2);
+  }
+  // Nota de créditos bajo el total (si aplica)
+  let credNote = document.getElementById('cartCreditsNote');
+  if (credAmt > 0) {
+    if (!credNote) {
+      credNote = document.createElement('div');
+      credNote.id = 'cartCreditsNote';
+      credNote.style.cssText = 'font-size:.78rem;color:#0d9488;font-weight:600;margin-top:4px';
+      totalEl.parentElement.appendChild(credNote);
+    }
+    credNote.textContent = 'Incluye −$' + credAmt.toFixed(2) + ' en créditos PICO';
+  } else if (credNote) {
+    credNote.remove();
   }
 
   // Barra de progreso de envío + recomendaciones (solo entrega a domicilio)
@@ -958,8 +973,11 @@ async function placeOrder() {
     return;
   }
 
-  // Costo de envío por tramos (según el subtotal con descuento). Solo a domicilio.
+  // Costo de envío por tramos (según el subtotal de productos, antes de créditos). Solo a domicilio.
   const shipCost = esDomicilio ? getShippingCost(finalTotal) : 0;
+  const creditsAmt = (!selectedDiscount && typeof getCreditsAppliedAmount === 'function')
+    ? getCreditsAppliedAmount(finalTotal) : 0;
+  const payableProducts = +Math.max(0, finalTotal - creditsAmt).toFixed(2);
 
   try {
     // Inventario ÚNICO: todo descuenta de 'stockCdb' (solo el legado 'exsal' usa stockExsal).
@@ -1013,7 +1031,9 @@ async function placeOrder() {
       // Costo de envío y total que paga el cliente (NO afectan stats: 'total' sigue siendo solo productos)
       envioCosto:    shipCost,
       costoEnvioReal: null,      // lo ingresa el admin al confirmar (costo real del courier) — SOLO admin
-      totalConEnvio: +(((selectedDiscount ? finalTotal : +rawTotal.toFixed(2))) + shipCost).toFixed(2),
+      totalConEnvio: +(payableProducts + shipCost).toFixed(2),
+      payableAfterCredits: payableProducts,
+      creditsRequested: creditsAmt > 0 ? creditsAmt : null,
       metodoPago:  metodoPago,   // 'tarjeta' | 'efectivo' | null
       paymentStatus: esDomicilio ? (metodoPago === 'tarjeta' ? 'pending' : 'efectivo') : null,
       comisionWompi: null,       // la calcula el servidor al confirmar el pago (solo tarjeta) — SOLO admin
@@ -1030,6 +1050,17 @@ async function placeOrder() {
       userId:      currentUser?.uid   || null,
       email:       currentUser?.email || null
     });
+
+    // Aplicar créditos en servidor (autoritativo). Si falla, el pedido queda sin créditos.
+    if (creditsAmt > 0 && typeof aplicarCreditosAlPedido === 'function') {
+      try {
+        await aplicarCreditosAlPedido(docRef.id, creditsAmt);
+      } catch (e) {
+        console.warn('aplicarCreditos:', e);
+        showToast('⚠️ No se pudieron aplicar los créditos: ' + (e.message || 'error'));
+      }
+    }
+    creditsToUse = 0;
 
     // Consumir código promocional / archivar tarjeta de sellos (servidor). No bloquea el pedido.
     if (typeof consumirDescuentoTrasPedido === 'function') {
@@ -1048,7 +1079,8 @@ async function placeOrder() {
       visitaInstitucion: visitaInstitucion || null,
       envio,
       envioCosto:    shipCost,
-      totalConEnvio: +(((selectedDiscount ? finalTotal : +rawTotal.toFixed(2))) + shipCost).toFixed(2),
+      totalConEnvio: +(payableProducts + shipCost).toFixed(2),
+      creditsUsed: creditsAmt || null,
       metodoPago,
       email: currentUser?.email || null
     }).catch(e => console.warn('No se pudo encolar el correo de aviso:', e));
@@ -1115,11 +1147,16 @@ async function placeOrder() {
       : 'Preséntate en el laboratorio con este código o escanea el QR.';
 
     // Pago con tarjeta a domicilio → crear enlace de pago Wompi y redirigir.
+    // Si créditos + $0 restante (solo envío o nada), Wompi puede devolver fullyCovered.
     if (esDomicilio && metodoPago === 'tarjeta') {
       btn.textContent = 'Redirigiendo al pago...';
       try {
-        await startWompiCheckout(docRef.id);
-        return; // la página se redirige a Wompi; el pedido quedó pendiente
+        const w = await startWompiCheckout(docRef.id);
+        if (w && w.fullyCoveredByCredits) {
+          openModal('successModal');
+        } else {
+          return; // la página se redirige a Wompi
+        }
       } catch (e) {
         console.error('Wompi checkout:', e);
         showToast('⚠️ ' + (e && e.message ? e.message : 'No se pudo iniciar el pago con tarjeta.') + ' Tu pedido quedó pendiente.');
@@ -1183,9 +1220,15 @@ async function startWompiCheckout(orderId) {
   try {
     const fn = firebase.functions().httpsCallable('crearEnlaceWompi');
     const res = await fn({ orderId, origin: location.origin });
-    const url = res && res.data && res.data.url;
+    const data = (res && res.data) || {};
+    if (data.fullyCoveredByCredits) {
+      hideWompiLoadingOverlay();
+      return { fullyCoveredByCredits: true };
+    }
+    const url = data.url;
     if (!url) { hideWompiLoadingOverlay(); throw new Error('Wompi no devolvió la URL de pago'); }
     window.location.assign(url); // → pantalla de pago alojada por Wompi
+    return { redirected: true };
   } catch (e) {
     hideWompiLoadingOverlay();
     throw new Error(e && e.message ? e.message : 'No se pudo iniciar el pago con Wompi');
