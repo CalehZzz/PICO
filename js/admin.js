@@ -862,9 +862,13 @@ function showOrderDetail(firestoreId) {
   let domicilioBlock = '';
   if (isDomicilio) {
     const e = o.envio || {};
-    const pagoLabel = o.metodoPago === 'tarjeta' ? '💳 Tarjeta' : '💵 Efectivo';
+    const credUsed = Number(o.creditsUsed) || 0;
+    let pagoLabel = o.metodoPago === 'tarjeta' ? '💳 Tarjeta' : (o.metodoPago === 'efectivo' ? '💵 Efectivo' : '—');
+    if (credUsed > 0 && o.creditsFullyPaid) pagoLabel = '💎 Créditos PICO (100%)';
+    else if (credUsed > 0) pagoLabel = `💎 Créditos $${credUsed.toFixed(2)} + ` + pagoLabel;
     const pagoEstado = o.paymentStatus === 'pending' ? 'Pendiente de pago'
                      : o.paymentStatus === 'paid'    ? 'Pagado'
+                     : o.paymentStatus === 'credits' ? 'Pagado con créditos'
                      : o.paymentStatus === 'efectivo'? 'Contra entrega'
                      : (o.paymentStatus || '—');
 
@@ -882,8 +886,12 @@ function showOrderDetail(firestoreId) {
     // Acción según el estado del pedido
     let accionBlock = '';
     if (o.status === 'pending') {
-      // Con tarjeta, solo se puede confirmar/enviar una vez se confirmó el pago.
-      const esperaPago = o.metodoPago === 'tarjeta' && o.paymentStatus !== 'paid';
+      // Con tarjeta, solo se puede confirmar/enviar una vez se confirmó el pago
+      // (salvo que ya quedó cubierto con créditos).
+      const esperaPago = o.metodoPago === 'tarjeta'
+        && o.paymentStatus !== 'paid'
+        && o.paymentStatus !== 'credits'
+        && !o.creditsFullyPaid;
       if (esperaPago) {
         accionBlock = `
         <div class="odetail-track-box">

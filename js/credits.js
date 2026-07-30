@@ -129,6 +129,14 @@ async function aplicarCreditosAlPedido(orderId, monto) {
   const m = +Number(monto || 0).toFixed(2);
   if (!(m > 0) || !orderId) return { ok: true, creditsUsed: 0 };
   const fn = firebase.functions().httpsCallable('aplicarCreditosAPedido');
-  const res = await fn({ orderId, monto: m });
-  return (res && res.data) || { ok: true, creditsUsed: 0 };
+  try {
+    const res = await fn({ orderId, monto: m });
+    return (res && res.data) || { ok: true, creditsUsed: 0 };
+  } catch (e) {
+    // Preferir mensaje de la CF (no el genérico "internal")
+    const msg = (e && e.message) ? String(e.message).replace(/^Firebase:\s*/i, '').replace(/\s*\(.*\)$/, '') : 'Error interno';
+    const err = new Error(msg);
+    err.code = e && e.code;
+    throw err;
+  }
 }
