@@ -1,0 +1,260 @@
+From 62cd5e63c96172f02c3584a3644b28de46967936 Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Thu, 30 Jul 2026 15:56:31 +0000
+Subject: [PATCH] =?UTF-8?q?Add=20Cr=C3=A9ditos=20admin=20tab=20(PIN)=20and?=
+ =?UTF-8?q?=20ventasCreditos=20KPI?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Grant credits by email with optional expiry and project registry.
+Track promo cost per account without adding it to inventory costos.
+---
+ index.html | 145 ++++++++++++++++++++++++++++++++++++++++++++++++++---
+ 1 file changed, 137 insertions(+), 8 deletions(-)
+
+diff --git a/index.html b/index.html
+index 9b7b8f1..e4ce72f 100644
+--- a/index.html
++++ b/index.html
+@@ -742,6 +742,7 @@ html,body{min-height:100vh;font-family:'Plus Jakarta Sans',-apple-system,BlinkMa
+       <button class="tab-btn" onclick="switchTab('inv-descuentos',this)"><i class="ti ti-ticket-off"></i>Descuentos</button>
+       <button class="tab-btn" onclick="switchTab('inv-codigos',this)"><i class="ti ti-discount-2"></i>Códigos promo</button>
+       <button class="tab-btn" onclick="switchTab('inv-tarjetas',this)"><i class="ti ti-stamp"></i>Tarjetas sellos</button>
++      <button class="tab-btn" onclick="switchTab('inv-creditos',this)"><i class="ti ti-coin"></i>Créditos</button>
+     </div>
+   </div>
+ 
+@@ -1417,6 +1418,7 @@ html,body{min-height:100vh;font-family:'Plus Jakarta Sans',-apple-system,BlinkMa
+     <!-- KPIs desde colección estadisticas -->
+     <div class="fin-grid" id="exsal-kpi-grid">
+       <div class="fin-card"><div class="fin-label">Ventas EXSAL (acumulado)</div><div class="fin-value fv-blue" id="exsal-stat-ventas">$0.00</div></div>
++      <div class="fin-card"><div class="fin-label">Vendidas con créditos</div><div class="fin-value fv-blue" id="exsal-stat-ventasCreditos">$0.00</div><div style="font-size:10.5px;color:var(--tm);margin-top:4px">Porción pagada con créditos PICO</div></div>
+       <div class="fin-card fin-card-ingreso"><div class="fin-label">Ingresos EXSAL (donaciones/inversiones)</div><div class="fin-value" id="exsal-stat-ingresos">$0.00</div></div>
+       <div class="fin-card fin-card-gasto"><div class="fin-label">Costos EXSAL (acumulado)</div><div class="fin-value" id="exsal-stat-costos">$0.00</div><div class="fin-cost-break" id="exsal-stat-costos-break"></div></div>
+       <div class="fin-card"><div class="fin-label">Ganancia Real (ventas + ingresos − costos)</div><div class="fin-value fv-green" id="exsal-stat-ganancia">$0.00</div></div>
+@@ -1512,6 +1514,7 @@ html,body{min-height:100vh;font-family:'Plus Jakarta Sans',-apple-system,BlinkMa
+     <!-- KPIs desde colección estadisticas -->
+     <div class="fin-grid" id="cdb-kpi-grid">
+       <div class="fin-card"><div class="fin-label">Ventas CDB (acumulado)</div><div class="fin-value fv-blue" id="cdb-stat-ventas">$0.00</div></div>
++      <div class="fin-card"><div class="fin-label">Vendidas con créditos</div><div class="fin-value fv-blue" id="cdb-stat-ventasCreditos">$0.00</div><div style="font-size:10.5px;color:var(--tm);margin-top:4px">Porción pagada con créditos PICO</div></div>
+       <div class="fin-card fin-card-ingreso"><div class="fin-label">Ingresos CDB (donaciones/inversiones)</div><div class="fin-value" id="cdb-stat-ingresos">$0.00</div></div>
+       <div class="fin-card fin-card-gasto"><div class="fin-label">Costos CDB (acumulado)</div><div class="fin-value" id="cdb-stat-costos">$0.00</div><div class="fin-cost-break" id="cdb-stat-costos-break"></div></div>
+       <div class="fin-card"><div class="fin-label">Ganancia Real (ventas + ingresos − costos)</div><div class="fin-value fv-green" id="cdb-stat-ganancia">$0.00</div></div>
+@@ -1872,7 +1875,39 @@ html,body{min-height:100vh;font-family:'Plus Jakarta Sans',-apple-system,BlinkMa
+   </div>
+ 
+   <!-- ═══ PAPELERA ═══ -->
+-  <div class="tab-content" id="tab-inv-papelera">
++  
++  <!-- ═══ CRÉDITOS PICO (PIN) ═══ -->
++  <div class="tab-content" id="tab-inv-creditos">
++    <div class="stats-row" style="margin-bottom:14px">
++      <div class="stat-card"><div class="stat-icon si-blue"><i class="ti ti-coin"></i></div><div class="stat-label">Cuentas con crédito</div><div class="stat-value" id="cred-si-cuentas">0</div></div>
++      <div class="stat-card"><div class="stat-icon si-orange"><i class="ti ti-wallet"></i></div><div class="stat-label">Saldo total activo</div><div class="stat-value" id="cred-si-saldo">$0.00</div></div>
++      <div class="stat-card"><div class="stat-icon si-blue"><i class="ti ti-chart-bar"></i></div><div class="stat-label">Costo invertido (promo)</div><div class="stat-value" id="cred-si-costo">$0.00</div></div>
++    </div>
++    <div class="descuentos-layout">
++      <div class="panel">
++        <div class="panel-hd"><div class="phd-icon"><i class="ti ti-plus"></i></div><div><div class="ptitle">Otorgar créditos</div><div class="psub">1 crédito = $1 · caducidad opcional · registro de proyecto</div></div></div>
++        <div class="form-body">
++          <div class="field"><label>Correo de la cuenta PICO</label><input type="email" id="cred-email" placeholder="correo@ejemplo.com" autocomplete="off"></div>
++          <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">
++            <div class="field"><label>Monto ($)</label><input type="number" id="cred-monto" min="0.01" step="0.01" placeholder="50"></div>
++            <div class="field"><label>Caduca en (días)</label><input type="number" id="cred-dias" min="0" step="1" placeholder="0 = sin caducar"></div>
++          </div>
++          <div class="field"><label>Nombre del proyecto (opcional)</label><input type="text" id="cred-proyecto" maxlength="120" placeholder="Proyecto feria"></div>
++          <div class="field"><label>Integrantes (opcional)</label><textarea id="cred-integrantes" placeholder="Nombres separados por coma"></textarea></div>
++          <div class="field"><label>Institución / feria (nota)</label><input type="text" id="cred-nota" maxlength="160" placeholder="CDB · CREAJ"></div>
++          <button class="btn-add" onclick="grantCredits()"><i class="ti ti-coin"></i>Otorgar créditos</button>
++          <div class="form-error" id="cred-form-error"></div>
++        </div>
++      </div>
++      <div class="panel">
++        <div class="list-controls"><div class="search-wrap"><i class="ti ti-search"></i><input type="text" id="cred-search" placeholder="Buscar por correo o proyecto..." oninput="renderCreditsList()"></div></div>
++        <div class="list-meta"><span class="list-count" id="cred-list-count"></span></div>
++        <div class="list-area" id="cred-list-area"></div>
++      </div>
++    </div>
++  </div>
++
++<div class="tab-content" id="tab-inv-papelera">
+     <div class="panel">
+       <div class="panel-hd"><div class="phd-icon" style="background:linear-gradient(135deg,var(--r400,#e25555),#b91c1c)"><i class="ti ti-trash"></i></div><div><div class="ptitle">Papelera</div><div class="psub">Productos eliminados · puedes restaurarlos o borrarlos definitivamente</div></div></div>
+       <div class="list-meta" style="padding:13px 15px 10px"><span class="list-count" id="trash-list-count"></span></div>
+@@ -2277,10 +2312,10 @@ db.enablePersistence({ synchronizeTabs: true }).catch(e=>{
+ });
+ 
+ // ── ESTADO ──
+-let products=[], sales=[], deletedSales=[], orders=[], descuentos=[], gastos=[], categorias=[], discountCodes=[], stampCards=[];
++let products=[], sales=[], deletedSales=[], orders=[], descuentos=[], gastos=[], categorias=[], discountCodes=[], stampCards=[], creditAccounts=[];
+ let sortAsc={exsal:false,cdb:false,total:false};
+ let activePid=null, activeSucursal=null;
+-let unsubProd=null, unsubSales=null, unsubDeleted=null, unsubOrders=null, unsubRestock=null, unsubDescuentos=null, unsubGastos=null, unsubEstadisticas=null, unsubCategorias=null, unsubDiscountCodes=null, unsubStampCards=null;
++let unsubProd=null, unsubSales=null, unsubDeleted=null, unsubOrders=null, unsubRestock=null, unsubDescuentos=null, unsubGastos=null, unsubEstadisticas=null, unsubCategorias=null, unsubDiscountCodes=null, unsubStampCards=null, unsubCreditos=null;
+ let restockHistory=[];
+ let restockPendingData=null;
+ // Estado de carga de ventas por mes (nuevo apartado ventas)
+@@ -2455,7 +2490,7 @@ auth.onAuthStateChanged(async user=>{
+     startListeners();
+   }else{
+     overlay.style.display='flex';
+-    if(unsubProd){unsubProd();unsubProd=null;}if(unsubSales){unsubSales();unsubSales=null;}if(unsubDeleted){unsubDeleted();unsubDeleted=null;}if(unsubOrders){unsubOrders();unsubOrders=null;}if(unsubRestock){unsubRestock();unsubRestock=null;}if(unsubDescuentos){unsubDescuentos();unsubDescuentos=null;}if(unsubGastos){unsubGastos();unsubGastos=null;}if(unsubEstadisticas){unsubEstadisticas();unsubEstadisticas=null;}if(unsubCategorias){unsubCategorias();unsubCategorias=null;}if(unsubDiscountCodes){unsubDiscountCodes();unsubDiscountCodes=null;}if(unsubStampCards){unsubStampCards();unsubStampCards=null;}
++    if(unsubProd){unsubProd();unsubProd=null;}if(unsubSales){unsubSales();unsubSales=null;}if(unsubDeleted){unsubDeleted();unsubDeleted=null;}if(unsubOrders){unsubOrders();unsubOrders=null;}if(unsubRestock){unsubRestock();unsubRestock=null;}if(unsubDescuentos){unsubDescuentos();unsubDescuentos=null;}if(unsubGastos){unsubGastos();unsubGastos=null;}if(unsubEstadisticas){unsubEstadisticas();unsubEstadisticas=null;}if(unsubCategorias){unsubCategorias();unsubCategorias=null;}if(unsubDiscountCodes){unsubDiscountCodes();unsubDiscountCodes=null;}if(unsubStampCards){unsubStampCards();unsubStampCards=null;}if(unsubCreditos){unsubCreditos();unsubCreditos=null;}
+     products=[];sales=[];deletedSales=[];orders=[];descuentos=[];categorias=[];discountCodes=[];stampCards=[];
+     salesExtra=[];ordersExtra=[];restockExtra=[];
+     salesLastVisible=null;ordersLastVisible=null;restockLastVisible=null;
+@@ -2557,7 +2592,7 @@ async function checkMonthlyReset(){
+           sucursal:d.suc,
+           mes:lastMes,
+           mesLabel:monthKeyToLabel(lastMes),
+-          ventas:data.ventas||0,
++          ventas:data.ventas||0, ventasCreditos:data.ventasCreditos||0,
+           costos:data.costos||0,
+           ingresos:data.ingresos||0,
+           // Total de costos del mes = base (inventario/gastos) + envío real + comisión Stripe.
+@@ -2572,6 +2607,7 @@ async function checkMonthlyReset(){
+           ingresosEnvio:data.ingresosEnvio||0,
+           costosEnvio:data.costosEnvio||0,
+           comisionesStripe:data.comisionesStripe||0,
++          ventasCreditos:data.ventasCreditos||0,
+           archivedAt:Date.now()
+         });
+       }
+@@ -2594,7 +2630,8 @@ async function checkMonthlyReset(){
+         // Campos de envío y comisión de tarjeta: también son mensuales (transparencia del mes)
+         'ingresosEnvio':0,
+         'costosEnvio':0,
+-        'comisionesStripe':0
++        'comisionesStripe':0,
++        'ventasCreditos':0
+       });
+     }
+ 
+@@ -2698,7 +2735,96 @@ function startListeners(){
+ 
+   // Tarjetas de sellos
+   if(unsubStampCards){unsubStampCards();unsubStampCards=null;}
+-  unsubStampCards=db.collection("stamp-cards").onSnapshot(snap=>{
++  
++// ── CRÉDITOS PICO ──
++function startCreditosListener(){
++  if(unsubCreditos) return;
++  unsubCreditos=db.collection('creditos').onSnapshot(snap=>{
++    creditAccounts=snap.docs.map(d=>({id:d.id,...d.data()}));
++    creditAccounts.sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
++    renderCreditsList();
++    updateCreditosStats();
++  },e=>{console.warn('creditos listener',e); const area=document.getElementById('cred-list-area'); if(area) area.innerHTML='<p style="padding:16px;color:var(--tm)">No se pudo cargar créditos.</p>';});
++}
++function updateCreditosStats(){
++  const n=creditAccounts.length;
++  const saldo=creditAccounts.reduce((s,c)=>s+(Number(c.saldo)||0),0);
++  const costo=creditAccounts.reduce((s,c)=>s+(Number(c.costoInvertido)||0),0);
++  const a=document.getElementById('cred-si-cuentas'); if(a)a.textContent=n;
++  const b=document.getElementById('cred-si-saldo'); if(b)b.textContent=fmt(saldo);
++  const c=document.getElementById('cred-si-costo'); if(c)c.textContent=fmt(costo);
++}
++function renderCreditsList(){
++  const area=document.getElementById('cred-list-area');
++  const cnt=document.getElementById('cred-list-count');
++  if(!area)return;
++  const q=(document.getElementById('cred-search')||{value:''}).value.toLowerCase().trim();
++  let list=creditAccounts.slice();
++  if(q) list=list.filter(c=>((c.email||'')+((c.proyecto&&c.proyecto.nombre)||'')+((c.proyecto&&c.proyecto.nota)||'')).toLowerCase().includes(q));
++  if(cnt) cnt.textContent=list.length+' cuenta'+(list.length!==1?'s':'');
++  if(!list.length){
++    area.innerHTML='<div class="empty-state"><div class="empty-icon"><i class="ti ti-coin-off"></i></div><p>Sin cuentas de crédito aún.</p></div>';
++    return;
++  }
++  area.innerHTML=list.map(c=>{
++    const ms=c.venceAt?(typeof c.venceAt==='number'?c.venceAt:(c.venceAt.toMillis?c.venceAt.toMillis():Date.parse(c.venceAt))):null;
++    const vence=ms?new Date(ms).toLocaleDateString('es-SV'):'Sin caducidad';
++    const expired=!!(ms&&Date.now()>ms);
++    const proj=(c.proyecto&&c.proyecto.nombre)?esc(c.proyecto.nombre):'—';
++    const ints=(c.proyecto&&c.proyecto.integrantes)?esc(Array.isArray(c.proyecto.integrantes)?c.proyecto.integrantes.join(', '):String(c.proyecto.integrantes)):'';
++    return `<div class="product-card" style="${expired?'opacity:.75':''}">
++      <div class="card-top"><div style="flex:1"><div class="card-name">${esc(c.email||c.id)}</div>
++        <div style="font-size:11px;color:var(--tm);margin-top:2px">Proyecto: ${proj}${ints?' · '+ints:''}</div></div></div>
++      <div class="card-badges">
++        <span class="badge badge-ok">Saldo ${fmt(c.saldo)}</span>
++        <span class="badge badge-price">Usado ${fmt(c.totalUsado)}</span>
++        <span class="badge" style="background:#fff7ed;color:#c2410c;border:1px solid #fed7aa">Costo promo ${fmt(c.costoInvertido)}</span>
++        <span class="badge">${expired?'Vencido':'Vence: '+vence}</span>
++      </div>
++    </div>`;
++  }).join('');
++}
++async function grantCredits(){
++  const err=document.getElementById('cred-form-error');
++  const email=(document.getElementById('cred-email').value||'').trim().toLowerCase();
++  const monto=parseFloat(document.getElementById('cred-monto').value);
++  const diasRaw=document.getElementById('cred-dias').value;
++  const dias=diasRaw===''?0:parseInt(diasRaw,10);
++  const proyecto=(document.getElementById('cred-proyecto').value||'').trim();
++  const integrantes=(document.getElementById('cred-integrantes').value||'').trim();
++  const nota=(document.getElementById('cred-nota').value||'').trim();
++  if(!email||email.indexOf('@')<0){err.textContent='Correo inválido.';return;}
++  if(!(monto>0)){err.textContent='Monto inválido.';return;}
++  if(isNaN(dias)||dias<0){err.textContent='Días de caducidad inválidos.';return;}
++  err.textContent='';
++  const ref=db.collection('creditos').doc(email);
++  try{
++    await db.runTransaction(async tx=>{
++      const snap=await tx.get(ref);
++      const now=Date.now();
++      const venceAt=dias>0?(now+dias*86400000):null;
++      const proj=proyecto?{nombre:proyecto,integrantes:integrantes?integrantes.split(',').map(s=>s.trim()).filter(Boolean):[],nota:nota||null}:null;
++      if(!snap.exists){
++        tx.set(ref,{email,emailLower:email,saldo:+monto.toFixed(2),totalOtorgado:+monto.toFixed(2),totalUsado:0,costoInvertido:0,venceAt,proyecto:proj,movimientos:[{tipo:'grant',monto:+monto.toFixed(2),at:now,by:(auth.currentUser&&auth.currentUser.email)||'admin',nota:nota||proyecto||null}],createdAt:now,updatedAt:now});
++      } else {
++        const d=snap.data();
++        const mov=Array.isArray(d.movimientos)?d.movimientos.slice(-39):[];
++        mov.push({tipo:'grant',monto:+monto.toFixed(2),at:now,by:(auth.currentUser&&auth.currentUser.email)||'admin',nota:nota||proyecto||null});
++        const patch={saldo:+((Number(d.saldo)||0)+monto).toFixed(2),totalOtorgado:+((Number(d.totalOtorgado)||0)+monto).toFixed(2),movimientos:mov,updatedAt:now};
++        if(venceAt) patch.venceAt=venceAt;
++        if(proj) patch.proyecto=proj;
++        if(!d.email) patch.email=email;
++        if(!d.emailLower) patch.emailLower=email;
++        tx.update(ref, patch);
++      }
++    });
++    ['cred-email','cred-monto','cred-dias','cred-proyecto','cred-integrantes','cred-nota'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
++    showToast('Créditos otorgados a '+email,'ti-coin');
++  }catch(e){console.error(e);err.textContent='Error al guardar: '+(e.message||e);}
++}
++
++
++unsubStampCards=db.collection("stamp-cards").onSnapshot(snap=>{
+     stampCards=[];
+     snap.forEach(doc=>stampCards.push({id:doc.id,...doc.data()}));
+     stampCards.sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
+@@ -2787,6 +2913,8 @@ function getStock(p,suc){
+ 
+ // ── TABS ──
+ function doSwitchTab(name,btn){
++  if(name==='inv-creditos'){try{startCreditosListener();}catch(_){ }}
++
+   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+   document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+   btn.classList.add('active');
+@@ -2813,7 +2941,7 @@ function toggleSidebar(){
+   document.getElementById('sidebar').classList.contains('open')?closeSidebar():openSidebar();
+ }
+ function switchTab(name,btn){
+-  if((name.startsWith('stats-')||name.startsWith('ventas-')||name==='facturas')&&!statsUnlocked){
++  if((name.startsWith('stats-')||name.startsWith('ventas-')||name==='facturas'||name==='inv-creditos')&&!statsUnlocked){
+     pendingStatsTab={name,btn};
+     const ov=document.getElementById('pin-overlay');
+     ov.style.cssText='display:flex;align-items:center;justify-content:center;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(15,63,99,.52);backdrop-filter:blur(7px);padding:20px;';
+@@ -5130,6 +5258,7 @@ function renderEstadisticasKpis(suc){
+   // Ganancia Real = ventas + ingresos (donaciones/inversiones) − costos totales
+   const ganancia=+( (d.ventas||0) + ingresos - costosTotal ).toFixed(2);
+   document.getElementById(suc+'-stat-ventas').textContent=fmt(d.ventas);
++  const vcEl=document.getElementById(suc+'-stat-ventasCreditos'); if(vcEl) vcEl.textContent=fmt(d.ventasCreditos||0);
+   const ingEl=document.getElementById(suc+'-stat-ingresos');
+   if(ingEl) ingEl.textContent=fmt(ingresos);
+   document.getElementById(suc+'-stat-costos').textContent=fmt(costosTotal);
+-- 
+2.43.0
+
