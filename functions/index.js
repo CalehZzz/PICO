@@ -953,47 +953,66 @@ exports.aplicarCreditosAPedido = functions.https.onCall(async (data, context) =>
   const orderRef = db.collection('pedidos').doc(orderId);
   const credRef = db.collection('creditos').doc(email);
 
+  // No lanzar HttpsError DENTRO de la transacción (Firestore lo convierte en INTERNAL).
+  let failCode = null;
+  let failMsg = null;
+
   const result = await db.runTransaction(async (tx) => {
-    const [oSnap, cSnap] = await Promise.all([tx.get(orderRef), tx.get(credRef)]);
-    if (!oSnap.exists) throw new functions.https.HttpsError('not-found', 'Pedido no encontrado.');
+    // Lecturas secuenciales (Promise.all + tx.get rompe la transacción → INTERNAL)
+    const oSnap = await tx.get(orderRef);
+    const cSnap = await tx.get(credRef);
+
+    if (!oSnap.exists) {
+      failCode = 'not-found'; failMsg = 'Pedido no encontrado.';
+      return null;
+    }
     const o = oSnap.data();
-    if (o.userId && o.userId !== context.auth.uid && context.auth.token.admin !== true) {
-      throw new functions.https.HttpsError('permission-denied', 'Este pedido no es tuyo.');
+    const ownerUid = o.userId || o.uid || null;
+    if (ownerUid && ownerUid !== context.auth.uid && context.auth.token.admin !== true) {
+      failCode = 'permission-denied'; failMsg = 'Este pedido no es tuyo.';
+      return null;
     }
     if (o.creditsApplied === true) {
       return { ok: true, creditsUsed: Number(o.creditsUsed) || 0, already: true };
     }
     // No combinar con descuentos de carrito
     if (o.discountPct || o.discountId || o.discountCode || o.stampCardCode) {
-      throw new functions.https.HttpsError('failed-precondition', 'Los créditos no se combinan con otros descuentos.');
+      failCode = 'failed-precondition';
+      failMsg = 'Los créditos no se combinan con otros descuentos.';
+      return null;
     }
     if (!cSnap.exists) {
-      throw new functions.https.HttpsError('failed-precondition', 'No tienes créditos disponibles.');
+      failCode = 'failed-precondition'; failMsg = 'No tienes créditos disponibles.';
+      return null;
     }
-    const c = cSnap.data();
-    let saldo = Number(c.saldo) || 0;
+    const c = cSnap.data() || {};
+    const saldo = Number(c.saldo) || 0;
     if (c.venceAt != null) {
       const ms = c.venceAt.toMillis ? c.venceAt.toMillis()
         : (typeof c.venceAt === 'number' ? c.venceAt : Date.parse(c.venceAt));
       if (ms && Date.now() > ms) {
-        throw new functions.https.HttpsError('failed-precondition', 'Tus créditos ya vencieron.');
+        failCode = 'failed-precondition'; failMsg = 'Tus créditos ya vencieron.';
+        return null;
       }
     }
     const productTotal = typeof o.totalConDescuento === 'number' ? o.totalConDescuento
       : (typeof o.total === 'number' ? o.total : 0);
     const use = round2(Math.min(saldo, requested, productTotal));
-    if (!(use > 0)) return { ok: true, creditsUsed: 0 };
+    if (!(use > 0)) {
+      failCode = 'failed-precondition';
+      failMsg = 'Saldo insuficiente o monto inválido.';
+      return null;
+    }
 
-    // Costo proporcional de productos cubiertos por créditos (inversión promo)
     let costTotal = 0;
     for (const it of (o.items || [])) {
       costTotal += (Number(it.cost) || 0) * (it.qty || 1);
     }
     const creditsCosto = productTotal > 0 ? round2(costTotal * (use / productTotal)) : 0;
-
     const payableProducts = round2(Math.max(0, productTotal - use));
     const ship = (o.tipoEntrega === 'domicilio')
       ? (typeof o.envioCosto === 'number' ? o.envioCosto : 0) : 0;
+    const payableTotal = round2(payableProducts + ship);
 
     const mov = Array.isArray(c.movimientos) ? c.movimientos.slice(-39) : [];
     mov.push({
@@ -1011,22 +1030,33 @@ exports.aplicarCreditosAPedido = functions.https.onCall(async (data, context) =>
       movimientos: mov,
       updatedAt: Date.now()
     });
-    tx.update(orderRef, {
+
+    const orderPatch = {
       creditsApplied: true,
       creditsUsed: use,
       creditsEmail: email,
       creditsCosto,
       payableAfterCredits: payableProducts,
-      totalConEnvio: round2(payableProducts + ship),
-      // totalConDescuento sigue siendo el subtotal de productos (antes de créditos)
-      // para no romper desgloses; el cobro real usa payableAfterCredits / totalConEnvio.
+      totalConEnvio: payableTotal,
       stampSkipReason: 'credits',
       stampApplied: true
-    });
-    return { ok: true, creditsUsed: use, creditsCosto, payableAfterCredits: payableProducts };
+    };
+    // Cubierto al 100% con créditos (sin saldo a pagar)
+    if (payableTotal <= 0) {
+      orderPatch.paymentStatus = 'credits';
+      orderPatch.creditsFullyPaid = true;
+    } else if (use > 0) {
+      // Pago mixto: queda saldo (tarjeta/efectivo/retiro)
+      orderPatch.creditsPartial = true;
+    }
+    tx.update(orderRef, orderPatch);
+    return { ok: true, creditsUsed: use, creditsCosto, payableAfterCredits: payableProducts, payableTotal };
   });
 
-  return result;
+  if (failCode) {
+    throw new functions.https.HttpsError(failCode, failMsg || 'No se pudieron aplicar los créditos.');
+  }
+  return result || { ok: true, creditsUsed: 0 };
 });
 
 // ════════════════════════════════════════════════════════════════
