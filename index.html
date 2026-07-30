@@ -79,6 +79,14 @@
       <h2 class="cat-hero-title">PICO, donde tus proyectos <span class="grad">se hacen realidad</span>.</h2>
       <p class="cat-hero-sub">Componentes, sensores, módulos y microcontroladores. Retiro en sucursal o envío a domicilio en todo El Salvador.</p>
     </header>
+    <button type="button" class="sponsor-cta" id="sponsorCta" onclick="openSponsorModal()" aria-label="Consigue $50 en créditos PICO">
+      <span class="sponsor-cta-badge">$50</span>
+      <span class="sponsor-cta-copy">
+        <strong>Consigue $50 en créditos PICO</strong>
+        <span>Patrocina tu stand con nuestro cartel (logo + QR) en la feria · postúlate aquí</span>
+      </span>
+      <span class="sponsor-cta-go">Postular →</span>
+    </button>
     <div class="cat-toolbar">
       <span class="cat-title">Catálogo de Componentes</span>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -172,12 +180,77 @@
   </div>
 </div>
 
+<!-- Modal patrocinio créditos -->
+<div class="moverlay" id="sponsorModal" style="z-index:530" onclick="if(event.target===this)closeSponsorModal()">
+  <div class="modal sponsor-modal" role="dialog" aria-modal="true" aria-labelledby="sponsorModalTitle">
+    <div class="mhd">
+      <h2 id="sponsorModalTitle">💎 $50 en créditos PICO</h2>
+      <button type="button" class="xbtn" onclick="closeSponsorModal()" aria-label="Cerrar">✕</button>
+    </div>
+    <div class="mbody">
+      <div id="sponsorStepSchool">
+        <p class="sponsor-lead">Pon en tu stand un cartel con el logo de PICO y un QR (nosotros lo diseñamos en Canva). A cambio, tu equipo recibe <b>$50 en créditos</b> para la tienda. El resto se coordina por WhatsApp.</p>
+        <p class="sponsor-q">¿De qué colegio / institución eres?</p>
+        <div class="sponsor-school-grid">
+          <button type="button" class="sponsor-school-btn" onclick="selectSponsorSchool('cdb')">
+            <b>Colegio Don Bosco</b>
+            <span>Feria CREAJ (predeterminado)</span>
+          </button>
+          <button type="button" class="sponsor-school-btn" onclick="selectSponsorSchool('otros')">
+            <b>Otros…</b>
+            <span>Otra institución o feria</span>
+          </button>
+        </div>
+      </div>
+      <div id="sponsorStepForm" style="display:none">
+        <button type="button" class="nbtn nbtn-ghost" style="margin-bottom:10px;padding:4px 0" onclick="sponsorBackToSchool()">← Cambiar institución</button>
+        <div id="sponsorFormSchoolLabel" class="sponsor-school-tag"></div>
+        <input type="hidden" id="sponsorSchoolKind" value="cdb">
+        <div id="sponsorOtrosFields" style="display:none">
+          <label class="flabel">Nombre de la institución</label>
+          <input type="text" id="sponsorInstitucion" class="finput" maxlength="120" placeholder="Ej. Colegio…">
+          <label class="flabel">Nombre de la feria de proyectos</label>
+          <input type="text" id="sponsorFeria" class="finput" maxlength="120" placeholder="Ej. Feria de ciencias 2026">
+        </div>
+        <label class="flabel">Nombre del proyecto</label>
+        <input type="text" id="sponsorProyecto" class="finput" maxlength="120" placeholder="Nombre del proyecto">
+        <label class="flabel">Descripción breve</label>
+        <textarea id="sponsorDesc" class="finput" rows="3" maxlength="1000" placeholder="¿De qué trata?"></textarea>
+        <label class="flabel">Integrantes</label>
+        <textarea id="sponsorIntegrantes" class="finput" rows="2" maxlength="500" placeholder="Nombres separados por coma"></textarea>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <label class="flabel">Grado</label>
+            <input type="text" id="sponsorGrado" class="finput" maxlength="40" placeholder="Ej. 2°">
+          </div>
+          <div>
+            <label class="flabel">Sección</label>
+            <input type="text" id="sponsorSeccion" class="finput" maxlength="40" placeholder="Ej. A">
+          </div>
+        </div>
+        <label class="flabel">Teléfono / WhatsApp de contacto</label>
+        <input type="tel" id="sponsorTelefono" class="finput" maxlength="30" placeholder="7070-0000">
+        <div class="form-error" id="sponsorFormError" style="color:#dc2626;font-size:.82rem;margin-top:8px;min-height:1.2em"></div>
+        <button type="button" class="btn-pri" id="sponsorSubmitBtn" style="width:100%;margin-top:10px" onclick="submitSponsorForm()">Enviar solicitud</button>
+      </div>
+      <div id="sponsorDone" style="display:none;text-align:center;padding:12px 4px">
+        <div style="font-size:2rem;margin-bottom:8px">✅</div>
+        <h3 style="margin:0 0 8px">¡Solicitud enviada!</h3>
+        <p style="color:var(--g500);margin:0;line-height:1.5">Te contactaremos por WhatsApp para coordinar el cartel y los créditos. Una sola cuenta del equipo recibe los $50.</p>
+        <button type="button" class="btn-pri" style="width:100%;margin-top:16px" onclick="closeSponsorModal()">Listo</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ SCRIPTS (orden importante: config y components primero, init al final) ═══ -->
 <script src="/js/config.js"></script>
 <script src="/js/components.js"></script>
 <script src="/js/products.js"></script>
 <script src="/js/auth.js"></script>
 <script src="/js/discounts.js"></script>
+<script src="/js/credits.js"></script>
+<script src="/js/sponsor.js"></script>
 <script src="/js/admin.js"></script>
 <script src="/js/cart.js"></script>
 <script src="/js/orders.js"></script>

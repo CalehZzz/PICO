@@ -129,7 +129,6 @@ function renderAdminsList(list) {
         <div style="font-weight:600;color:var(--g900);font-size:.88rem;overflow:hidden;text-overflow:ellipsis">${safeEmail}</div>
         ${a.since ? `<div style="font-size:.72rem;color:var(--g400)">desde ${new Date(a.since).toLocaleDateString('es-SV')}</div>` : ''}
       </div>
-      <button class="nbtn nbtn-ghost" style="color:#ef4444;flex:none" onclick="quickRemoveAdmin('${onclickEmail}')">Quitar</button>
     </div>`;
   }).join('');
 }
@@ -140,6 +139,14 @@ async function setUserAdmin(makeAdmin) {
   if (!input || !msg) return;
   const email = (input.value || '').trim().toLowerCase();
   if (!email) { msg.style.color = '#ef4444'; msg.textContent = 'Escribe un correo.'; return; }
+  if (!makeAdmin) {
+    const conf = prompt('Para confirmar que quitas el admin, vuelve a escribir el correo exactamente:');
+    if ((conf || '').trim().toLowerCase() !== email) {
+      msg.style.color = '#ef4444';
+      msg.textContent = 'Cancelado: el correo no coincide.';
+      return;
+    }
+  }
   msg.style.color = 'var(--g400)';
   msg.textContent = 'Procesando...';
   try {
@@ -161,10 +168,10 @@ async function setUserAdmin(makeAdmin) {
 }
 
 function quickRemoveAdmin(email) {
-  if (!email) return;
+  // Deshabilitado a propósito: solo se quita escribiendo el correo en el campo.
   const input = document.getElementById('adminRoleEmail');
-  if (input) input.value = email;
-  setUserAdmin(false);
+  if (input && email) input.value = email;
+  showToast('Escribe el correo y usa “Quitar admin” (con confirmación)');
 }
 
 // Renderiza la página actual de una sección (con filtro de texto opcional sobre lo cargado)
@@ -530,8 +537,20 @@ async function changeStatus(firestoreId, val) {
           ingresoEnvioRegistrado: (esDom ? true : freshData.ingresoEnvioRegistrado || false),
           costoEnvioRegistrado:   (esDom ? true : freshData.costoEnvioRegistrado || false),
           ...(comisionWompi > 0 ? { comisionCostoRegistrada: true } : {}),
+          ...((!alreadyCounted && (Number(freshData.creditsUsed) || 0) > 0) ? { creditsStatsRecorded: true } : {}),
           deliveredAt: firebase.firestore.FieldValue.serverTimestamp()
         });
+
+        // Costo de promo por créditos (solo doc de créditos; no va a estadisticas.costos)
+        if (!alreadyCounted && (Number(freshData.creditsUsed) || 0) > 0 && freshData.creditsEmail) {
+          const cCosto = Number(freshData.creditsCosto) || 0;
+          if (cCosto > 0) {
+            stockBatch.set(db.collection('creditos').doc(String(freshData.creditsEmail).toLowerCase()), {
+              costoInvertido: firebase.firestore.FieldValue.increment(+cCosto.toFixed(2)),
+              updatedAt: Date.now()
+            }, { merge: true });
+          }
+        }
 
         // ✅ Estadísticas acumuladas (mezcladas con CDB)
         const statDocId = (sucursal === 'exsal') ? 'ColegioExsal' : 'ColegioDonBosco';
@@ -547,6 +566,10 @@ async function changeStatus(firestoreId, val) {
           statPayload['ventas']            = firebase.firestore.FieldValue.increment(+(totalVentasEfectivo + addIngresoEnvio).toFixed(2));
           statPayload['unidades vendidas'] = firebase.firestore.FieldValue.increment(totalUnidades);
           statPayload['numero de ventas']  = firebase.firestore.FieldValue.increment(1);
+          const credUsed = Number(freshData.creditsUsed) || 0;
+          if (credUsed > 0) {
+            statPayload['ventasCreditos'] = firebase.firestore.FieldValue.increment(+credUsed.toFixed(2));
+          }
         } else if (addIngresoEnvio > 0) {
           // Caso raro: producto ya contado pero el envío aún no → solo el envío entra a 'ventas'.
           statPayload['ventas'] = firebase.firestore.FieldValue.increment(+addIngresoEnvio.toFixed(2));
@@ -663,6 +686,9 @@ async function adminCancelOrder(firestoreId, code) {
 
       if (decCostos > 0)        statUpdate['costos']        = firebase.firestore.FieldValue.increment(-(+decCostos.toFixed(2)));
       if (decCostosPedidos > 0) statUpdate['costosPedidos'] = firebase.firestore.FieldValue.increment(-(+decCostosPedidos.toFixed(2)));
+      if (order.statsRecorded === true && (Number(order.creditsUsed) || 0) > 0) {
+        statUpdate['ventasCreditos'] = firebase.firestore.FieldValue.increment(-(+Number(order.creditsUsed).toFixed(2)));
+      }
 
       batch.set(db.collection('estadisticas').doc(sucC), statUpdate, { merge: true });
     }
@@ -679,6 +705,11 @@ async function adminCancelOrder(firestoreId, code) {
       }
     }
     await batch.commit();
+    // Restaurar créditos PICO (saldo) si el pedido los usó
+    try {
+      const fn = firebase.functions().httpsCallable('restaurarCreditosPedido');
+      await fn({ orderId: firestoreId });
+    } catch (e) { console.warn('No se pudieron restaurar créditos:', e); }
     // El caché eterno se conserva; la próxima carga releerá solo lo cambiado.
     // Restaurar stock visual local
     if (order && order.items && order.stockDeducted) {

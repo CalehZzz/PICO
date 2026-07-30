@@ -1402,3 +1402,54 @@ tr:hover td{background:rgba(0,113,227,.04)}
   border:1px solid rgba(0,113,227,.12);border-radius:14px;padding:14px 16px;margin-top:4px}
 .stripe-redirect-ico{font-size:1.5rem;line-height:1;flex-shrink:0}
 .stripe-redirect .pay-note{margin:0;font-size:.86rem;color:var(--g600);line-height:1.5;background:none;border:none;padding:0}
+
+/* ═══ PATROCINIO / CRÉDITOS CTA ═══ */
+.sponsor-cta{
+  width:100%;display:flex;align-items:center;gap:14px;text-align:left;
+  margin:0 0 18px;padding:14px 16px;border:none;border-radius:16px;cursor:pointer;
+  background:linear-gradient(120deg,#ecfeff 0%,#f0f9ff 45%,#fef3c7 100%);
+  box-shadow:0 8px 28px rgba(13,148,136,.12), inset 0 0 0 1px rgba(13,148,136,.14);
+  font-family:var(--font);transition:transform .18s var(--ease),box-shadow .18s var(--ease);
+}
+.sponsor-cta:hover{transform:translateY(-1px);box-shadow:0 12px 32px rgba(13,148,136,.18)}
+.sponsor-cta-badge{
+  flex:none;width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(145deg,#0d9488,#0891b2);color:#fff;font-weight:800;font-size:.95rem;
+  letter-spacing:-.03em;box-shadow:0 6px 16px rgba(13,148,136,.35);
+}
+.sponsor-cta-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.sponsor-cta-copy strong{font-size:.95rem;font-weight:800;color:#0f766e;letter-spacing:-.02em}
+.sponsor-cta-copy span{font-size:.78rem;color:#475569;line-height:1.35;font-weight:500}
+.sponsor-cta-go{flex:none;font-size:.8rem;font-weight:800;color:#0d9488;white-space:nowrap}
+.sponsor-lead{font-size:.9rem;color:var(--g600);line-height:1.5;margin:0 0 14px}
+.sponsor-q{font-size:.82rem;font-weight:700;color:var(--g800);margin:0 0 10px}
+.sponsor-school-grid{display:grid;gap:10px}
+.sponsor-school-btn{
+  display:flex;flex-direction:column;gap:3px;align-items:flex-start;padding:14px 16px;
+  border-radius:14px;border:1.5px solid rgba(17,24,39,.1);background:#fff;cursor:pointer;
+  font-family:var(--font);transition:border-color .15s,background .15s;
+}
+.sponsor-school-btn:hover{border-color:#0d9488;background:#f0fdfa}
+.sponsor-school-btn b{font-size:.92rem;color:var(--g900)}
+.sponsor-school-btn span{font-size:.75rem;color:var(--g500)}
+.sponsor-school-tag{
+  display:inline-flex;margin-bottom:12px;padding:5px 10px;border-radius:999px;
+  background:#ecfeff;color:#0f766e;font-size:.72rem;font-weight:700;
+}
+.sponsor-modal .flabel{display:block;margin:10px 0 5px;font-size:.72rem;font-weight:700;color:var(--g500);text-transform:uppercase;letter-spacing:.06em}
+.cart-credits-box{
+  margin:0 0 10px;padding:12px 14px;border-radius:12px;
+  background:linear-gradient(135deg,#f0fdfa,#ecfeff);border:1px solid rgba(13,148,136,.18);
+}
+.cart-credits-box.cart-credits-muted{background:#f8fafc;border-color:var(--g100);color:var(--g500);font-size:.8rem}
+.cart-credits-hd{display:flex;justify-content:space-between;align-items:center;font-size:.88rem;font-weight:700;color:#0f766e}
+.cart-credits-sub{font-size:.72rem;color:#64748b;margin:4px 0 10px;line-height:1.35}
+.cart-credits-row{display:flex;align-items:center;gap:8px}
+.cart-credits-row label{font-size:.78rem;font-weight:600;color:var(--g600)}
+.cart-credits-row input{flex:1;min-width:0;padding:8px 10px;border-radius:9px;border:1.5px solid rgba(13,148,136,.25);font-family:var(--font);font-size:.88rem}
+.cart-credits-applied{margin-top:8px;font-size:.78rem;color:#0d9488;font-weight:600}
+@media (max-width:640px){
+  .sponsor-cta{padding:12px;gap:10px}
+  .sponsor-cta-badge{width:44px;height:44px;font-size:.82rem;border-radius:12px}
+  .sponsor-cta-go{display:none}
+}

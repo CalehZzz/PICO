@@ -40,6 +40,7 @@ auth.onAuthStateChanged(async user => {
     startUserDiscountListener(user.uid);
     // Tarjeta de sellos activa vinculada al correo (para el 40% al completar 8)
     startStampCardListener(user.email);
+    if (typeof startCreditsListener === 'function') startCreditsListener(user.email);
     if (isAdmin) {
       startAdminListener();
       // Si llegó desde un QR (URL con ?pedido=ID)
@@ -64,6 +65,7 @@ auth.onAuthStateChanged(async user => {
     if (unsubDescuentos)  { unsubDescuentos();  unsubDescuentos  = null; }
     if (unsubUserDiscount){ unsubUserDiscount();unsubUserDiscount= null; }
     if (typeof stopStampCardListener === 'function') stopStampCardListener();
+    if (typeof stopCreditsListener === 'function') stopCreditsListener();
     allDescuentos    = [];
     userDiscountIds  = [];
     selectedDiscount = null;

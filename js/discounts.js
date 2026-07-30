@@ -102,6 +102,8 @@ function renderCartDiscountSelector() {
   if (hasProdDisc && selectedDiscount) {
     selectedDiscount = null;
   }
+  const usingCredits = (typeof creditsToUse !== 'undefined' && creditsToUse > 0);
+  if (usingCredits && selectedDiscount) selectedDiscount = null;
 
   const myDiscounts = getUserDiscounts();
   const stampOk = stampRewardAvailable(userStampCard);
@@ -130,13 +132,20 @@ function renderCartDiscountSelector() {
     ? `<div class="cart-stamp-hint">Tarjeta de sellos: <b>${Math.min(STAMP_TARGET, Number(userStampCard.sellos) || 0)}/${STAMP_TARGET}</b> — te faltan ${Math.max(0, STAMP_TARGET - (Number(userStampCard.sellos) || 0))} para el ${STAMP_REWARD_PCT}%</div>`
     : '';
 
-  const prodNote = hasProdDisc
+  const prodNote = usingCredits
+    ? `<p class="cart-discount-note">Estás usando créditos PICO. No se combinan con códigos, asignados ni sellos.</p>`
+    : hasProdDisc
     ? `<p class="cart-discount-note">Hay productos en oferta en el carrito. Ese descuento no se combina con códigos, asignados ni tarjeta de sellos.</p>`
-    : `<p class="cart-discount-note">Solo un descuento a la vez (asignado, código o tarjeta de sellos). No se combina con ofertas de producto.</p>`;
+    : `<p class="cart-discount-note">Solo un descuento a la vez (asignado, código o tarjeta de sellos). No se combina con ofertas de producto ni con créditos.</p>`;
 
-  const disabledAttr = hasProdDisc ? 'disabled' : '';
+  const disabledAttr = (hasProdDisc || usingCredits) ? 'disabled' : '';
+  const productSubtotal = getCartRawTotal();
+  const creditsHtml = (typeof renderCreditsCartBlock === 'function')
+    ? renderCreditsCartBlock(productSubtotal)
+    : '';
 
   container.innerHTML = `
+    ${creditsHtml}
     <div class="cart-discount-box">
       ${hasAnyOption ? `
       <div class="cart-discount-row">
@@ -161,6 +170,12 @@ function renderCartDiscountSelector() {
 }
 
 function onCartDiscountChange(sel) {
+  if (typeof creditsToUse !== 'undefined' && creditsToUse > 0) {
+    selectedDiscount = null;
+    showToast('⚠️ No se puede combinar con créditos PICO');
+    renderCartDiscountSelector();
+    return;
+  }
   if (cartHasProductDiscount()) {
     selectedDiscount = null;
     showToast('⚠️ No se puede combinar con ofertas de producto');
@@ -199,6 +214,10 @@ async function aplicarCodigoDescuentoCart() {
   const input = document.getElementById('cartDiscountCodeInput');
   if (!currentUser) {
     if (msg) { msg.style.color = '#dc2626'; msg.textContent = 'Inicia sesión para usar un código.'; }
+    return;
+  }
+  if (typeof creditsToUse !== 'undefined' && creditsToUse > 0) {
+    if (msg) { msg.style.color = '#dc2626'; msg.textContent = 'No se puede combinar con créditos PICO.'; }
     return;
   }
   if (cartHasProductDiscount()) {
@@ -320,9 +339,13 @@ function cartHasProductDiscount() {
 function getCartTotal() {
   // No combinar: si hay ofertas de producto en el carrito, solo ellas aplican.
   // Si no, el descuento de carrito (código/asignado/sellos) aplica a todo.
+  // Créditos no se combinan con descuentos de carrito (se limpian al usar créditos).
+  const usingCredits = (typeof creditsToUse !== 'undefined' && creditsToUse > 0);
+  if (usingCredits && selectedDiscount) selectedDiscount = null;
+
   const hasProd = cartHasProductDiscount();
   if (hasProd && selectedDiscount) selectedDiscount = null;
-  const cartPct = (!hasProd && selectedDiscount && selectedDiscount.porcentaje)
+  const cartPct = (!usingCredits && !hasProd && selectedDiscount && selectedDiscount.porcentaje)
     ? selectedDiscount.porcentaje : 0;
   let total = 0;
   Object.keys(cart || {}).forEach(key => {
@@ -337,6 +360,13 @@ function getCartTotal() {
     total += unit * qty;
   });
   return +total.toFixed(2);
+}
+
+/** Total a pagar de productos tras aplicar créditos (sin envío). */
+function getCartPayableTotal() {
+  const t = getCartTotal();
+  if (typeof getCreditsAppliedAmount !== 'function') return t;
+  return +Math.max(0, t - getCreditsAppliedAmount(t)).toFixed(2);
 }
 
 function getCartRawTotal() {
