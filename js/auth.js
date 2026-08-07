@@ -31,6 +31,7 @@ auth.onAuthStateChanged(async user => {
     // Cargar el perfil guardado en la nube (cross-device) y fusionarlo con el caché local
     loadProfileFromCloud();
     updateNavAuth();
+    if (typeof renderNavCreditsBadge === 'function') renderNavCreditsBadge();
     // Recargar siempre al iniciar sesión para que el stockMap incluya pedidos pendientes
     loadProducts();
     // Cargar descuentos globales (todos los descuentos definidos por el admin)
@@ -71,6 +72,7 @@ auth.onAuthStateChanged(async user => {
     selectedDiscount = null;
     userStampCard    = null;
     updateNavAuth();
+    if (typeof renderNavCreditsBadge === 'function') renderNavCreditsBadge();
     if (typeof renderCartDiscountSelector === 'function') renderCartDiscountSelector();
     // Sin sesión: cargar productos (solo stock de Firebase, sin ajuste de pedidos)
     loadProducts();
