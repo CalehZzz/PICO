@@ -206,6 +206,7 @@ async function crearYEnviarFacturaPedido(orderId, d) {
   const fecha = new Date().toLocaleDateString('es');
   const discPct = d.discountPct || 0;
   const discFactor = discPct ? ((100 - discPct) / 100) : 1;
+  const creditsUsed = Math.max(0, Number(d.creditsUsed) || 0);
 
   const items = (d.items || []).map(it => {
     const sub = +((it.price || 0) * (it.qty || 0)).toFixed(2);
@@ -225,10 +226,12 @@ async function crearYEnviarFacturaPedido(orderId, d) {
   const subtotal = +(d.total).toFixed(2);
   // Total de productos (con descuento si aplica), SIN envío.
   const totalProductos = (typeof d.totalConDescuento === 'number') ? +d.totalConDescuento.toFixed(2) : subtotal;
+  // Créditos restan del total de productos (1 crédito = $1).
+  const totalTrasCreditos = +Math.max(0, totalProductos - creditsUsed).toFixed(2);
   // Envío cobrado (solo domicilio): se SUMA al total de la factura, igual que lo paga el cliente.
   const envioCosto = (d.tipoEntrega === 'domicilio' && typeof d.envioCosto === 'number') ? +d.envioCosto.toFixed(2) : 0;
-  // Total de la factura = productos (con descuento) + envío cobrado.
-  const total = +(totalProductos + envioCosto).toFixed(2);
+  // Total de la factura = productos (con descuento − créditos) + envío cobrado.
+  const total = +(totalTrasCreditos + envioCosto).toFixed(2);
   // El stock y las estadísticas de 'domicilio' viven en CDB → su factura va bajo CDB.
   const facSucursal = (d.sucursal === 'exsal') ? 'exsal' : 'cdb';
 
@@ -238,6 +241,16 @@ async function crearYEnviarFacturaPedido(orderId, d) {
 
   await db.runTransaction(async t => {
     const metaSnap = await t.get(metaRef);
+    const orderSnap = await t.get(db.collection('pedidos').doc(orderId));
+    // Idempotencia: si el pedido ya tiene factura, no crear otra.
+    if (orderSnap.exists) {
+      const od = orderSnap.data() || {};
+      if (od.facturaId && od.facturaNum) {
+        seq = null;
+        numFactura = od.facturaNum;
+        return;
+      }
+    }
     seq = ((metaSnap.exists && metaSnap.data().facturaSeq) || 0) + 1;
     numFactura = 'FAC-' + String(seq).padStart(5, '0');
     t.set(facRef, {
@@ -245,7 +258,7 @@ async function crearYEnviarFacturaPedido(orderId, d) {
       cliente: d.name || '', clienteEmail: d.email || '',
       seller: 'tienda-online',
       date: fecha, timestamp: ts, mes,
-      subtotal, totalProductos, envioCosto, total, unidades, items,
+      subtotal, totalProductos, creditsUsed, envioCosto, total, unidades, items,
       tipoEntrega: d.tipoEntrega || 'pickup',
       fromOrder: orderId, origen: 'tienda',
       anulada: false   // Las facturas NUNCA se borran; al cancelar el pedido se marcan como anuladas.
@@ -253,6 +266,10 @@ async function crearYEnviarFacturaPedido(orderId, d) {
     t.set(metaRef, { facturaSeq: seq, updatedAt: ts }, { merge: true });
     t.update(db.collection('pedidos').doc(orderId), { facturaId: facRef.id, facturaNum: numFactura });
   });
+
+  if (seq == null) {
+    return { numFactura, facturaId: null, already: true };
+  }
 
   // Correo al cliente con los DATOS de la factura (sin adjuntos ni imágenes).
   if (d.email) {
@@ -263,6 +280,9 @@ async function crearYEnviarFacturaPedido(orderId, d) {
       </tr>`).join('');
     const descRow = subtotal !== totalProductos
       ? `<p style="margin:10px 0 0;text-align:right;color:#4a89b0;font-size:13px">Subtotal: $${subtotal.toFixed(2)} &middot; Descuento: -$${(subtotal-totalProductos).toFixed(2)}</p>`
+      : '';
+    const creditsRowMail = creditsUsed
+      ? `<p style="margin:6px 0 0;text-align:right;color:#0d9488;font-size:13px">💎 Créditos PICO: -$${creditsUsed.toFixed(2)}</p>`
       : '';
     const envioRowMail = envioCosto
       ? `<p style="margin:6px 0 0;text-align:right;color:#4a89b0;font-size:13px">🚚 Envío a domicilio: $${envioCosto.toFixed(2)}</p>`
@@ -289,6 +309,7 @@ async function crearYEnviarFacturaPedido(orderId, d) {
       <tbody>${filas}</tbody>
     </table>
     ${descRow}
+    ${creditsRowMail}
     ${envioRowMail}
     <p style="margin:8px 0 0;text-align:right;font-size:17px;font-weight:700">TOTAL: $${total.toFixed(2)}</p>
     <p style="margin:18px 0 0;color:#94a3b8;font-size:12px">Este es un correo automático, por favor no respondas a esta dirección.</p>
@@ -450,35 +471,26 @@ function removeFromCart(key) {
 function updateCartUI() {
   const rawTotal = getCartRawTotal();
   const total    = getCartTotal();
-  const payable  = (typeof getCartPayableTotal === 'function') ? getCartPayableTotal() : total;
-  const credAmt  = (typeof getCreditsAppliedAmount === 'function') ? getCreditsAppliedAmount(total) : 0;
   const count = Object.values(cart).reduce((s, n) => s + n, 0);
 
   const badge = document.getElementById('cartBadge');
   badge.textContent = count;
   count > 0 ? badge.classList.remove('hidden') : badge.classList.add('hidden');
 
-  // Mostrar precio original tachado si hay descuento/créditos
+  // Mostrar precio original tachado si hay descuento (créditos solo en checkout)
   const totalEl = document.getElementById('cartTotal');
   const listTotal = (typeof getCartListTotal === 'function') ? getCartListTotal() : rawTotal;
-  if (listTotal > payable + 0.001) {
-    totalEl.innerHTML = `<span style="text-decoration:line-through;color:var(--g400);font-size:.88rem;font-weight:500">$${listTotal.toFixed(2)}</span> <span style="color:var(--b600)">$${payable.toFixed(2)}</span>`;
+  // En el carrito NO mostramos créditos: solo descuento de productos/códigos ya reflejado en total.
+  // El payable con créditos se ve en checkout.
+  const cartDisplayTotal = total;
+  if (listTotal > cartDisplayTotal + 0.001) {
+    totalEl.innerHTML = `<span style="text-decoration:line-through;color:var(--g400);font-size:.88rem;font-weight:500">$${listTotal.toFixed(2)}</span> <span style="color:var(--b600)">$${cartDisplayTotal.toFixed(2)}</span>`;
   } else {
-    totalEl.textContent = '$' + payable.toFixed(2);
+    totalEl.textContent = '$' + cartDisplayTotal.toFixed(2);
   }
-  // Nota de créditos bajo el total (si aplica)
-  let credNote = document.getElementById('cartCreditsNote');
-  if (credAmt > 0) {
-    if (!credNote) {
-      credNote = document.createElement('div');
-      credNote.id = 'cartCreditsNote';
-      credNote.style.cssText = 'font-size:.78rem;color:#0d9488;font-weight:600;margin-top:4px';
-      totalEl.parentElement.appendChild(credNote);
-    }
-    credNote.textContent = 'Incluye −$' + credAmt.toFixed(2) + ' en créditos PICO';
-  } else if (credNote) {
-    credNote.remove();
-  }
+  // Quitar nota de créditos del carrito (viven solo en checkout)
+  const credNote = document.getElementById('cartCreditsNote');
+  if (credNote) credNote.remove();
 
   // Barra de progreso de envío + recomendaciones (solo entrega a domicilio)
   renderShippingProgress();
@@ -565,11 +577,11 @@ function renderShippingProgress() {
       return `<span class="ship-mark ${reached ? 'reached' : ''}" style="left:${left}%"></span>`;
     }).join('');
 
-  // Recomendaciones para alcanzar el siguiente tramo
+  // Recomendaciones compactas (máx. 2) para no comerse el preview en móvil
   const recsHtml = pg.nextMin ? renderShipRecs(pg.remaining) : '';
 
   el.innerHTML = `
-    <div class="ship-progress">
+    <div class="ship-progress ship-progress-compact">
       <div class="ship-top">
         <span class="ship-ico">🚚</span>
         <span class="ship-msg">${headline}</span>
@@ -597,14 +609,14 @@ function renderShipRecs(gap) {
   const crossers = avail.filter(p => p.price >= gap).sort((a, b) => a.price - b.price);
   // 2) Rellenadores (precio < falta), del más caro al más barato (acercan más rápido).
   const fillers  = avail.filter(p => p.price <  gap).sort((a, b) => b.price - a.price);
-  const recs = [...crossers, ...fillers].slice(0, 3);
+  const recs = [...crossers, ...fillers].slice(0, 2);
   if (!recs.length) return '';
 
   const chips = recs.map(p => {
     const thumb = p.img
       ? `<span class="ship-rec-thumb" style="padding:0"><img src="${p.img}" alt="" onerror="this.parentElement.innerHTML='${p.e || '⚡'}'"></span>`
       : `<span class="ship-rec-thumb">${p.e || '⚡'}</span>`;
-    const nameShort = p.name.length > 20 ? p.name.slice(0, 19) + '…' : p.name;
+    const nameShort = p.name.length > 16 ? p.name.slice(0, 15) + '…' : p.name;
     return `<button class="ship-rec" onclick="shipRecAdd('${p.id}')" title="Agregar ${p.name} · $${p.price.toFixed(2)}">
         ${thumb}
         <span class="ship-rec-info">
@@ -615,7 +627,7 @@ function renderShipRecs(gap) {
       </button>`;
   }).join('');
 
-  return `<div class="ship-recs-lbl">💡 Agregá y ahorrá en envío</div>
+  return `<div class="ship-recs-lbl">+ para bajar envío</div>
           <div class="ship-recs">${chips}</div>`;
 }
 
@@ -674,6 +686,74 @@ function closeCart() {
 // ═══════════════════════════════════════════════════
 //  CHECKOUT
 // ═══════════════════════════════════════════════════
+function refreshCheckoutSummary() {
+  const el = document.getElementById('checkoutSummary');
+  if (!el || !Object.keys(cart).length) return;
+
+  const items = Object.keys(cart).map(key => {
+    const { productId, colorId } = parseCartKey(key);
+    const p = products.find(x => x.id === productId);
+    if (!p) return '';
+    const color = colorId ? findCartColor(productId, colorId) : null;
+    const colorBadge = color
+      ? `<span class="odetail-color"><span class="odetail-swatch" style="--swatch:${color.color || '#9ca3af'}"></span>${color.label || ''}</span>`
+      : '';
+    const unitSale = (typeof getProductSalePrice === 'function') ? getProductSalePrice(p) : p.price;
+    return `<div class="odetail-item">
+      <div>
+        <div class="odetail-item-name">${p.e} ${p.name}${colorBadge}</div>
+        <div class="odetail-item-sub">$${unitSale.toFixed(2)} × ${cart[key]}</div>
+      </div>
+      <div class="odetail-item-price">$${(unitSale * cart[key]).toFixed(2)}</div>
+    </div>`;
+  }).join('');
+
+  const listTotal   = (typeof getCartListTotal === 'function') ? getCartListTotal() : getCartRawTotal();
+  const rawTotal    = getCartRawTotal();
+  const finalTotal  = getCartTotal();
+  const esDomicilio = (getSavedProfile().sucursal || selectedSucursal) === 'domicilio';
+  const creditsAmt  = (!selectedDiscount && typeof getCreditsAppliedAmount === 'function')
+    ? getCreditsAppliedAmount(finalTotal) : 0;
+  const payableProducts = +Math.max(0, finalTotal - creditsAmt).toFixed(2);
+  const envioCosto  = esDomicilio ? getShippingCost(finalTotal) : 0;
+  const grandTotal  = +(payableProducts + envioCosto).toFixed(2);
+
+  const discountRow = selectedDiscount
+    ? `<div class="odetail-subtotal" style="color:var(--green)">
+         <span>🏷️ Descuento (${selectedDiscount.nombre} −${selectedDiscount.porcentaje}%)</span>
+         <span>−$${(rawTotal - finalTotal).toFixed(2)}</span>
+       </div>`
+    : '';
+  const creditsRow = creditsAmt > 0
+    ? `<div class="odetail-subtotal" style="color:#0d9488">
+         <span>💎 Créditos PICO</span>
+         <span>−$${creditsAmt.toFixed(2)}</span>
+       </div>`
+    : '';
+  const subtotalRow = (selectedDiscount || creditsAmt > 0 || esDomicilio || listTotal > rawTotal + 0.001)
+    ? `<div class="odetail-subtotal"><span>Subtotal productos</span><span>$${rawTotal.toFixed(2)}</span></div>`
+    : '';
+  const subDescRow = (selectedDiscount && esDomicilio)
+    ? `<div class="odetail-subtotal"><span>Subtotal con descuento</span><span>$${finalTotal.toFixed(2)}</span></div>`
+    : '';
+  const envioRow = esDomicilio
+    ? `<div class="odetail-subtotal"><span>🚚 Envío a domicilio</span><span>${envioCosto === 0 ? 'GRATIS' : '$' + envioCosto.toFixed(2)}</span></div>`
+    : '';
+
+  el.innerHTML = `
+    <div class="osumtitle">Resumen del pedido</div>
+    <div class="odetail-list" style="gap:4px">${items}
+      ${subtotalRow}
+      ${discountRow}
+      ${subDescRow}
+      ${creditsRow}
+      ${envioRow}
+      <div class="odetail-subtotal" style="font-weight:700;color:var(--b600)">
+        <span>Total${esDomicilio ? ' con envío' : ((selectedDiscount || creditsAmt) ? ' a pagar' : '')}</span><span>$${grandTotal.toFixed(2)}</span>
+      </div>
+    </div>`;
+}
+
 function openCheckout() {
   if (!currentUser) {
     closeCart();
@@ -684,55 +764,9 @@ function openCheckout() {
   if (!Object.keys(cart).length) { showToast('⚠️ El carrito está vacío'); return; }
   closeCart();
 
-  const items = Object.keys(cart).map(key => {
-    const { productId, colorId } = parseCartKey(key);
-    const p = products.find(x => x.id === productId);
-    if (!p) return '';
-    const color = colorId ? findCartColor(productId, colorId) : null;
-    const colorBadge = color
-      ? `<span class="odetail-color"><span class="odetail-swatch" style="--swatch:${color.color || '#9ca3af'}"></span>${color.label || ''}</span>`
-      : '';
-    return `<div class="odetail-item">
-      <div>
-        <div class="odetail-item-name">${p.e} ${p.name}${colorBadge}</div>
-        <div class="odetail-item-sub">$${p.price.toFixed(2)} × ${cart[key]}</div>
-      </div>
-      <div class="odetail-item-price">$${(p.price * cart[key]).toFixed(2)}</div>
-    </div>`;
-  }).join('');
-  const rawTotal    = getCartRawTotal();
-  const finalTotal  = getCartTotal();
-  const esDomicilio = getSavedProfile().sucursal === 'domicilio';
-  const envioCosto  = esDomicilio ? getShippingCost(finalTotal) : 0;
-  const grandTotal  = +(finalTotal + envioCosto).toFixed(2);
-  const discountRow = selectedDiscount
-    ? `<div class="odetail-subtotal" style="color:var(--green)">
-         <span>🏷️ Descuento (${selectedDiscount.nombre} −${selectedDiscount.porcentaje}%)</span>
-         <span>−$${(rawTotal - finalTotal).toFixed(2)}</span>
-       </div>`
-    : '';
-  // Subtotal de productos (se muestra si hay descuento o envío, para que el desglose quede claro)
-  const subtotalRow = (selectedDiscount || esDomicilio)
-    ? `<div class="odetail-subtotal"><span>Subtotal productos</span><span>$${rawTotal.toFixed(2)}</span></div>`
-    : '';
-  const subDescRow = (selectedDiscount && esDomicilio)
-    ? `<div class="odetail-subtotal"><span>Subtotal con descuento</span><span>$${finalTotal.toFixed(2)}</span></div>`
-    : '';
-  const envioRow = esDomicilio
-    ? `<div class="odetail-subtotal"><span>🚚 Envío a domicilio</span><span>$${envioCosto.toFixed(2)}</span></div>`
-    : '';
-
-  document.getElementById('checkoutSummary').innerHTML = `
-    <div class="osumtitle">Resumen del pedido</div>
-    <div class="odetail-list" style="gap:4px">${items}
-      ${subtotalRow}
-      ${discountRow}
-      ${subDescRow}
-      ${envioRow}
-      <div class="odetail-subtotal" style="font-weight:700;color:var(--b600)">
-        <span>Total${esDomicilio ? ' con envío' : (selectedDiscount ? ' con descuento' : '')}</span><span>$${grandTotal.toFixed(2)}</span>
-      </div>
-    </div>`;
+  refreshCheckoutSummary();
+  if (typeof renderCheckoutPromo === 'function') renderCheckoutPromo();
+  else if (typeof renderCartDiscountSelector === 'function') renderCartDiscountSelector();
 
   document.getElementById('studentName').value = currentUser.name || '';
   const saved = getSavedProfile();
@@ -1052,9 +1086,11 @@ async function placeOrder() {
     });
 
     // Aplicar créditos en servidor (autoritativo). Si falla, el pedido queda sin créditos.
+    let creditsUsedFinal = 0;
     if (creditsAmt > 0 && typeof aplicarCreditosAlPedido === 'function') {
       try {
-        await aplicarCreditosAlPedido(docRef.id, creditsAmt);
+        const credRes = await aplicarCreditosAlPedido(docRef.id, creditsAmt);
+        creditsUsedFinal = Math.max(0, Number(credRes && credRes.creditsUsed) || 0);
       } catch (e) {
         console.warn('aplicarCreditos:', e);
         showToast('⚠️ No se pudieron aplicar los créditos: ' + (e.message || 'error'));
@@ -1080,23 +1116,29 @@ async function placeOrder() {
       envio,
       envioCosto:    shipCost,
       totalConEnvio: +(payableProducts + shipCost).toFixed(2),
-      creditsUsed: creditsAmt || null,
+      creditsUsed: creditsUsedFinal || null,
       metodoPago,
       email: currentUser?.email || null
     }).catch(e => console.warn('No se pudo encolar el correo de aviso:', e));
 
-    // Generar la factura del pedido y enviarla al cliente (PDF adjunto). No bloquea el pedido.
-    crearYEnviarFacturaPedido(docRef.id, {
-      code, name, items,
-      total: +rawTotal.toFixed(2),
-      totalConDescuento: discFields.totalConDescuento,
-      discountName: discFields.discountName,
-      discountPct:  discFields.discountPct,
-      sucursal,
-      tipoEntrega: esDomicilio ? 'domicilio' : 'pickup',
-      envioCosto: shipCost,
-      email: currentUser?.email || null
-    }).catch(e => console.warn('No se pudo crear/enviar la factura del pedido:', e));
+    // Factura: ESPERAR antes de redirigir a Wompi (domicilio/tarjeta). Antes era fire-and-forget
+    // y al navegar se abortaba la escritura → no se creaban facturas de envío a domicilio.
+    try {
+      await crearYEnviarFacturaPedido(docRef.id, {
+        code, name, items,
+        total: +rawTotal.toFixed(2),
+        totalConDescuento: discFields.totalConDescuento,
+        discountName: discFields.discountName,
+        discountPct:  discFields.discountPct,
+        sucursal,
+        tipoEntrega: esDomicilio ? 'domicilio' : 'pickup',
+        envioCosto: shipCost,
+        creditsUsed: creditsUsedFinal || 0,
+        email: currentUser?.email || null
+      });
+    } catch (e) {
+      console.warn('No se pudo crear/enviar la factura del pedido:', e);
+    }
 
     // El stock ya se verificó y descontó en la transacción de arriba (antes de crear el pedido).
 

@@ -83,10 +83,16 @@ function clearSelectedDiscount() {
 }
 
 // ═══════════════════════════════════════════════════
-//  SELECTOR DEL CARRITO (asignado / código / sellos)
+//  PROMO EN CHECKOUT (asignado / código / sellos / créditos)
+//  El carrito ya no muestra código ni créditos — solo el checkout.
 // ═══════════════════════════════════════════════════
 function renderCartDiscountSelector() {
-  const container = document.getElementById('cartDiscountContainer');
+  // Compat: listeners antiguos siguen llamando esto; el UI vive en checkout.
+  renderCheckoutPromo();
+}
+
+function renderCheckoutPromo() {
+  const container = document.getElementById('checkoutPromoContainer');
   if (!container) return;
 
   if (!currentUser) {
@@ -139,34 +145,38 @@ function renderCartDiscountSelector() {
     : `<p class="cart-discount-note">Solo un descuento a la vez (asignado, código o tarjeta de sellos). No se combina con ofertas de producto ni con créditos.</p>`;
 
   const disabledAttr = (hasProdDisc || usingCredits) ? 'disabled' : '';
-  const productSubtotal = getCartRawTotal();
+  const productSubtotal = (typeof getCartTotal === 'function') ? getCartTotal() : getCartRawTotal();
   const creditsHtml = (typeof renderCreditsCartBlock === 'function')
     ? renderCreditsCartBlock(productSubtotal)
     : '';
 
   container.innerHTML = `
-    ${creditsHtml}
-    <div class="cart-discount-box">
-      ${hasAnyOption ? `
-      <div class="cart-discount-row">
-        <label class="cart-discount-label"><span>🏷️ Descuento</span></label>
-        <select id="cartDiscountSelect" onchange="onCartDiscountChange(this)" ${disabledAttr}>
-          ${opts.join('')}
-        </select>
-      </div>` : ''}
-      <div class="cart-code-row">
-        <input type="text" id="cartDiscountCodeInput" class="cart-code-input" placeholder="Código promocional"
-          value="${escHtml(codeVal)}" maxlength="40" autocomplete="off" ${disabledAttr}
-          onkeydown="if(event.key==='Enter'){event.preventDefault();aplicarCodigoDescuentoCart();}">
-        <button type="button" class="nbtn cart-code-btn" onclick="aplicarCodigoDescuentoCart()" ${disabledAttr}>Aplicar</button>
+    <div class="checkout-promo">
+      <div class="section-sep"><span>🏷️ Descuentos y créditos</span></div>
+      ${creditsHtml}
+      <div class="cart-discount-box">
+        ${hasAnyOption ? `
+        <div class="cart-discount-row">
+          <label class="cart-discount-label"><span>🏷️ Descuento</span></label>
+          <select id="cartDiscountSelect" onchange="onCartDiscountChange(this)" ${disabledAttr}>
+            ${opts.join('')}
+          </select>
+        </div>` : ''}
+        <div class="cart-code-row">
+          <input type="text" id="cartDiscountCodeInput" class="cart-code-input" placeholder="Código promocional"
+            value="${escHtml(codeVal)}" maxlength="40" autocomplete="off" ${disabledAttr}
+            onkeydown="if(event.key==='Enter'){event.preventDefault();aplicarCodigoDescuentoCart();}">
+          <button type="button" class="nbtn cart-code-btn" onclick="aplicarCodigoDescuentoCart()" ${disabledAttr}>Aplicar</button>
+        </div>
+        <div id="cartDiscountCodeMsg" class="cart-code-msg"></div>
+        ${appliedInfo}
+        ${stampHint}
+        ${prodNote}
       </div>
-      <div id="cartDiscountCodeMsg" class="cart-code-msg"></div>
-      ${appliedInfo}
-      ${stampHint}
-      ${prodNote}
     </div>
   `;
   updateCartUI();
+  if (typeof refreshCheckoutSummary === 'function') refreshCheckoutSummary();
 }
 
 function onCartDiscountChange(sel) {

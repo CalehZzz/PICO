@@ -40,6 +40,90 @@ const SECRETS = ['WOMPI_APP_ID', 'WOMPI_API_SECRET'];
 
 function round2(n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
 
+function creditsUsoBloqueado(c) {
+  if (!c) return true;
+  if (c.congelado === true || c.bloqueado === true) return true;
+  if (c.activo === false || c.usoPermitido === false) return true;
+  const est = String(c.estado || '').toLowerCase();
+  return est === 'congelado' || est === 'bloqueado';
+}
+
+/** Crea factura del pedido si aún no tiene (idempotente). Usado como respaldo
+ *  cuando el cliente no alcanzó a escribirla (p. ej. redirect a Wompi). */
+async function ensurePedidoFactura(orderId, orderData) {
+  const o = orderData || {};
+  if (o.facturaId && o.facturaNum) {
+    return { already: true, facturaId: o.facturaId, facturaNum: o.facturaNum };
+  }
+  const orderRef = db.collection('pedidos').doc(orderId);
+  const facRef = db.collection('facturas').doc();
+  const metaRef = db.collection('estadisticas').doc('_meta');
+  const ts = Date.now();
+  const d = new Date(ts);
+  const mes = d.getFullYear() + '-' + String(d.getMonth()).padStart(2, '0');
+  const fecha = d.toLocaleDateString('es');
+  const discPct = o.discountPct || 0;
+  const discFactor = discPct ? ((100 - discPct) / 100) : 1;
+  const creditsUsed = Math.max(0, Number(o.creditsUsed) || 0);
+
+  const items = (o.items || []).map(it => {
+    const sub = round2((it.price || 0) * (it.qty || 0));
+    return {
+      productName: it.colorLabel ? ((it.name || '') + ' · ' + it.colorLabel) : (it.name || ''),
+      qty: it.qty,
+      precioUnit: round2(it.price || 0),
+      subtotal: sub,
+      total: round2(sub * discFactor),
+      descPct: discPct,
+      descNombre: o.discountName || '',
+      colorId: it.colorId || null,
+      colorLabel: it.colorLabel || null,
+      color: it.color || null
+    };
+  });
+  const unidades = items.reduce((s, it) => s + (it.qty || 0), 0);
+  const subtotal = round2(typeof o.total === 'number' ? o.total : 0);
+  const totalProductos = typeof o.totalConDescuento === 'number' ? round2(o.totalConDescuento) : subtotal;
+  const totalTrasCreditos = round2(Math.max(0, totalProductos - creditsUsed));
+  const esDom = o.tipoEntrega === 'domicilio';
+  const envioCosto = esDom && typeof o.envioCosto === 'number' ? round2(o.envioCosto) : 0;
+  const total = round2(totalTrasCreditos + envioCosto);
+  const facSucursal = (o.sucursal === 'exsal') ? 'exsal' : 'cdb';
+
+  let numFactura = '';
+  let facturaId = facRef.id;
+  let already = false;
+
+  await db.runTransaction(async (tx) => {
+    const orderSnap = await tx.get(orderRef);
+    const metaSnap = await tx.get(metaRef);
+    if (!orderSnap.exists) return;
+    const cur = orderSnap.data() || {};
+    if (cur.facturaId && cur.facturaNum) {
+      already = true;
+      facturaId = cur.facturaId;
+      numFactura = cur.facturaNum;
+      return;
+    }
+    const seq = ((metaSnap.exists && metaSnap.data().facturaSeq) || 0) + 1;
+    numFactura = 'FAC-' + String(seq).padStart(5, '0');
+    tx.set(facRef, {
+      numero: seq, numFactura, sucursal: facSucursal,
+      cliente: o.name || '', clienteEmail: o.email || '',
+      seller: 'tienda-online',
+      date: fecha, timestamp: ts, mes,
+      subtotal, totalProductos, creditsUsed, envioCosto, total, unidades, items,
+      tipoEntrega: o.tipoEntrega || 'pickup',
+      fromOrder: orderId, origen: 'tienda',
+      anulada: false
+    });
+    tx.set(metaRef, { facturaSeq: seq, updatedAt: ts }, { merge: true });
+    tx.update(orderRef, { facturaId: facRef.id, facturaNum: numFactura });
+  });
+
+  return { already, facturaId, facturaNum: numFactura };
+}
+
 // ════════════════════════════════════════════════════════════════
 //  Autenticación OAuth 2.0 (Client Credentials) con caché en memoria
 // ════════════════════════════════════════════════════════════════
@@ -238,6 +322,16 @@ async function recordCardPaymentStats(orderId, wompiTxId) {
       ...(wompiTxId ? { wompiTxId } : {})
     });
   });
+
+  // Respaldo: si el cliente no creó la factura (p. ej. redirect a Wompi), crearla ahora.
+  try {
+    const fresh = await orderRef.get();
+    if (fresh.exists) {
+      await ensurePedidoFactura(orderId, fresh.data());
+    }
+  } catch (e) {
+    console.warn('ensurePedidoFactura falló para', orderId, e && e.message);
+  }
 
   console.log('✅ Estadísticas registradas para pedido', orderId);
 }
@@ -986,6 +1080,11 @@ exports.aplicarCreditosAPedido = functions.https.onCall(async (data, context) =>
       return null;
     }
     const c = cSnap.data() || {};
+    if (creditsUsoBloqueado(c)) {
+      failCode = 'failed-precondition';
+      failMsg = 'Tus créditos están pausados o bloqueados.';
+      return null;
+    }
     const saldo = Number(c.saldo) || 0;
     if (c.venceAt != null) {
       const ms = c.venceAt.toMillis ? c.venceAt.toMillis()
