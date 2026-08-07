@@ -73,7 +73,16 @@ function renderStampSlots(sellos) {
   const n = Math.max(0, Math.min(8, Number(sellos) || 0));
   let html = '<div class="stamp-slots" aria-label="Progreso de sellos">';
   for (let i = 1; i <= 8; i++) {
-    html += `<div class="stamp-slot ${i <= n ? 'filled' : ''}" title="Sello ${i}">${i <= n ? '✓' : i}</div>`;
+    if (i <= n) {
+      html += `<div class="stamp-slot filled" title="Sello ${i} · PICO">
+        <span class="pico-stamp" aria-hidden="true">
+          <img class="pico-stamp-logo" src="/LogoBlack.png" alt="" loading="lazy" decoding="async">
+        </span>
+        <span class="sr-only">Sello ${i}</span>
+      </div>`;
+    } else {
+      html += `<div class="stamp-slot" title="Sello ${i}">${i}</div>`;
+    }
   }
   html += '</div>';
   return html;
