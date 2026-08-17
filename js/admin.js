@@ -84,11 +84,117 @@ function renderAdminPanel() {
   if (!isAdmin) return;
   renderAdminDiscountSection();
   startAdminsListener();
+  initQrDesignSection();
   // Reiniciar a la primera página de cada sección y cargar
   adminPaging.active = { page: 0, cursors: [], docs: [], atEnd: false, loading: false };
   adminPaging.done   = { page: 0, cursors: [], docs: [], atEnd: false, loading: false };
   loadAdminSection('active');
   loadAdminSection('done');
+}
+
+// ═══════════════════════════════════════════════════
+//  DISEÑO DE QR (GeneraQR) — solo calebrenebr@gmail.com
+// ═══════════════════════════════════════════════════
+function initQrDesignSection() {
+  const section = document.getElementById('qrDesignSection');
+  if (!section) return;
+  const allowed = typeof QrDesignAPI !== 'undefined'
+    && currentUser && currentUser.email === QrDesignAPI.ADMIN_EMAIL;
+  section.hidden = !allowed;
+  if (!allowed) return;
+
+  const already = QrDesignAPI.getSignedInAdmin();
+  if (already) {
+    document.getElementById('qrDesignConnectBtn').style.display = 'none';
+    loadQrDesignsList();
+  }
+  refreshActiveQrDesignLabel();
+}
+
+async function connectGeneraQR() {
+  const msg = document.getElementById('qrDesignMsg');
+  msg.textContent = 'Conectando...';
+  try {
+    await QrDesignAPI.signInAdmin();
+    document.getElementById('qrDesignConnectBtn').style.display = 'none';
+    msg.textContent = '';
+    loadQrDesignsList();
+  } catch (e) {
+    msg.textContent = e && e.message ? e.message : 'No se pudo conectar con GeneraQR.';
+  }
+}
+
+async function refreshActiveQrDesignLabel() {
+  const el = document.getElementById('qrDesignActive');
+  if (!el) return;
+  try {
+    const design = await QrDesignAPI.getActiveDesign({ force: true });
+    el.textContent = 'Diseño activo en PICO: ' + (design.name || 'Sin nombre');
+  } catch (e) {
+    el.textContent = 'Aún no has publicado ningún diseño (los pedidos usan el QR clásico mientras tanto).';
+  }
+}
+
+async function loadQrDesignsList() {
+  const wrap = document.getElementById('qrDesignList');
+  const msg  = document.getElementById('qrDesignMsg');
+  wrap.style.display = 'grid';
+  wrap.innerHTML = '<p style="font-size:.82rem;color:var(--g400)">Cargando tus diseños...</p>';
+  try {
+    const designs = await QrDesignAPI.listMyDesigns();
+    if (!designs.length) {
+      wrap.innerHTML = '<p style="font-size:.82rem;color:var(--g400)">No tienes diseños guardados en GeneraQR todavía.</p>';
+      return;
+    }
+    wrap.innerHTML = '';
+    for (const d of designs) {
+      const card = document.createElement('div');
+      card.style.cssText = 'border:1.5px solid var(--g200);border-radius:12px;padding:12px;text-align:center;background:#fff';
+      const canvasHolder = document.createElement('div');
+      canvasHolder.style.cssText = 'width:100px;height:100px;margin:0 auto 8px;display:flex;align-items:center;justify-content:center';
+      card.appendChild(canvasHolder);
+      const name = document.createElement('div');
+      name.style.cssText = 'font-size:.8rem;font-weight:600;color:var(--g900);margin-bottom:8px;word-break:break-word';
+      name.textContent = d.name || 'Sin nombre';
+      card.appendChild(name);
+      const btn = document.createElement('button');
+      btn.className = 'btn-sec';
+      btn.style.cssText = 'font-size:.76rem;padding:6px 10px;width:100%';
+      btn.textContent = 'Usar este diseño';
+      btn.onclick = () => useQrDesign(d.id, btn);
+      card.appendChild(btn);
+      wrap.appendChild(card);
+
+      // Vista previa del QR con este estilo (sin logo, para no pedir el asset aparte)
+      GeneraQRRender.renderQrCanvas(GeneraQRRender.optionsFromStyle(d, {
+        data: 'https://picosv.com', size: 200
+      })).then(canvas => {
+        canvas.style.width = '100px';
+        canvas.style.height = '100px';
+        canvasHolder.appendChild(canvas);
+      }).catch(() => {});
+    }
+  } catch (e) {
+    msg.textContent = e && e.message ? e.message : 'No se pudieron cargar tus diseños.';
+    wrap.style.display = 'none';
+  }
+}
+
+async function useQrDesign(presetId, btn) {
+  const msg = document.getElementById('qrDesignMsg');
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Publicando...';
+  try {
+    await QrDesignAPI.setActiveDesign(presetId);
+    msg.textContent = 'Diseño publicado. Los próximos QR de pedidos lo usarán.';
+    refreshActiveQrDesignLabel();
+  } catch (e) {
+    msg.textContent = e && e.message ? e.message : 'No se pudo publicar el diseño.';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
 }
 
 // ═══════════════════════════════════════════════════

@@ -1189,18 +1189,22 @@ async function placeOrder() {
     { const _up = document.getElementById('uniPhone'); if (_up) _up.value = ''; }
     document.getElementById('generatedCode').textContent = code;
 
-    // ─── GENERAR QR ───
+    // ─── GENERAR QR (con el diseño publicado en GeneraQR; cae a QR clásico si falla) ───
     const qrContainer = document.getElementById('qr-pedido');
     qrContainer.innerHTML = '';
     const urlQR = `https://picosv.com/?pedido=${docRef.id}`;
-    new QRCode(qrContainer, {
-      text:         urlQR,
-      width:        140,
-      height:       140,
-      colorDark:    '#0f172a',
-      colorLight:   '#ffffff',
-      correctLevel: QRCode.CorrectLevel.H
-    });
+    if (typeof QrDesignAPI !== 'undefined') {
+      QrDesignAPI.renderStyledQr(qrContainer, urlQR, { size: 140 });
+    } else {
+      new QRCode(qrContainer, {
+        text:         urlQR,
+        width:        140,
+        height:       140,
+        colorDark:    '#0f172a',
+        colorLight:   '#ffffff',
+        correctLevel: QRCode.CorrectLevel.H
+      });
+    }
 
     // Mensaje según el tipo de entrega
     const hintEl = document.getElementById('successHint');
@@ -1308,13 +1312,17 @@ function showOrderQR(firestoreId, code) {
   const container = document.getElementById('qr-viewer-container');
   container.innerHTML = '';
   const urlQR = `https://picosv.com/?pedido=${firestoreId}`;
-  new QRCode(container, {
-    text:         urlQR,
-    width:        160,
-    height:       160,
-    colorDark:    '#0f172a',
-    colorLight:   '#ffffff',
-    correctLevel: QRCode.CorrectLevel.H
-  });
+  if (typeof QrDesignAPI !== 'undefined') {
+    QrDesignAPI.renderStyledQr(container, urlQR, { size: 160 });
+  } else {
+    new QRCode(container, {
+      text:         urlQR,
+      width:        160,
+      height:       160,
+      colorDark:    '#0f172a',
+      colorLight:   '#ffffff',
+      correctLevel: QRCode.CorrectLevel.H
+    });
+  }
   openModal('qrViewerModal');
 }

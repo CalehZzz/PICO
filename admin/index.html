@@ -9,6 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://unpkg.com/qr-code-styling@1.9.2/lib/qr-code-styling.js" defer></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
@@ -46,6 +47,20 @@
         <p style="font-size:.75rem;color:var(--g400);margin:0 0 10px">Para quitar el rol debes escribir el correo completo arriba (ya no hay botón rápido por fila, para evitar accidentes).</p>
         <div id="adminRoleMsg" style="font-size:.82rem;margin-bottom:12px;min-height:1em"></div>
         <div id="adminsListSection"><p style="font-size:.82rem;color:var(--g400)">Cargando administradores...</p></div>
+      </div>
+    </div>
+
+    <!-- ── DISEÑO DE QR (GeneraQR) — solo visible para calebrenebr@gmail.com ── -->
+    <div class="atable-wrap" style="margin-bottom:24px" id="qrDesignSection" hidden>
+      <div class="atable-hd" style="align-items:flex-start;flex-direction:column;gap:6px">
+        <h3>Diseño de QR</h3>
+        <p style="font-size:.8rem;color:var(--g400);margin:0">Elige, desde tus diseños guardados en GeneraQR, cuál usar para los códigos QR de los pedidos.</p>
+      </div>
+      <div style="padding:16px 20px 20px" id="qrDesignBody">
+        <button class="btn-sec" onclick="connectGeneraQR()" id="qrDesignConnectBtn">Conectar con GeneraQR</button>
+        <div id="qrDesignMsg" style="font-size:.82rem;margin-top:10px;min-height:1em"></div>
+        <div id="qrDesignActive" style="font-size:.82rem;color:var(--g400);margin-top:6px"></div>
+        <div id="qrDesignList" style="display:none;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:14px"></div>
       </div>
     </div>
 
@@ -143,6 +158,8 @@
 <script src="/js/discounts.js"></script>
 <script src="/js/credits.js"></script>
 <script src="/js/admin.js"></script>
+<script src="/js/qr-render.js"></script>
+<script src="/js/qr-design-api.js"></script>
 <script src="/js/cart.js"></script>
 <script src="/js/orders.js"></script>
 <script src="/js/catalog.js"></script>
