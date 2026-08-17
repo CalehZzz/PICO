@@ -163,7 +163,7 @@ async function setUserAdmin(makeAdmin) {
     }
   } catch (e) {
     msg.style.color = '#ef4444';
-    msg.textContent = '⚠️ ' + (e && e.message ? e.message : 'No se pudo completar la acción.');
+    msg.textContent = (e && e.message ? e.message : 'No se pudo completar la acción.');
   }
 }
 
@@ -224,7 +224,7 @@ function renderAdminRows(bodyId, data) {
       <td><span style="background:var(--b100);color:var(--b600);border-radius:999px;padding:2px 9px;font-size:.72rem;font-weight:600">${o.section || '—'}</span></td>
       <td>
         <button onclick="showOrderDetail('${o.firestoreId}')" style="background:var(--b50);color:var(--b600);border:1.5px solid var(--b200);border-radius:7px;padding:3px 9px;font-size:.72rem;font-weight:600;cursor:pointer;white-space:nowrap">
-          🔍 Ver (${(o.items||[]).length})
+          Ver (${(o.items||[]).length})
         </button>
       </td>
       <td style="font-weight:700;color:var(--b600)">$${(typeof o.totalConDescuento === 'number' ? o.totalConDescuento : (o.total || 0)).toFixed(2)}</td>
@@ -234,29 +234,29 @@ function renderAdminRows(bodyId, data) {
         ${isCancelled
           ? `<span style="font-size:.72rem;color:var(--g300)">—</span>`
           : isDomicilio
-          ? `<span style="background:#ede9fe;color:#7c3aed;border-radius:999px;padding:3px 10px;font-size:.72rem;font-weight:600;white-space:nowrap">🚚 Domicilio</span>`
+          ? `<span style="background:#ede9fe;color:#7c3aed;border-radius:999px;padding:3px 10px;font-size:.72rem;font-weight:600;white-space:nowrap">Domicilio</span>`
           : `<select class="stsel" onchange="changeSucursal('${o.firestoreId}', this.value)"
               style="background:var(--b50);color:var(--b600)">
               <option value="" ${!o.sucursal ? 'selected' : ''}>Elegir...</option>
-              <option value="cdb" ${o.sucursal === 'cdb' ? 'selected' : ''}>🏫 Colegio Don Bosco</option>
-              <option value="udb" ${o.sucursal === 'udb' ? 'selected' : ''}>🎓 Universidad Don Bosco</option>
-              ${o.sucursal === 'exsal' ? `<option value="exsal" selected>🏢 EXSAL (histórico)</option>` : ''}
+              <option value="cdb" ${o.sucursal === 'cdb' ? 'selected' : ''}>Colegio Don Bosco</option>
+              <option value="udb" ${o.sucursal === 'udb' ? 'selected' : ''}>Universidad Don Bosco</option>
+              ${o.sucursal === 'exsal' ? `<option value="exsal" selected>EXSAL (histórico)</option>` : ''}
             </select>`
         }
       </td>
       <td>
         ${isCancelled
-          ? `<span class="sbadge sc">❌ Cancelado</span>`
+          ? `<span class="sbadge sc">Cancelado</span>`
           : isDomicilio
           ? (isPending
-              ? `<span class="sbadge sp">⏳ Pendiente</span>`
+              ? `<span class="sbadge sp">Pendiente</span>`
               : isConfirmado
-              ? `<span class="sbadge si">📦 Confirmado</span>`
-              : `<span class="sbadge ss">✅ Entregado</span>`)
+              ? `<span class="sbadge si">Confirmado</span>`
+              : `<span class="sbadge ss">Entregado</span>`)
           : `<select class="stsel" onchange="changeStatus('${o.firestoreId}', this.value)"
               style="background:${statusColor};color:${statusText}">
-              <option value="pending" ${isPending ? 'selected' : ''}>⏳ Pendiente</option>
-              <option value="delivered" ${o.status === 'delivered' ? 'selected' : ''}>✅ Entregado</option>
+              <option value="pending" ${isPending ? 'selected' : ''}>Pendiente</option>
+              <option value="delivered" ${o.status === 'delivered' ? 'selected' : ''}>Entregado</option>
             </select>`
         }
       </td>
@@ -265,7 +265,7 @@ function renderAdminRows(bodyId, data) {
           ? `<span style="font-size:.72rem;color:var(--g300)">—</span>`
           : `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
               ${(isDomicilio && isConfirmado)
-                ? `<button class="btn-deliver-order" onclick="adminMarkDelivered('${o.firestoreId}')" title="Confirmar entrega">✅ Entregar</button>`
+                ? `<button class="btn-deliver-order" onclick="adminMarkDelivered('${o.firestoreId}')" title="Confirmar entrega">Entregar</button>`
                 : ''}
               <button class="btn-cancel-order" onclick="adminCancelOrder('${o.firestoreId}', '${o.code}')"
                 ${(o.status === 'delivered' || o.status === 'sold') ? 'disabled title="Pedido ya entregado"' : ''}>
@@ -284,9 +284,9 @@ async function changeSucursal(firestoreId, val) {
     // Actualizar en memoria local
     const o = findLoadedOrder(firestoreId);
     if (o) o.sucursal = val || null;
-    showToast(val ? `🏫 Entrega asignada: ${(typeof sucursalInternalLabel === 'function') ? sucursalInternalLabel(val) : val.toUpperCase()}` : '↩️ Entrega eliminada');
+    showToast(val ? `Entrega asignada: ${(typeof sucursalInternalLabel === 'function') ? sucursalInternalLabel(val) : val.toUpperCase()}` : 'Entrega eliminada');
   } catch (err) {
-    showToast('❌ Error: ' + err.message);
+    showToast('Error: ' + err.message);
   }
 }
 
@@ -404,13 +404,13 @@ async function changeStatus(firestoreId, val) {
         await revertDelivery(firestoreId, fresh);
         renderProducts();
         refreshAdminAfterChange();
-        showToast('🔄 Pedido devuelto a pendiente — entrega revertida');
+        showToast('Pedido devuelto a pendiente — entrega revertida');
         return;
       }
       // Si no estaba entregado realmente, solo cambiar el estado
       await db.collection('pedidos').doc(firestoreId).update({ status: 'pending', deliveredAt: null });
       refreshAdminAfterChange();
-      showToast('🔄 Marcado como pendiente');
+      showToast('Marcado como pendiente');
       return;
     }
 
@@ -428,7 +428,7 @@ async function changeStatus(firestoreId, val) {
         // para que aparezca en la lista de ventas (que solo filtra por 'exsal' | 'cdb').
         const ventaSucursal = (sucursal === 'exsal') ? 'exsal' : 'cdb';
         if (!sucursal) {
-          showToast('⚠️ Asigna una sucursal antes de marcar como entregado');
+          showToast('Asigna una sucursal antes de marcar como entregado');
           // Revertir el cambio de estado
           await db.collection('pedidos').doc(firestoreId).update({ status: 'pending', deliveredAt: null });
           return;
@@ -496,7 +496,7 @@ async function changeStatus(firestoreId, val) {
           sucursal: ventaSucursal,
           date: new Date().toLocaleDateString('es'),
           timestamp: Date.now(),
-          mes: mesKey,          // ✅ necesario para el panel de ventas del inventario
+          mes: mesKey,          // necesario para el panel de ventas del inventario
           fromOrder: firestoreId,
           facturaId:  freshData.facturaId  || null,
           facturaNum: freshData.facturaNum || null,
@@ -552,7 +552,7 @@ async function changeStatus(firestoreId, val) {
           }
         }
 
-        // ✅ Estadísticas acumuladas (mezcladas con CDB)
+        // Estadísticas acumuladas (mezcladas con CDB)
         const statDocId = (sucursal === 'exsal') ? 'ColegioExsal' : 'ColegioDonBosco';
         const statPayload = {
           'pedidosEntregados': firebase.firestore.FieldValue.increment(1),
@@ -589,14 +589,14 @@ async function changeStatus(firestoreId, val) {
         }
         renderProducts();
         refreshAdminAfterChange();
-        showToast('✅ Pedido marcado como entregado');
+        showToast('Pedido marcado como entregado');
         return;
       }
     }
     refreshAdminAfterChange();
-    showToast('✅ Marcado como entregado');
+    showToast('Marcado como entregado');
   } catch (err) {
-    showToast('❌ Error: ' + err.message);
+    showToast('Error: ' + err.message);
   }
 }
 
@@ -719,9 +719,9 @@ async function adminCancelOrder(firestoreId, code) {
       renderProducts();
     }
     refreshAdminAfterChange();
-    showToast('✅ Pedido cancelado — stock restaurado en Firebase');
+    showToast('Pedido cancelado — stock restaurado en Firebase');
   } catch (err) {
-    showToast('❌ Error al cancelar: ' + err.message);
+    showToast('Error al cancelar: ' + err.message);
   }
 }
 
@@ -733,7 +733,7 @@ function copyToClipboard(text, btn) {
       btn.classList.add('copied');
       setTimeout(() => { btn.innerHTML = prev; btn.classList.remove('copied'); }, 1200);
     }
-    showToast('📋 Copiado al portapapeles');
+    showToast('Copiado al portapapeles');
   };
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
@@ -754,7 +754,7 @@ function fallbackCopy(text, done) {
     document.body.removeChild(ta);
     done();
   } catch (e) {
-    showToast('❌ No se pudo copiar');
+    showToast('No se pudo copiar');
   }
 }
 
@@ -768,7 +768,7 @@ function copyFieldRow(label, value) {
         <div class="copy-row-label">${label}</div>
         <div class="copy-row-value">${value}</div>
       </div>
-      <button class="copy-btn" title="Copiar" onclick="copyToClipboard('${safe}', this)">📋</button>
+      <button class="copy-btn" title="Copiar" onclick="copyToClipboard('${safe}', this)"></button>
     </div>`;
 }
 
@@ -777,12 +777,12 @@ async function setTrackingId(firestoreId) {
   const input = document.getElementById('trackingInput');
   const envioInput = document.getElementById('envioRealInput');
   const tid = (input?.value || '').trim();
-  if (!tid) { showToast('⚠️ Ingresa un ID de rastreo'); return; }
+  if (!tid) { showToast('Ingresa un ID de rastreo'); return; }
 
   const rawEnvio = (envioInput?.value || '').trim();
-  if (rawEnvio === '') { showToast('⚠️ Ingresa el costo real del envío'); return; }
+  if (rawEnvio === '') { showToast('Ingresa el costo real del envío'); return; }
   const costoEnvioReal = parseFloat(rawEnvio);
-  if (isNaN(costoEnvioReal) || costoEnvioReal < 0) { showToast('⚠️ Costo de envío inválido'); return; }
+  if (isNaN(costoEnvioReal) || costoEnvioReal < 0) { showToast('Costo de envío inválido'); return; }
 
   const o = findLoadedOrder(firestoreId);
   const cobrado = (o && typeof o.envioCosto === 'number') ? o.envioCosto : 0;
@@ -831,9 +831,9 @@ async function setTrackingId(firestoreId) {
     }
     closeModal('orderDetailModal');
     refreshAdminAfterChange();
-    showToast('📦 Pedido confirmado — envío real registrado');
+    showToast('Pedido confirmado — envío real registrado');
   } catch (err) {
-    showToast('❌ Error: ' + err.message);
+    showToast('Error: ' + err.message);
   }
 }
 
@@ -848,7 +848,7 @@ function showOrderDetail(firestoreId) {
   const o = findLoadedOrder(firestoreId);
   if (!o) return;
   const isDomicilio = o.tipoEntrega === 'domicilio';
-  document.getElementById('orderDetailTitle').textContent = `📦 Pedido ${o.code || ''}`;
+  document.getElementById('orderDetailTitle').textContent = `Pedido ${o.code || ''}`;
   const items = (o.items || []).map(i => `
     <div class="odetail-item">
       <div>
@@ -863,9 +863,9 @@ function showOrderDetail(firestoreId) {
   if (isDomicilio) {
     const e = o.envio || {};
     const credUsed = Number(o.creditsUsed) || 0;
-    let pagoLabel = o.metodoPago === 'tarjeta' ? '💳 Tarjeta' : (o.metodoPago === 'efectivo' ? '💵 Efectivo' : '—');
-    if (credUsed > 0 && o.creditsFullyPaid) pagoLabel = '💎 Créditos PICO (100%)';
-    else if (credUsed > 0) pagoLabel = `💎 Créditos $${credUsed.toFixed(2)} + ` + pagoLabel;
+    let pagoLabel = o.metodoPago === 'tarjeta' ? 'Tarjeta' : (o.metodoPago === 'efectivo' ? 'Efectivo' : '—');
+    if (credUsed > 0 && o.creditsFullyPaid) pagoLabel = 'Créditos PICO (100%)';
+    else if (credUsed > 0) pagoLabel = `Créditos $${credUsed.toFixed(2)} + ` + pagoLabel;
     const pagoEstado = o.paymentStatus === 'pending' ? 'Pendiente de pago'
                      : o.paymentStatus === 'paid'    ? 'Pagado'
                      : o.paymentStatus === 'credits' ? 'Pagado con créditos'
@@ -895,7 +895,7 @@ function showOrderDetail(firestoreId) {
       if (esperaPago) {
         accionBlock = `
         <div class="odetail-track-box">
-          <div class="odetail-track-label">⏳ Esperando confirmación de pago</div>
+          <div class="odetail-track-label">Esperando confirmación de pago</div>
           <p class="odetail-track-hint">Este pedido se paga con tarjeta. Cuando se confirme el pago,
           podrás ingresar el costo del envío y asignar el ID de rastreo.</p>
         </div>`;
@@ -911,7 +911,7 @@ function showOrderDetail(firestoreId) {
           <label class="odetail-track-label" style="margin-top:12px">ID de rastreo</label>
           <div class="odetail-track-row">
             <input id="trackingInput" type="text" placeholder="Ej. PICO-123456" autocomplete="off">
-            <button class="odetail-confirm-btn" onclick="setTrackingId('${o.firestoreId}')">📦 Confirmar pedido</button>
+            <button class="odetail-confirm-btn" onclick="setTrackingId('${o.firestoreId}')">Confirmar pedido</button>
           </div>
           <p class="odetail-track-hint">El cliente pagó <b>$${(o.envioCosto || 0).toFixed(2)}</b> de envío (se suma a <b>ventas</b> de CDB).
           Al confirmar, el <b>costo real</b> del envío se registra en <b>costos</b> de CDB en este momento.
@@ -924,25 +924,25 @@ function showOrderDetail(firestoreId) {
         : '';
       accionBlock = `
         <div class="odetail-track-box confirmed">
-          <div class="odetail-track-label">📦 ID de rastreo asignado</div>
+          <div class="odetail-track-label">ID de rastreo asignado</div>
           <div class="odetail-track-id">
             <span>${o.trackingId || '—'}</span>
-            <button class="copy-btn" title="Copiar" onclick="copyToClipboard('${(o.trackingId||'').replace(/'/g,"\\'")}', this)">📋</button>
+            <button class="copy-btn" title="Copiar" onclick="copyToClipboard('${(o.trackingId||'').replace(/'/g,"\\'")}', this)"></button>
           </div>
           ${envioRealTxt}
-          <button class="odetail-deliver-btn" onclick="adminMarkDelivered('${o.firestoreId}')">✅ Marcar como entregado</button>
+          <button class="odetail-deliver-btn" onclick="adminMarkDelivered('${o.firestoreId}')">Marcar como entregado</button>
         </div>`;
     } else if (o.status === 'delivered' || o.status === 'sold') {
       accionBlock = `
         <div class="odetail-track-box confirmed">
-          <div class="odetail-track-label">✅ Entregado</div>
+          <div class="odetail-track-label">Entregado</div>
           ${o.trackingId ? `<div class="odetail-track-id"><span>${o.trackingId}</span></div>` : ''}
         </div>`;
     }
 
     domicilioBlock = `
       <div class="odetail-domicilio">
-        <div class="odetail-section-title">🚚 Datos de envío</div>
+        <div class="odetail-section-title">Datos de envío</div>
         ${copyRows}
         <div class="odetail-pago">
           <span><b>Método de pago:</b> ${pagoLabel}</span>
@@ -954,7 +954,7 @@ function showOrderDetail(firestoreId) {
 
   const subtotalProductos = (typeof o.totalConDescuento === 'number' ? o.totalConDescuento : (o.total || 0));
   const envioRow = isDomicilio
-    ? `<div class="odetail-subtotal"><span>🚚 Envío a domicilio</span><span>$${(o.envioCosto || 0).toFixed(2)}</span></div>
+    ? `<div class="odetail-subtotal"><span>Envío a domicilio</span><span>$${(o.envioCosto || 0).toFixed(2)}</span></div>
        <div class="odetail-subtotal" style="font-weight:700;border-top:2px solid var(--g200);padding-top:8px">
          <span>Total con envío</span>
          <span>$${(typeof o.totalConEnvio === 'number' ? o.totalConEnvio : subtotalProductos).toFixed(2)}</span>
@@ -963,7 +963,7 @@ function showOrderDetail(firestoreId) {
 
   const comisionRow = (typeof o.comisionWompi === 'number' && o.comisionWompi > 0)
     ? `<div class="odetail-subtotal" style="color:var(--g400)">
-         <span>💳 Comisión Wompi (3.5%) · solo admin</span>
+         <span>Comisión Wompi (3.5%) · solo admin</span>
          <span>-$${o.comisionWompi.toFixed(2)}</span>
        </div>`
     : '';
@@ -971,8 +971,8 @@ function showOrderDetail(firestoreId) {
   document.getElementById('orderDetailBody').innerHTML = `
     <div style="font-size:.78rem;color:var(--g400);margin-bottom:10px">
       <b style="color:var(--g700)">${o.name}</b>${isDomicilio
-        ? (o.visitaInstitucion ? ` · 🏫 visita: ${o.visitaInstitucion}` : '')
-        : ` · ${(typeof sucursalInternalLabel === 'function') ? sucursalInternalLabel(o.sucursal) : 'Retiro'}${(o.grade || o.section) ? ` (${o.grade || ''} – ${o.section || ''})` : ''}${o.uniTelefono ? ` · 📞 ${o.uniTelefono}` : ''}`}<br>
+        ? (o.visitaInstitucion ? ` · visita: ${o.visitaInstitucion}` : '')
+        : ` · ${(typeof sucursalInternalLabel === 'function') ? sucursalInternalLabel(o.sucursal) : 'Retiro'}${(o.grade || o.section) ? ` (${o.grade || ''} – ${o.section || ''})` : ''}${(o.uniTelefono || o.cdbTelefono) ? ` · ${o.uniTelefono || o.cdbTelefono}` : ''}`}<br>
       ${fmtDate(o.createdAt)}
     </div>
     ${domicilioBlock}

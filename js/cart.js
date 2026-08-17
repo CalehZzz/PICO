@@ -121,7 +121,7 @@ function sendOrderEmail(orderId, d) {
   const _sucInternal = (typeof sucursalInternalLabel === 'function')
     ? sucursalInternalLabel(d.sucursal)
     : (d.sucursal === 'cdb' ? 'Colegio Don Bosco' : d.sucursal === 'udb' ? 'Universidad Don Bosco' : 'Retiro en sucursal');
-  const sucLabel = d.tipoEntrega === 'domicilio' ? '🚚 Envío a domicilio' : _sucInternal;
+  const sucLabel = d.tipoEntrega === 'domicilio' ? 'Envío a domicilio' : _sucInternal;
   const finalTotal = d.totalConDescuento != null ? d.totalConDescuento : d.total;
 
   const rows = d.items.map(i => `
@@ -140,13 +140,14 @@ function sendOrderEmail(orderId, d) {
 
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#0f172a">
-      <h2 style="margin:0 0 4px">🛒 Nuevo pedido · ${d.code}</h2>
+      <h2 style="margin:0 0 4px">Nuevo pedido · ${d.code}</h2>
       <p style="margin:0 0 16px;color:#64748b">${new Date().toLocaleString('es-SV')}</p>
       <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
         <tr><td style="padding:4px 0;color:#64748b">Cliente</td><td style="padding:4px 0;font-weight:600">${d.name}</td></tr>
         ${d.tipoEntrega === 'domicilio' ? '' : `<tr><td style="padding:4px 0;color:#64748b">Grado / Sección</td><td style="padding:4px 0;font-weight:600">${d.grade} - ${d.section}</td></tr>`}
+        ${d.tipoEntrega !== 'domicilio' && d.telefonoRetiro ? `<tr><td style="padding:4px 0;color:#64748b">Teléfono</td><td style="padding:4px 0;font-weight:600">${d.telefonoRetiro}</td></tr>` : ''}
         <tr><td style="padding:4px 0;color:#64748b">Entrega</td><td style="padding:4px 0;font-weight:600">${sucLabel}</td></tr>
-        ${d.visitaInstitucion ? `<tr><td style="padding:4px 0;color:#64748b">Nos visita desde</td><td style="padding:4px 0;font-weight:700;color:#0071e3">🏫 ${d.visitaInstitucion}</td></tr>` : ''}
+        ${d.visitaInstitucion ? `<tr><td style="padding:4px 0;color:#64748b">Nos visita desde</td><td style="padding:4px 0;font-weight:700;color:#0071e3">${d.visitaInstitucion}</td></tr>` : ''}
         ${d.tipoEntrega === 'domicilio' && d.envio ? `
         <tr><td style="padding:4px 0;color:#64748b">Departamento</td><td style="padding:4px 0;font-weight:600">${d.envio.departamento || ''}</td></tr>
         <tr><td style="padding:4px 0;color:#64748b">Municipio</td><td style="padding:4px 0;font-weight:600">${d.envio.municipio || ''}</td></tr>
@@ -155,7 +156,7 @@ function sendOrderEmail(orderId, d) {
         ${d.envio.telefono2 ? `<tr><td style="padding:4px 0;color:#64748b">Tel. adicional</td><td style="padding:4px 0;font-weight:600">${d.envio.telefono2}</td></tr>` : ''}
         ${d.envio.referencia ? `<tr><td style="padding:4px 0;color:#64748b">Referencia</td><td style="padding:4px 0;font-weight:600">${d.envio.referencia}</td></tr>` : ''}
         ${d.envio.indicaciones ? `<tr><td style="padding:4px 0;color:#64748b">Indicaciones</td><td style="padding:4px 0;font-weight:600">${d.envio.indicaciones}</td></tr>` : ''}
-        <tr><td style="padding:4px 0;color:#64748b">Método de pago</td><td style="padding:4px 0;font-weight:600">${d.metodoPago === 'tarjeta' ? '💳 Tarjeta' : '💵 Efectivo'}</td></tr>` : ''}
+        <tr><td style="padding:4px 0;color:#64748b">Método de pago</td><td style="padding:4px 0;font-weight:600">${d.metodoPago === 'tarjeta' ? 'Tarjeta' : 'Efectivo'}</td></tr>` : ''}
         ${d.email ? `<tr><td style="padding:4px 0;color:#64748b">Correo cliente</td><td style="padding:4px 0;font-weight:600">${d.email}</td></tr>` : ''}
       </table>
       <table style="width:100%;border-collapse:collapse;font-size:14px">
@@ -168,7 +169,7 @@ function sendOrderEmail(orderId, d) {
         ${rows}
         ${descuento}
         ${d.tipoEntrega === 'domicilio' && d.envioCosto ? `
-        <tr><td colspan="3" style="padding:6px 10px;text-align:right">🚚 Envío a domicilio</td>
+        <tr><td colspan="3" style="padding:6px 10px;text-align:right">Envío a domicilio</td>
             <td style="padding:6px 10px;text-align:right">$${(d.envioCosto).toFixed(2)}</td></tr>` : ''}
         <tr><td colspan="3" style="padding:10px;text-align:right;font-weight:700;font-size:16px;border-top:2px solid #0f172a">TOTAL</td>
             <td style="padding:10px;text-align:right;font-weight:700;font-size:16px;border-top:2px solid #0f172a">$${(d.tipoEntrega === 'domicilio' && d.totalConEnvio != null ? d.totalConEnvio : finalTotal).toFixed(2)}</td></tr>
@@ -179,7 +180,7 @@ function sendOrderEmail(orderId, d) {
   return db.collection('mail').add({
     to: NOTIFY_EMAIL,
     message: {
-      subject: `🛒 Nuevo pedido ${d.code} — ${d.name} (${sucLabel})${d.visitaInstitucion ? ' · visita: ' + d.visitaInstitucion : ''}`,
+      subject: `Nuevo pedido ${d.code} — ${d.name} (${sucLabel})${d.visitaInstitucion ? ' · visita: ' + d.visitaInstitucion : ''}`,
       html,
       text: `Nuevo pedido ${d.code} — ${d.name}${d.visitaInstitucion ? ' · visita: ' + d.visitaInstitucion : ''}`
     }
@@ -282,16 +283,16 @@ async function crearYEnviarFacturaPedido(orderId, d) {
       ? `<p style="margin:10px 0 0;text-align:right;color:#4a89b0;font-size:13px">Subtotal: $${subtotal.toFixed(2)} &middot; Descuento: -$${(subtotal-totalProductos).toFixed(2)}</p>`
       : '';
     const creditsRowMail = creditsUsed
-      ? `<p style="margin:6px 0 0;text-align:right;color:#0d9488;font-size:13px">💎 Créditos PICO: -$${creditsUsed.toFixed(2)}</p>`
+      ? `<p style="margin:6px 0 0;text-align:right;color:#0d9488;font-size:13px">Créditos PICO: -$${creditsUsed.toFixed(2)}</p>`
       : '';
     const envioRowMail = envioCosto
-      ? `<p style="margin:6px 0 0;text-align:right;color:#4a89b0;font-size:13px">🚚 Envío a domicilio: $${envioCosto.toFixed(2)}</p>`
+      ? `<p style="margin:6px 0 0;text-align:right;color:#4a89b0;font-size:13px">Envío a domicilio: $${envioCosto.toFixed(2)}</p>`
       : '';
     try {
       await db.collection('mail').add({
         to: d.email,
         message: {
-          subject: `🧾 Factura ${numFactura} — PICO Electrónica`,
+          subject: `Factura ${numFactura} — PICO Electrónica`,
           html: `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:auto;color:#0f3f63">
   <div style="background:#4aa8e8;color:#fff;padding:18px 20px;border-radius:10px 10px 0 0">
     <div style="font-size:20px;font-weight:700">PICO Electrónica</div>
@@ -341,23 +342,23 @@ function addToCart(id, colorId) {
   const hasColors = p.groupColors && p.groupColors.length > 0;
   if (hasColors && !colorId) {
     if (typeof openProductDetail === 'function') openProductDetail(id);
-    else showToast('⚠️ Elegí un color');
+    else showToast('Elegí un color');
     return;
   }
   if (hasColors && colorId) {
     const c = findCartColor(id, colorId);
-    if (!c || c.enabled === false) { showToast('⚠️ Color no disponible'); return; }
+    if (!c || c.enabled === false) { showToast('Color no disponible'); return; }
   }
   const key = makeCartKey(id, colorId || null);
   const lineMax = cartLineMax(id, key);
-  if (lineMax < 1) { showToast('⚠️ Sin stock disponible'); return; }
+  if (lineMax < 1) { showToast('Sin stock disponible'); return; }
   const prodPct = (typeof getProductDiscountPct === 'function') ? getProductDiscountPct(p) : 0;
   // No combinar oferta de producto con descuento de carrito (código/asignado/sellos)
   if (prodPct > 0 && selectedDiscount) {
     selectedDiscount = null;
-    showToast('⚠️ Se quitó el descuento del carrito: no se combina con ofertas');
+    showToast('Se quitó el descuento del carrito: no se combina con ofertas');
   } else if (prodPct <= 0 && selectedDiscount && typeof cartHasProductDiscount === 'function' && cartHasProductDiscount()) {
-    showToast('⚠️ No se puede combinar descuento de carrito con ofertas de producto');
+    showToast('No se puede combinar descuento de carrito con ofertas de producto');
     return;
   }
   const fromBtn = document.querySelector('#addZone_' + id + ' .add-btn')
@@ -371,7 +372,7 @@ function addToCart(id, colorId) {
   }
   updateAddZone(id, colorId || null);
   const cLabel = hasColors ? (findCartColor(id, colorId) || {}).label : '';
-  showToast(cLabel ? ('✅ Agregado: ' + cLabel) : '✅ Agregado al carrito');
+  showToast(cLabel ? ('Agregado: ' + cLabel) : 'Agregado al carrito');
 }
 
 /** Animación dopamínica: el + vuela al botón del carrito y este hace bump. */
@@ -411,7 +412,7 @@ function playAddToCartAnim(fromEl) {
 function cartInc(key) {
   const { productId, colorId } = parseCartKey(key);
   const max = cartLineMax(productId, key);
-  if ((cart[key] || 0) >= max) { showToast('⚠️ Stock máximo alcanzado'); return; }
+  if ((cart[key] || 0) >= max) { showToast('Stock máximo alcanzado'); return; }
   cart[key] = (cart[key] || 0) + 1;
   saveCart(); updateCartUI(); updateAddZone(productId, colorId);
 }
@@ -452,7 +453,7 @@ function changeQty(key, d) {
   const { productId, colorId } = parseCartKey(key);
   // Al incrementar desde el carrito, respetar el stock compartido del raíz
   if (d > 0 && (cart[key] || 0) + d > cartLineMax(productId, key)) {
-    showToast('⚠️ Stock máximo alcanzado');
+    showToast('Stock máximo alcanzado');
     return;
   }
   cart[key] = (cart[key] || 0) + d;
@@ -499,7 +500,7 @@ function updateCartUI() {
 
   const el = document.getElementById('cartItems');
   if (!Object.keys(cart).length) {
-    el.innerHTML = `<div class="empty-cart"><div class="icon">🛒</div><p>Tu carrito está vacío</p></div>`;
+    el.innerHTML = `<div class="empty-cart"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg></div><p>Tu carrito está vacío</p></div>`;
     return;
   }
   el.innerHTML = Object.keys(cart).map(key => {
@@ -534,7 +535,7 @@ function updateCartUI() {
         <span class="cqval">${qty}</span>
         <button class="cqbtn" onclick="changeQty('${kAttr}', +1)">+</button>
       </div>
-      <button class="rmbtn" onclick="removeFromCart('${kAttr}')">🗑️</button>
+      <button class="rmbtn" onclick="removeFromCart('${kAttr}')"></button>
     </div>`;
   }).join('');
 }
@@ -561,7 +562,7 @@ function renderShippingProgress() {
   // Mensaje principal según el tramo
   let headline;
   if (pg.isFree) {
-    headline = `<span class="ship-free">🎉 ¡Ya tenés envío <b>GRATIS</b>!</span>`;
+    headline = `<span class="ship-free">¡Ya tenés envío <b>GRATIS</b>!</span>`;
   } else if (pg.nextCost === 0) {
     headline = `Te falta <b>$${pg.remaining.toFixed(2)}</b> para <b class="ship-hl">envío GRATIS</b>`;
   } else {
@@ -583,7 +584,7 @@ function renderShippingProgress() {
   el.innerHTML = `
     <div class="ship-progress ship-progress-compact">
       <div class="ship-top">
-        <span class="ship-ico">🚚</span>
+        <span class="ship-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg></span>
         <span class="ship-msg">${headline}</span>
         <span class="ship-cost ${pg.isFree ? 'free' : ''}">${pg.isFree ? 'GRATIS' : '$' + pg.currentCost.toFixed(2)}</span>
       </div>
@@ -614,8 +615,8 @@ function renderShipRecs(gap) {
 
   const chips = recs.map(p => {
     const thumb = p.img
-      ? `<span class="ship-rec-thumb" style="padding:0"><img src="${p.img}" alt="" onerror="this.parentElement.innerHTML='${p.e || '⚡'}'"></span>`
-      : `<span class="ship-rec-thumb">${p.e || '⚡'}</span>`;
+      ? `<span class="ship-rec-thumb" style="padding:0"><img src="${p.img}" alt="" onerror="this.parentElement.innerHTML='${p.e || ''}'"></span>`
+      : `<span class="ship-rec-thumb">${p.e || ''}</span>`;
     const nameShort = p.name.length > 16 ? p.name.slice(0, 15) + '…' : p.name;
     return `<button class="ship-rec" onclick="shipRecAdd('${p.id}')" title="Agregar ${p.name} · $${p.price.toFixed(2)}">
         ${thumb}
@@ -661,7 +662,7 @@ function renderCartShippingLine() {
   el.style.display = 'block';
   el.innerHTML = `
     <div class="cship-line">
-      <span class="cship-line-lbl">🚚 Envío actual</span>
+      <span class="cship-line-lbl">Envío actual</span>
       <span class="cship-line-val ${esGratis ? 'free' : ''}">${esGratis ? '¡GRATIS!' : '$' + envio.toFixed(2)}</span>
     </div>
     <div class="cship-line cship-total-line">
@@ -720,13 +721,13 @@ function refreshCheckoutSummary() {
 
   const discountRow = selectedDiscount
     ? `<div class="odetail-subtotal" style="color:var(--green)">
-         <span>🏷️ Descuento (${selectedDiscount.nombre} −${selectedDiscount.porcentaje}%)</span>
+         <span>Descuento (${selectedDiscount.nombre} −${selectedDiscount.porcentaje}%)</span>
          <span>−$${(rawTotal - finalTotal).toFixed(2)}</span>
        </div>`
     : '';
   const creditsRow = creditsAmt > 0
     ? `<div class="odetail-subtotal" style="color:#0d9488">
-         <span>💎 Créditos PICO</span>
+         <span>Créditos PICO</span>
          <span>−$${creditsAmt.toFixed(2)}</span>
        </div>`
     : '';
@@ -737,7 +738,7 @@ function refreshCheckoutSummary() {
     ? `<div class="odetail-subtotal"><span>Subtotal con descuento</span><span>$${finalTotal.toFixed(2)}</span></div>`
     : '';
   const envioRow = esDomicilio
-    ? `<div class="odetail-subtotal"><span>🚚 Envío a domicilio</span><span>${envioCosto === 0 ? 'GRATIS' : '$' + envioCosto.toFixed(2)}</span></div>`
+    ? `<div class="odetail-subtotal"><span>Envío a domicilio</span><span>${envioCosto === 0 ? 'GRATIS' : '$' + envioCosto.toFixed(2)}</span></div>`
     : '';
 
   el.innerHTML = `
@@ -758,10 +759,10 @@ function openCheckout() {
   if (!currentUser) {
     closeCart();
     toggleAuth();
-    showToast('⚠️ Inicia sesión para hacer un pedido');
+    showToast('Inicia sesión para hacer un pedido');
     return;
   }
-  if (!Object.keys(cart).length) { showToast('⚠️ El carrito está vacío'); return; }
+  if (!Object.keys(cart).length) { showToast('El carrito está vacío'); return; }
   closeCart();
 
   refreshCheckoutSummary();
@@ -776,7 +777,7 @@ function openCheckout() {
   // Entrega obligatoria (elegida en el modal de entrada / perfil)
   const sucursalInfoEl = document.getElementById('checkoutSucursalInfo');
   if (!saved.sucursal) {
-    sucursalInfoEl.innerHTML = `⚠️ <b>Entrega no configurada.</b> Elegí cómo recibir tu pedido <a href="#" onclick="closeModal('checkoutModal');reopenSucursalGate();return false" style="color:var(--b600);font-weight:600">aquí</a> antes de continuar.`;
+    sucursalInfoEl.innerHTML = `<b>Entrega no configurada.</b> Elegí cómo recibir tu pedido <a href="#" onclick="closeModal('checkoutModal');reopenSucursalGate();return false" style="color:var(--b600);font-weight:600">aquí</a> antes de continuar.`;
     sucursalInfoEl.style.background = '#fee2e2';
     sucursalInfoEl.style.borderColor = '#fca5a5';
     sucursalInfoEl.style.color = '#dc2626';
@@ -785,8 +786,8 @@ function openCheckout() {
     const esDomicilio = saved.sucursal === 'domicilio';
     // Texto PÚBLICO: genérico, sin nombrar la institución.
     sucursalInfoEl.innerHTML = esDomicilio
-      ? `🚚 <b>Entrega:</b> Envío a domicilio <span style="font-size:.75rem;color:var(--g400)">(podés cambiarlo con el botón de entrega)</span>`
-      : `🏫 <b>Entrega:</b> Retiro en sucursal <span style="font-size:.75rem;color:var(--g400)">(podés cambiarlo con el botón de entrega)</span>`;
+      ? `<b>Entrega:</b> Envío a domicilio <span style="font-size:.75rem;color:var(--g400)">(podés cambiarlo con el botón de entrega)</span>`
+      : `<b>Entrega:</b> Retiro en sucursal <span style="font-size:.75rem;color:var(--g400)">(podés cambiarlo con el botón de entrega)</span>`;
     sucursalInfoEl.style.background = '';
     sucursalInfoEl.style.borderColor = '';
     sucursalInfoEl.style.color = '';
@@ -814,11 +815,17 @@ function toggleDeliveryFields(sucursal) {
   const pay  = document.getElementById('paymentSection');
   const academic   = document.getElementById('academicFields');
   const university = document.getElementById('universityFields');
+  const cdbPhone   = document.getElementById('cdbPhoneField');
   if (ship) ship.style.display = esDomicilio ? '' : 'none';
   if (pay)  pay.style.display  = esDomicilio ? '' : 'none';
   if (academic)   academic.style.display   = esColegio     ? '' : 'none';
+  if (cdbPhone)   cdbPhone.style.display   = esColegio     ? '' : 'none';
   if (university) university.style.display = esUniversidad ? '' : 'none';
   const saved = getSavedProfile();
+  if (esColegio) {
+    const cp = document.getElementById('cdbPhone');
+    if (cp && saved.cdbPhone) cp.value = saved.cdbPhone;
+  }
   if (esUniversidad) {
     const up = document.getElementById('uniPhone');
     if (up && saved.uniPhone) up.value = saved.uniPhone;
@@ -857,7 +864,7 @@ async function placeOrder() {
   const savedProfile = getSavedProfile();
   const sucursal = savedProfile.sucursal || null;
   if (!sucursal) {
-    showToast('⚠️ Configura tu sucursal en tu perfil');
+    showToast('Configura tu sucursal en tu perfil');
     closeModal('checkoutModal');
     showPage('profile');
     return;
@@ -872,10 +879,11 @@ async function placeOrder() {
   const esUniversidad = sucursal === 'udb';
   const grade    = esColegio ? document.getElementById('studentGrade').value   : '';
   const section  = esColegio ? document.getElementById('studentSection').value : '';
+  const cdbPhone = esColegio ? (document.getElementById('cdbPhone').value || '').trim() : '';
   const uniPhone = esUniversidad ? (document.getElementById('uniPhone').value || '').trim() : '';
-  if (!name) { showToast('⚠️ Ingresa tu nombre completo'); return; }
-  if (esColegio && (!grade || !section)) { showToast('⚠️ Completa grado y sección'); return; }
-  if (esUniversidad && !uniPhone) { showToast('⚠️ Ingresa tu teléfono'); return; }
+  if (!name) { showToast('Ingresa tu nombre completo'); return; }
+  if (esColegio && (!grade || !section || !cdbPhone)) { showToast('Completa grado, sección y teléfono'); return; }
+  if (esUniversidad && !uniPhone) { showToast('Ingresa tu teléfono'); return; }
   // Institución de "Otros" (se atiende como domicilio): viaja en el correo al equipo.
   const visitaInstitucion = esDomicilioEntrega
     ? ((savedProfile.visitaInstitucion || '').trim() || (function(){ try { return localStorage.getItem(OTROS_KEY) || ''; } catch(_) { return ''; } })())
@@ -888,6 +896,16 @@ async function placeOrder() {
       pf.uniPhone = uniPhone;
       localStorage.setItem(k, JSON.stringify(pf));
       if (typeof saveProfileToCloud === 'function') saveProfileToCloud({ uniPhone });
+    } catch (_) {}
+  }
+  // Guardar el teléfono de Colegio Don Bosco en el perfil para futuros pedidos
+  if (esColegio && cdbPhone) {
+    try {
+      const k = 'el_profile_' + currentUser.uid;
+      const pf = JSON.parse(localStorage.getItem(k) || '{}');
+      pf.cdbPhone = cdbPhone;
+      localStorage.setItem(k, JSON.stringify(pf));
+      if (typeof saveProfileToCloud === 'function') saveProfileToCloud({ cdbPhone });
     } catch (_) {}
   }
 
@@ -904,7 +922,7 @@ async function placeOrder() {
     const referencia   = document.getElementById('shipRef').value.trim();
     const indicaciones = document.getElementById('shipNotes').value.trim();
     if (!telefono || !departamento || !municipio || !direccion || !referencia) {
-      showToast('⚠️ Completa todos los datos de envío obligatorios');
+      showToast('Completa todos los datos de envío obligatorios');
       return;
     }
     envio = { nombre: name, telefono, telefono2, departamento, municipio, direccion, referencia, indicaciones };
@@ -933,7 +951,7 @@ async function placeOrder() {
   for (const id of Object.keys(localNeed)) {
     if ((stockMap[id] || 0) < (localNeed[id] || 0)) {
       const p = products.find(x => x.id === id);
-      showToast('⚠️ Stock insuficiente: ' + (p?.name || id));
+      showToast('Stock insuficiente: ' + (p?.name || id));
       return;
     }
   }
@@ -1003,7 +1021,7 @@ async function placeOrder() {
     if (typeof renderCartDiscountSelector === 'function') renderCartDiscountSelector();
     btn.disabled = false;
     btn.textContent = 'Confirmar Pedido';
-    showToast('⚠️ ' + (e.message || 'Descuento no válido'));
+    showToast(e.message || 'Descuento no válido');
     return;
   }
 
@@ -1060,6 +1078,7 @@ async function placeOrder() {
       sucursal:    sucursal,
       tipoEntrega: esDomicilio ? 'domicilio' : 'pickup',
       uniTelefono: uniPhone || null,               // teléfono para retiro en Universidad Don Bosco
+      cdbTelefono: cdbPhone || null,               // teléfono para retiro en Colegio Don Bosco
       visitaInstitucion: visitaInstitucion || null, // institución "Otros" (se atiende como domicilio)
       envio:       envio,        // {nombre, telefono, telefono2, departamento, municipio, direccion, referencia, indicaciones} o null
       // Costo de envío y total que paga el cliente (NO afectan stats: 'total' sigue siendo solo productos)
@@ -1093,7 +1112,7 @@ async function placeOrder() {
         creditsUsedFinal = Math.max(0, Number(credRes && credRes.creditsUsed) || 0);
       } catch (e) {
         console.warn('aplicarCreditos:', e);
-        showToast('⚠️ No se pudieron aplicar los créditos: ' + (e.message || 'error'));
+        showToast('No se pudieron aplicar los créditos: ' + (e.message || 'error'));
       }
     }
     creditsToUse = 0;
@@ -1113,6 +1132,7 @@ async function placeOrder() {
       sucursal,
       tipoEntrega: esDomicilio ? 'domicilio' : 'pickup',
       visitaInstitucion: visitaInstitucion || null,
+      telefonoRetiro: cdbPhone || uniPhone || null,
       envio,
       envioCosto:    shipCost,
       totalConEnvio: +(payableProducts + shipCost).toFixed(2),
@@ -1172,7 +1192,7 @@ async function placeOrder() {
     // ─── GENERAR QR ───
     const qrContainer = document.getElementById('qr-pedido');
     qrContainer.innerHTML = '';
-    const urlQR = `https://calehzzz.github.io/PICO/?pedido=${docRef.id}`;
+    const urlQR = `https://picosv.com/?pedido=${docRef.id}`;
     new QRCode(qrContainer, {
       text:         urlQR,
       width:        140,
@@ -1201,7 +1221,7 @@ async function placeOrder() {
         }
       } catch (e) {
         console.error('Wompi checkout:', e);
-        showToast('⚠️ ' + (e && e.message ? e.message : 'No se pudo iniciar el pago con tarjeta.') + ' Tu pedido quedó pendiente.');
+        showToast((e && e.message ? e.message : 'No se pudo iniciar el pago con tarjeta.') + ' Tu pedido quedó pendiente.');
         openModal('successModal');
       }
     } else {
@@ -1210,9 +1230,9 @@ async function placeOrder() {
   } catch (err) {
     const msg = (err && err.message) ? err.message : String(err);
     if (msg.indexOf('STOCK_INSUFICIENTE::') === 0) {
-      showToast('⚠️ ' + msg.replace('STOCK_INSUFICIENTE:: ', ''));
+      showToast(msg.replace('STOCK_INSUFICIENTE:: ', ''));
     } else {
-      showToast('❌ Error al guardar el pedido: ' + msg);
+      showToast('Error al guardar el pedido: ' + msg);
     }
     console.error('placeOrder:', err);
   } finally {
@@ -1287,7 +1307,7 @@ function showOrderQR(firestoreId, code) {
   document.getElementById('qrViewerCode').textContent = code;
   const container = document.getElementById('qr-viewer-container');
   container.innerHTML = '';
-  const urlQR = `https://calehzzz.github.io/PICO/?pedido=${firestoreId}`;
+  const urlQR = `https://picosv.com/?pedido=${firestoreId}`;
   new QRCode(container, {
     text:         urlQR,
     width:        160,

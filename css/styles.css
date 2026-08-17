@@ -107,6 +107,8 @@ nav{position:sticky;top:12px;z-index:200;
   font-family:var(--font);transition:transform .22s var(--ease),box-shadow .22s var(--ease);box-shadow:var(--glow-sm);letter-spacing:-.01em;flex-shrink:0}
 .cart-btn:hover{transform:translateY(-1px);box-shadow:var(--glow)}
 .cart-btn:active{transform:translateY(0) scale(.97)}
+.cart-ico{width:16px;height:16px;flex-shrink:0}
+.cpanel-hd h2 .cart-ico{width:20px;height:20px;vertical-align:-4px;margin-right:2px}
 .cbadge{position:absolute;top:-5px;right:-4px;
   background:linear-gradient(135deg,#ff6b62,var(--red));color:#fff;
   border-radius:50%;min-width:19px;height:19px;padding:0 4px;font-size:.66rem;font-weight:800;
@@ -154,6 +156,8 @@ nav{position:sticky;top:12px;z-index:200;
 .search-wrap:focus-within{border-color:var(--b300);box-shadow:0 0 0 4px rgba(0,113,227,.13),var(--sh1)}
 .search-wrap input{border:none;outline:none;font-family:var(--font);font-size:.88rem;color:var(--g900);background:transparent;width:100%;letter-spacing:-.01em}
 .search-wrap input::placeholder{color:var(--g400)}
+.search-ico{display:inline-flex;flex-shrink:0}
+.search-ico svg{width:15px;height:15px}
 
 /* ── FILTRAR POR (dropdown) ── */
 .filter-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:26px}
@@ -857,7 +861,8 @@ body.discount-mode .qspin-btn:hover{background:rgba(255,138,128,.14)}
 .btn-checkout:hover{transform:translateY(-2px);box-shadow:0 14px 34px rgba(0,113,227,.42)}
 .btn-checkout:active{transform:translateY(0) scale(.99)}
 .empty-cart{text-align:center;padding:64px 20px;color:var(--g400)}
-.empty-cart .icon{font-size:3.4rem;margin-bottom:14px;animation:floaty 3s ease-in-out infinite}
+.empty-cart .icon{margin-bottom:14px;animation:floaty 3s ease-in-out infinite}
+.empty-cart .icon svg{width:52px;height:52px;stroke-width:1.4}
 .empty-cart p{font-size:.9rem;font-weight:500}
 
 /* ─── Barra de progreso de envío (dentro del carrito) ─── */
@@ -867,8 +872,9 @@ body.discount-mode .qspin-btn:hover{background:rgba(255,138,128,.14)}
 .ship-progress-compact{border-radius:12px;padding:8px 10px 9px}
 .ship-top{display:flex;align-items:center;gap:9px;margin-bottom:12px}
 .ship-progress-compact .ship-top{gap:6px;margin-bottom:7px}
-.ship-ico{font-size:1.1rem;line-height:1;flex-shrink:0}
-.ship-progress-compact .ship-ico{font-size:.92rem}
+.ship-ico{flex-shrink:0;display:inline-flex}
+.ship-ico svg{width:15px;height:15px}
+.ship-progress-compact .ship-ico svg{width:13px;height:13px}
 .ship-msg{flex:1;font-size:.79rem;color:var(--g700);line-height:1.35;font-weight:500}
 .ship-progress-compact .ship-msg{font-size:.7rem;line-height:1.25}
 .ship-msg b{color:var(--g900);font-weight:800}

@@ -333,7 +333,7 @@ async function recordCardPaymentStats(orderId, wompiTxId) {
     console.warn('ensurePedidoFactura falló para', orderId, e && e.message);
   }
 
-  console.log('✅ Estadísticas registradas para pedido', orderId);
+  console.log('Estadísticas registradas para pedido', orderId);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -662,7 +662,7 @@ exports.confirmWompiOnAck = functions
 //  listarlos en la interfaz (la fuente de verdad sigue siendo el claim).
 // ════════════════════════════════════════════════════════════════
 
-// 👉 PON AQUÍ TU CORREO para poder crear el primer administrador.
+// PON AQUÍ TU CORREO para poder crear el primer administrador.
 //    Después de tener tu primer admin, puedes vaciar esta lista y volver a desplegar.
 const BOOTSTRAP_ADMINS = [
   '',
@@ -734,7 +734,7 @@ exports.notificarVisitaOtros = functions.https.onCall(async (data) => {
   const safe = institucion.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const cuando = new Date().toLocaleString('es-SV');
   const html = `<div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;color:#0f172a">
-    <h2 style="margin:0 0 8px">🏫 Visita desde institución no listada</h2>
+    <h2 style="margin:0 0 8px">Visita desde institución no listada</h2>
     <p style="margin:0 0 16px;color:#64748b">${cuando}</p>
     <p style="font-size:16px;margin:0 0 12px">Un visitante indicó que nos visita desde:</p>
     <p style="font-size:20px;font-weight:700;color:#0071e3;margin:0 0 16px">${safe}</p>
@@ -743,7 +743,7 @@ exports.notificarVisitaOtros = functions.https.onCall(async (data) => {
   await db.collection('mail').add({
     to: NOTIFY_EMAIL,
     message: {
-      subject: `🏫 Visita desde: ${institucion}`,
+      subject: `Visita desde: ${institucion}`,
       html,
       text: `Visita desde institución no listada: ${institucion} (${cuando})`
     }
@@ -988,7 +988,7 @@ exports.solicitarPatrocinioCreditos = functions.https.onCall(async (data) => {
 
   const cuando = new Date().toLocaleString('es-SV');
   const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#0f172a">
-    <h2 style="margin:0 0 8px">💎 Solicitud de créditos por patrocinio</h2>
+    <h2 style="margin:0 0 8px">Solicitud de créditos por patrocinio</h2>
     <p style="margin:0 0 16px;color:#64748b">${cuando}</p>
     <table style="width:100%;border-collapse:collapse;font-size:14px">
       <tr><td style="padding:6px 0;color:#64748b">Institución</td><td style="padding:6px 0;font-weight:700">${_escMail(instFinal)}</td></tr>
@@ -1005,7 +1005,7 @@ exports.solicitarPatrocinioCreditos = functions.https.onCall(async (data) => {
   await db.collection('mail').add({
     to: NOTIFY_EMAIL,
     message: {
-      subject: `💎 Patrocinio créditos: ${proyecto} · ${instFinal}`,
+      subject: `Patrocinio créditos: ${proyecto} · ${instFinal}`,
       html,
       text: `Patrocinio créditos\nInstitución: ${instFinal}\nFeria: ${feriaFinal}\nProyecto: ${proyecto}\nIntegrantes: ${integrantes}\nGrado/Sección: ${grado} ${seccion}\nTel: ${telefono}\n${descripcion}`
     }

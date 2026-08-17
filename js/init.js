@@ -60,7 +60,7 @@ try {
       // Mostrar al cliente la confirmación del pago (con su código de seguimiento)
       showPaymentConfirmed(order);
     } else if (aprobada === 'false' || pago === 'cancel') {
-      showToast('⚠️ El pago no se completó — tu pedido sigue pendiente, puedes reintentarlo');
+      showToast('El pago no se completó — tu pedido sigue pendiente, puedes reintentarlo');
     }
     // Limpiar los parámetros de la URL sin recargar
     history.replaceState({}, '', location.pathname);
@@ -84,7 +84,6 @@ function showPaymentConfirmed(orderId) {
             '<h2 style="font-size:1.25rem;font-weight:700;color:var(--g900);letter-spacing:-.01em;margin-bottom:6px">¡Pago confirmado!</h2>' +
             '<p style="color:var(--g400);font-size:.85rem;line-height:1.5;margin-bottom:6px">Tu pago se procesó correctamente y tu pedido ya está en preparación.</p>' +
             '<div style="display:flex;align-items:center;justify-content:center;gap:8px;background:#ecfdf5;border:1.5px solid #a7f3d0;border-radius:9px;padding:10px 14px;margin:12px 0">' +
-              '<span>📦</span>' +
               '<p style="margin:0;font-size:.84rem;color:#065f46">Tu entrega llegará <b>aproximadamente mañana</b> (1 día hábil).</p>' +
             '</div>' +
             (code ? (

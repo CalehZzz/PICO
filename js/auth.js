@@ -105,7 +105,7 @@ function updateNavAuth() {
       </div>`;
     if (profBtn) profBtn.classList.remove('hidden');
     if (stampsBtn) stampsBtn.classList.remove('hidden');
-    if (stampsLabel) stampsLabel.textContent = isAdmin ? '🏅 Tarjetas' : '🏅 Mis tarjetas';
+    if (stampsLabel) stampsLabel.textContent = isAdmin ? 'Tarjetas' : 'Mis tarjetas';
     isAdmin ? adminBtn.classList.remove('hidden') : adminBtn.classList.add('hidden');
     document.body.classList.toggle('is-admin', !!isAdmin);
     const invBtn = document.getElementById('inventoryNavBtn');
@@ -179,11 +179,11 @@ async function doLogin() {
   const pass  = passEl && passEl.value || '';
   const errEl = document.getElementById('loginErr');
   errEl.style.display = 'none';
-  if (!email || !pass) { showToast('⚠️ Ingresa correo y contraseña'); return; }
+  if (!email || !pass) { showToast('Ingresa correo y contraseña'); return; }
   try {
     await auth.signInWithEmailAndPassword(email, pass);
     closeAuth();
-    showToast('✅ Bienvenido al panel admin');
+    showToast('Bienvenido al panel admin');
   } catch (err) {
     errEl.textContent    = 'Correo o contraseña incorrectos';
     errEl.style.display  = 'block';
@@ -196,10 +196,10 @@ async function doGoogleLogin() {
     await auth.signInWithPopup(provider);
     closeAuth();
     const firstName = auth.currentUser?.displayName?.split(' ')[0] || '';
-    showToast('✅ ¡Hola' + (firstName ? ', ' + firstName : '') + '!');
+    showToast('¡Hola' + (firstName ? ', ' + firstName : '') + '!');
   } catch (err) {
     if (err.code !== 'auth/popup-closed-by-user') {
-      showToast('❌ Error con Google: ' + err.message);
+      showToast('Error con Google: ' + err.message);
     }
   }
 }
@@ -215,5 +215,5 @@ async function doLogout() {
   renderCartDiscountSelector(); // Bug 5 fix: ocultar el selector de descuento inmediatamente
   updateCartUI();
   showPage('catalog');
-  showToast('👋 Sesión cerrada');
+  showToast('Sesión cerrada');
 }

@@ -232,8 +232,8 @@ async function stampAdminSave() {
     if (msg) {
       msg.style.color = 'var(--green)';
       msg.textContent = emailLower
-        ? '✅ Guardado. Tarjeta asignada a ' + emailLower + '.'
-        : '✅ Guardado (sin correo asignado).';
+        ? 'Guardado. Tarjeta asignada a ' + emailLower + '.'
+        : 'Guardado (sin correo asignado).';
     }
   } catch (e) {
     if (msg) { msg.style.color = '#dc2626'; msg.textContent = 'Error: ' + e.message; }
@@ -256,7 +256,7 @@ async function stampAdminDelete() {
     const ref = db.collection('stamp-cards').doc(_stampCode);
     if (hard) {
       await ref.delete();
-      if (msg) { msg.style.color = 'var(--green)'; msg.textContent = '✅ Tarjeta eliminada.'; }
+      if (msg) { msg.style.color = 'var(--green)'; msg.textContent = 'Tarjeta eliminada.'; }
       setTimeout(() => { location.href = '/mis-tarjetas/'; }, 900);
     } else {
       await ref.update({
@@ -266,7 +266,7 @@ async function stampAdminDelete() {
         cancelledBy: (currentUser && currentUser.email) || 'admin',
         updatedAt: Date.now()
       });
-      if (msg) { msg.style.color = 'var(--green)'; msg.textContent = '✅ Tarjeta archivada (eliminada de activas).'; }
+      if (msg) { msg.style.color = 'var(--green)'; msg.textContent = 'Tarjeta archivada (eliminada de activas).'; }
     }
   } catch (e) {
     if (msg) { msg.style.color = '#dc2626'; msg.textContent = 'Error: ' + e.message; }
@@ -305,7 +305,7 @@ async function stampAdminMarkUsedInPerson() {
       completedAt: Date.now(),
       updatedAt: Date.now()
     });
-    if (msg) { msg.style.color = 'var(--green)'; msg.textContent = '✅ Tarjeta archivada (usada en persona).'; }
+    if (msg) { msg.style.color = 'var(--green)'; msg.textContent = 'Tarjeta archivada (usada en persona).'; }
   } catch (e) {
     if (msg) { msg.style.color = '#dc2626'; msg.textContent = 'Error: ' + e.message; }
   }

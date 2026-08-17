@@ -75,7 +75,7 @@
   <h1 class="sr-only">PICO Electrónica — Tienda de componentes electrónicos en El Salvador: resistencias, capacitores, sensores, microcontroladores Arduino, LEDs y módulos.</h1>
   <div class="catalog-wrap">
     <header class="cat-hero">
-      <span class="cat-hero-eyebrow">⚡ PICO Electrónica · El Salvador</span>
+      <span class="cat-hero-eyebrow">PICO Electrónica · El Salvador</span>
       <h2 class="cat-hero-title">PICO, donde tus proyectos <span class="grad">se hacen realidad</span>.</h2>
       <p class="cat-hero-sub">Componentes, sensores, módulos y microcontroladores. Retiro en sucursal o envío a domicilio en todo El Salvador.</p>
     </header>
@@ -93,7 +93,7 @@
         <button id="sucursalBadge" onclick="reopenSucursalGate()" title="Cambiar sucursal"
           style="display:flex;align-items:center;gap:6px;padding:9px 14px;border-radius:11px;border:none;background:var(--white);color:var(--b600);font-family:var(--font);font-size:.8rem;font-weight:600;cursor:pointer;box-shadow:var(--sh1);transition:all .16s;white-space:nowrap"></button>
         <div class="search-wrap">
-          <span style="color:var(--g300)">🔍</span>
+          <span class="search-ico" style="color:var(--g300)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
           <input type="text" id="searchInput" placeholder="Buscar producto..." oninput="filterProducts()">
         </div>
       </div>
@@ -147,7 +147,7 @@
     </div>
 
     <div id="loadingProducts" class="nores">
-      <div class="ni">⚡</div>
+      <div class="ni"></div>
       <p>Cargando productos...</p>
     </div>
     <div id="paginationControlsTop" class="pager pager-top hidden">
@@ -174,7 +174,7 @@
       <button id="nextPageBtn" class="page-arrow" onclick="goToPage(currentPage + 1)" aria-label="Página siguiente">›</button>
     </div>
     <div id="noResults" class="nores hidden">
-      <div class="ni">🔎</div>
+      <div class="ni"></div>
       <p>Sin resultados para tu búsqueda</p>
     </div>
   </div>
@@ -184,7 +184,7 @@
 <div class="moverlay" id="sponsorModal" style="z-index:530" onclick="if(event.target===this)closeSponsorModal()">
   <div class="modal sponsor-modal" role="dialog" aria-modal="true" aria-labelledby="sponsorModalTitle">
     <div class="mhd">
-      <h2 id="sponsorModalTitle">💎 $50 en créditos PICO</h2>
+      <h2 id="sponsorModalTitle">$50 en créditos PICO</h2>
       <button type="button" class="xbtn" onclick="closeSponsorModal()" aria-label="Cerrar">✕</button>
     </div>
     <div class="mbody">
@@ -234,7 +234,6 @@
         <button type="button" class="btn-pri" id="sponsorSubmitBtn" style="width:100%;margin-top:10px" onclick="submitSponsorForm()">Enviar solicitud</button>
       </div>
       <div id="sponsorDone" style="display:none;text-align:center;padding:12px 4px">
-        <div style="font-size:2rem;margin-bottom:8px">✅</div>
         <h3 style="margin:0 0 8px">¡Solicitud enviada!</h3>
         <p style="color:var(--g500);margin:0;line-height:1.5">Te contactaremos por WhatsApp para coordinar el cartel y los créditos. Una sola cuenta del equipo recibe los $50.</p>
         <button type="button" class="btn-pri" style="width:100%;margin-top:16px" onclick="closeSponsorModal()">Listo</button>

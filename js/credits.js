@@ -68,7 +68,7 @@ function stopCreditsListener() {
   if (typeof renderNavCreditsBadge === 'function') renderNavCreditsBadge();
 }
 
-/** Chip corto en el menú de botones: "💎 300 cr". */
+/** Chip corto en el menú de botones: "300 cr". */
 function renderNavCreditsBadge() {
   const el = document.getElementById('navCreditsBadge');
   if (!el) return;
@@ -87,10 +87,10 @@ function renderNavCreditsBadge() {
   }
   el.classList.remove('hidden');
   if (frozen && rawSaldo > 0) {
-    el.innerHTML = `<span class="nav-credits-chip is-frozen" title="Créditos congelados">💎 ${Math.round(rawSaldo)} cr · pausa</span>`;
+    el.innerHTML = `<span class="nav-credits-chip is-frozen" title="Créditos congelados">${Math.round(rawSaldo)} cr · pausa</span>`;
   } else {
     const n = avail >= 10 ? Math.round(avail) : +avail.toFixed(2);
-    el.innerHTML = `<span class="nav-credits-chip" title="Créditos PICO disponibles">💎 ${n} cr</span>`;
+    el.innerHTML = `<span class="nav-credits-chip" title="Créditos PICO disponibles">${n} cr</span>`;
   }
 }
 
@@ -112,7 +112,7 @@ function setCreditsToUse(val) {
   let needFullPromo = false;
   if (creditsToUse > 0 && selectedDiscount) {
     selectedDiscount = null;
-    showToast('⚠️ Los créditos no se combinan con otros descuentos');
+    showToast('Los créditos no se combinan con otros descuentos');
     needFullPromo = true;
   }
   // Si cruzamos el umbral “usando créditos”, hay que habilitar/deshabilitar descuentos
@@ -184,7 +184,7 @@ function renderCreditsCartBlock(productTotal) {
 
   return `<div class="cart-credits-box">
     <div class="cart-credits-hd">
-      <span>💎 Créditos PICO</span>
+      <span>Créditos PICO</span>
       <b>$${avail.toFixed(2)}</b>
     </div>
     <div class="cart-credits-sub">Saldo disponible${venceTxt}. No se combina con descuentos ni suma sellos.</div>

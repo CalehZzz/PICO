@@ -251,7 +251,7 @@ function _renderGroupCard(g, i) {
         `${rep && rep.img ? `<img class="pimg-photo" src="${_pdEsc(rep.img)}" alt="${_pdEsc(g.name)}" loading="lazy" onerror="this.style.display='none'">` : ''}` +
         `${_discountTagHtml(pct)}` +
         `<span class="pstock ${stockClass(s)}">${_pdEsc(stockTxt)}</span>` +
-        `<span class="pimg-emoji"${rep && rep.img ? ' style="display:none"' : ''}>${_pdEsc((g.e || (rep && rep.e) || '📦'))}</span>` +
+        `<span class="pimg-emoji"${rep && rep.img ? ' style="display:none"' : ''}>${_pdEsc((g.e || (rep && rep.e) || ''))}</span>` +
       `</div>` +
       `<div class="pbody">` +
         `<div class="pclick" onclick="openGroupDetail('${gid}')">` +
@@ -478,7 +478,7 @@ function _ensureProductDetailModal() {
       '<span class="pd-spark pd-spark-6" aria-hidden="true"></span>' +
       '<div class="modal" id="productDetailBox">' +
         '<div class="mhd">' +
-          '<h2>🔎 Detalle del producto</h2>' +
+          '<h2>Detalle del producto</h2>' +
           '<button class="xbtn" onclick="closeModal(\'productDetailModal\')">✕</button>' +
         '</div>' +
         '<div class="mbody" id="productDetailBody"></div>' +
@@ -650,15 +650,15 @@ function _fillProductDetailModal(p, g, opts) {
   if (overlay) overlay.classList.toggle('pd-sale-overlay', pct > 0);
 
   const imgHtml = displayImg
-    ? `<img src="${_pdEsc(displayImg)}" alt="${_pdEsc(displayName)}" onerror="this.style.display='none';this.parentNode.innerHTML='${_pdEsc(p.e || '📦')}'">`
-    : _pdEsc(p.e || '📦');
+    ? `<img src="${_pdEsc(displayImg)}" alt="${_pdEsc(displayName)}" onerror="this.style.display='none';this.parentNode.innerHTML='${_pdEsc(p.e || '')}'">`
+    : _pdEsc(p.e || '');
 
   const descHtml = (p.desc && p.desc.trim())
     ? `<div class="pd-desc">${_pdEsc(p.desc)}</div>`
     : `<div class="pd-desc-empty">Este producto no tiene descripción.</div>`;
 
   const descHeader = isAdmin
-    ? `<div class="pd-desc-h">Descripción <button class="pd-edit-btn" onclick="startEditProductDesc('${p.id}')"><span>✏️</span> Editar</button></div>`
+    ? `<div class="pd-desc-h">Descripción <button class="pd-edit-btn" onclick="startEditProductDesc('${p.id}')">Editar</button></div>`
     : `<div class="pd-desc-h">Descripción</div>`;
 
   const variantPicker = g
@@ -738,12 +738,12 @@ async function saveProductDesc(id) {
         writeProdCache(cache.data, Math.max(cache.syncTs || 0, ts));
       }
     } catch (_) {}
-    showToast('✅ Descripción actualizada');
+    showToast('Descripción actualizada');
     renderProducts();      // refrescar el catálogo
     openProductDetail(id); // refrescar el modal con la nueva descripción
   } catch (e) {
     console.error('saveProductDesc:', e);
-    showToast('⚠️ No se pudo guardar la descripción');
+    showToast('No se pudo guardar la descripción');
     if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; }
   }
 }

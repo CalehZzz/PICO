@@ -13,34 +13,34 @@ function detectCatEmoji(name, desc) {
 
   // 1) Microcontroladores / placas de desarrollo
   if (/\barduino\b|\besp32\b|\besp8266\b|nodemcu|atmega\d|attiny\d|stm32|raspberry|\bpic\s?1\d|microcontrolador/.test(n))
-    return { cat: 'Microcontroladores', e: '🟢' };
+    return { cat: 'Microcontroladores', e: '' };
 
   // 2) LEDs (antes de Transistores, para que "diodo emisor" no caiga en diodos)
   if (/\bled\b|neopixel|ws2812|tira\s*led|diodo\s*emisor|7\s*segmentos/.test(n))
-    return { cat: 'LEDs', e: '💡' };
+    return { cat: 'LEDs', e: '' };
 
   // 3) Transistores y diodos (números de parte muy específicos)
   if (/\btransistor\b|\bmosfet\b|\bbjt\b|\bigbt\b|\bscr\b|\btriac\b|\bnpn\b|\bpnp\b|2n\d{3,4}|bc\d{3}|tip\d{2,3}|irfz?\d|irl\d|\bdiodo\b|\bzener\b|rectificador|1n\d{3,4}/.test(n))
-    return { cat: 'Transistores', e: '⚫' };
+    return { cat: 'Transistores', e: '' };
 
   // 4) Sensores
   if (/\bsensor\b|hc-?sr04|ultrason|\bdht1[12]?\b|\bldr\b|\bpir\b|mq-?\d|infrarrojo|hall|aceler[oó]metro|giroscop|mpu6050|temperatura|humedad|sensor de l[ií]nea|fotorresist|flama|\bllama\b|sonido/.test(n))
-    return { cat: 'Sensores', e: '🌡️' };
+    return { cat: 'Sensores', e: '' };
 
   // 5) Capacitores
   if (/\bcapacitor\b|condensador|electrol[ií]tic|cer[aá]mic|tantalio|\bmlcc\b|\d+\s*(uf|µf|nf|pf)\b/.test(n))
-    return { cat: 'Capacitores', e: '🔵' };
+    return { cat: 'Capacitores', e: '' };
 
   // 6) Resistencias (incluye potenciómetros y trimmers — resistencias variables)
   if (/resistencia|resistor|\bohm|ohmio|potenci[oó]metro|trimmer|preset/.test(n))
-    return { cat: 'Resistencias', e: '🔴' };
+    return { cat: 'Resistencias', e: '' };
 
   // 7) Conectores / cables / protoboard / botones
   if (/header|espad[ií]n|jumper|dupont|conector|caiman|caimanes|cocodrilo|protoboard|breadboard|push\s*button|pulsador|\bbot[oó]n\b|\bjst\b|bornera|terminal|socket|z[oó]calo|\bcable\b|interruptor|\bswitch\b/.test(n))
-    return { cat: 'Conectores', e: '🔌' };
+    return { cat: 'Conectores', e: '' };
 
   // 8) Resto: módulos varios
-  return { cat: 'Módulos', e: '⚙️' };
+  return { cat: 'Módulos', e: '' };
 }
 
 // Normaliza `groupColors` del inventario (colores en un solo documento).
@@ -215,7 +215,7 @@ async function loadProducts() {
     // Re-renderizar carrito ahora que products ya está cargado (fix: al init loadCart corre antes que Firestore)
     updateCartUI();
   } catch (err) {
-    if (loadEl) loadEl.innerHTML = '<div class="ni">⚠️</div><p>Error al cargar productos. Recarga la página.</p>';
+    if (loadEl) loadEl.innerHTML = '<div class="ni"></div><p>Error al cargar productos. Recarga la página.</p>';
     console.error('loadProducts:', err);
   }
 }

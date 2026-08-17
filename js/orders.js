@@ -11,30 +11,30 @@ function orderDisplayTotal(o) {
 // Badge de estado (incluye el estado 'confirmado' del envío a domicilio).
 function orderStatusBadge(o) {
   switch (o.status) {
-    case 'cancelled':  return { cls: 'sc', txt: '❌ Cancelado' };
-    case 'pending':    return { cls: 'sp', txt: '⏳ Pendiente' };
-    case 'confirmado': return { cls: 'si', txt: '📦 Confirmado' };
-    default:           return { cls: 'ss', txt: '✅ Entregado' };
+    case 'cancelled':  return { cls: 'sc', txt: 'Cancelado' };
+    case 'pending':    return { cls: 'sp', txt: 'Pendiente' };
+    case 'confirmado': return { cls: 'si', txt: 'Confirmado' };
+    default:           return { cls: 'ss', txt: 'Entregado' };
   }
 }
 // Línea con el grado/sección (pickup Colegio) o el tipo de entrega. Texto PÚBLICO:
 // para retiro sin datos académicos (universidad) se muestra genérico, sin institución.
 function orderEntregaMeta(o) {
-  if (o.tipoEntrega === 'domicilio') return '<span>🚚 Envío a domicilio</span>';
-  if (o.grade || o.section) return `<span>🎓 ${o.grade || ''} – ${o.section || ''}</span>`;
-  return '<span>🏫 Retiro en sucursal</span>';
+  if (o.tipoEntrega === 'domicilio') return '<span>Envío a domicilio</span>';
+  if (o.grade || o.section) return `<span>${o.grade || ''} – ${o.section || ''}</span>`;
+  return '<span>Retiro en sucursal</span>';
 }
 // Bloque del ID de rastreo (solo domicilio, cuando ya está asignado).
 function orderTrackingBlock(o) {
   if (o.tipoEntrega !== 'domicilio' || !o.trackingId) return '';
   return `<div style="margin-top:9px;padding:8px 12px;background:var(--b50);border:1.5px solid var(--b200);border-radius:9px;font-size:.8rem;color:var(--g700)">
-      📦 <b>ID de rastreo:</b> <span style="color:var(--b600);font-weight:700;letter-spacing:.03em">${o.trackingId}</span>
+      <b>ID de rastreo:</b> <span style="color:var(--b600);font-weight:700;letter-spacing:.03em">${o.trackingId}</span>
     </div>`;
 }
 // Línea de envío dentro del desglose (solo domicilio).
 function orderEnvioLine(o) {
   if (o.tipoEntrega !== 'domicilio' || !o.envioCosto) return '';
-  return `<div class="odetail-subtotal"><span>🚚 Envío</span><span>$${(o.envioCosto).toFixed(2)}</span></div>`;
+  return `<div class="odetail-subtotal"><span>Envío</span><span>$${(o.envioCosto).toFixed(2)}</span></div>`;
 }
 
 // ═══════════════════════════════════════════════════
@@ -160,11 +160,11 @@ function _renderMyOrdersList(el, myOrders) {
         <span class="sbadge ${badge.cls}">${badge.txt}</span>
       </div>
       <div class="ometa">
-        <span>👤 ${o.name}</span>
+        <span>${o.name}</span>
         ${orderEntregaMeta(o)}
-        <span>📅 ${fmtDate(o.createdAt)}</span>
-        <span>💰 $${orderDisplayTotal(o).toFixed(2)}</span>
-        ${o.deliveredAt ? `<span>📦 ${fmtDate(o.deliveredAt)}</span>` : ''}
+        <span>${fmtDate(o.createdAt)}</span>
+        <span>$${orderDisplayTotal(o).toFixed(2)}</span>
+        ${o.deliveredAt ? `<span>${fmtDate(o.deliveredAt)}</span>` : ''}
       </div>
       ${orderTrackingBlock(o)}
       <div style="margin-top:9px;padding-top:9px;border-top:1px solid var(--b50)">
@@ -193,7 +193,7 @@ function _renderMyOrdersList(el, myOrders) {
       <div style="margin-top:10px;text-align:right">
         <button onclick="showOrderQR('${o.firestoreId}','${o.code}')"
           style="padding:5px 12px;border-radius:7px;border:1.5px solid var(--b200);background:var(--b50);color:var(--b600);font-family:var(--font);font-size:.73rem;font-weight:600;cursor:pointer">
-          🔲 Ver QR
+          Ver QR
         </button>
       </div>
     </div>`;
@@ -270,9 +270,9 @@ async function customerCancelOrder(firestoreId, code, btn) {
     renderProducts();
     myOrdersPaging.page = 0; myOrdersPaging.cursors = []; myOrdersPaging.atEnd = false;
     renderMyOrders();
-    showToast('✅ Pedido cancelado — stock restaurado');
+    showToast('Pedido cancelado — stock restaurado');
   } catch (err) {
-    showToast('❌ Error al cancelar: ' + err.message);
+    showToast('Error al cancelar: ' + err.message);
     btn.disabled = false;
     btn.textContent = '✕ Cancelar pedido';
   }
@@ -285,7 +285,7 @@ async function trackOrder() {
   try {
     const snap = await db.collection('pedidos').where('code', '==', code).limit(1).get();
     if (snap.empty) {
-      el.innerHTML = `<div style="background:#fee2e2;color:#dc2626;border-radius:10px;padding:12px 16px;font-size:.83rem;margin-bottom:14px">❌ Código no encontrado.</div>`;
+      el.innerHTML = `<div style="background:#fee2e2;color:#dc2626;border-radius:10px;padding:12px 16px;font-size:.83rem;margin-bottom:14px">Código no encontrado.</div>`;
       return;
     }
     const o = { firestoreId: snap.docs[0].id, ...snap.docs[0].data() };
@@ -301,11 +301,11 @@ async function trackOrder() {
           <span class="sbadge ${badge.cls}">${badge.txt}</span>
         </div>
         <div class="ometa">
-          <span>👤 ${o.name}</span>
+          <span>${o.name}</span>
           ${orderEntregaMeta(o)}
-          <span>📅 ${fmtDate(o.createdAt)}</span>
-          <span>💰 $${orderDisplayTotal(o).toFixed(2)}</span>
-          ${o.deliveredAt ? `<span>📦 ${fmtDate(o.deliveredAt)}</span>` : ''}
+          <span>${fmtDate(o.createdAt)}</span>
+          <span>$${orderDisplayTotal(o).toFixed(2)}</span>
+          ${o.deliveredAt ? `<span>${fmtDate(o.deliveredAt)}</span>` : ''}
         </div>
         ${orderTrackingBlock(o)}
         <div style="margin-top:9px;padding-top:9px;border-top:1px solid var(--b50)">

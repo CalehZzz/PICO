@@ -73,14 +73,14 @@ function renderProfile() {
   // Etiqueta PÚBLICA (genérica, sin nombrar la institución).
   const sucursalLabel = saved.sucursal
     ? ((typeof entregaPublicLabel === 'function') ? entregaPublicLabel(saved.sucursal)
-        : (saved.sucursal === 'domicilio' ? '🚚 Envío a domicilio' : '🏫 Retiro en sucursal'))
+        : (saved.sucursal === 'domicilio' ? 'Envío a domicilio' : 'Retiro en sucursal'))
     : '';
   // Etiqueta de resumen: datos académicos si los hay, o "domicilio guardado" si guardó dirección.
   let tag = '';
   if (saved.grade) {
-    tag = `<div class="profile-saved-tag">✅ ${saved.grade} – Sección ${saved.section || '—'}${sucursalLabel ? ' · ' + sucursalLabel : ''}</div>`;
+    tag = `<div class="profile-saved-tag">${saved.grade} – Sección ${saved.section || '—'}${sucursalLabel ? ' · ' + sucursalLabel : ''}</div>`;
   } else if (saved.sucursal === 'domicilio' && saved.shipAddress) {
-    tag = `<div class="profile-saved-tag">✅ Dirección guardada · ${sucursalLabel}</div>`;
+    tag = `<div class="profile-saved-tag">Dirección guardada · ${sucursalLabel}</div>`;
   } else {
     tag = '<div style="height:14px"></div>';
   }
@@ -123,7 +123,7 @@ function saveProfile() {
   const grade    = document.getElementById('profileGrade').value;
   const section  = document.getElementById('profileSection').value;
   const sucursal = document.getElementById('profileSucursal').value;
-  if (!sucursal) { showToast('⚠️ Elegí cómo querés recibir tus pedidos'); return; }
+  if (!sucursal) { showToast('Elegí cómo querés recibir tus pedidos'); return; }
 
   // Partimos del perfil existente para NO borrar datos ya guardados (envío, etc.)
   const prof = getSavedProfile();
@@ -154,5 +154,5 @@ function saveProfile() {
     updateCartUI();
   }
   renderProfile();
-  showToast('✅ Perfil actualizado');
+  showToast('Perfil actualizado');
 }

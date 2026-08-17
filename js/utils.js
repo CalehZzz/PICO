@@ -22,7 +22,7 @@ function normPath(p) {
 // Navega a la página solicitada. Si ya estamos en ella, solo sube al inicio.
 function showPage(name) {
   if (name === 'adminPanel' && !isAdmin) {
-    showToast('⚠️ Acceso solo para administradores');
+    showToast('Acceso solo para administradores');
     return;
   }
   const url = PAGE_URLS[name];
@@ -81,21 +81,21 @@ function initPageAfterAuth() {
     if (currentUser) {
       renderProfile();
     } else {
-      showToast('⚠️ Inicia sesión para ver tu perfil');
+      showToast('Inicia sesión para ver tu perfil');
       setTimeout(() => { location.href = '/'; }, 1300);
     }
   } else if (page === 'adminPanel') {
     if (isAdmin) {
       renderAdminPanel();
     } else {
-      showToast('⚠️ Acceso solo para administradores');
+      showToast('Acceso solo para administradores');
       setTimeout(() => { location.href = '/'; }, 1300);
     }
   } else if (page === 'stampCards') {
     if (currentUser) {
       if (typeof initStampCardsListPage === 'function') initStampCardsListPage();
     } else {
-      showToast('⚠️ Inicia sesión para ver tus tarjetas');
+      showToast('Inicia sesión para ver tus tarjetas');
       setTimeout(() => { location.href = '/'; }, 1300);
     }
   }
@@ -191,19 +191,19 @@ function closeSucursalGate() {
 /** true si ya hay entrega; si no, reabre el modal y bloquea la acción. */
 function requireSucursalForCart() {
   if (selectedSucursal) return true;
-  showToast('⚠️ Elegí cómo recibir tu pedido para agregar productos');
+  showToast('Elegí cómo recibir tu pedido para agregar productos');
   showSucursalGate();
   return false;
 }
 
 // Etiqueta PÚBLICA (cliente): nunca nombra la institución.
 function entregaPublicLabel(suc) {
-  return (suc === 'domicilio') ? '🚚 Envío a domicilio' : '🏫 Retiro en sucursal';
+  return (suc === 'domicilio') ? 'Envío a domicilio' : 'Retiro en sucursal';
 }
 // Etiqueta INTERNA (dueño/admin): sí nombra la institución.
 function sucursalInternalLabel(suc) {
   switch (suc) {
-    case 'domicilio': return '🚚 Envío a domicilio';
+    case 'domicilio': return 'Envío a domicilio';
     case 'cdb':       return 'Colegio Don Bosco';
     case 'udb':       return 'Universidad Don Bosco';
     case 'exsal':     return 'EXSAL (histórico)';
@@ -231,11 +231,11 @@ function gateChooseDomicilio() {
 function gateConfirmPickup() {
   const sel = document.getElementById('gatePickupSelect');
   const v   = sel ? sel.value : '';
-  if (!v) { showToast('⚠️ Elegí desde dónde nos visitás'); return; }
+  if (!v) { showToast('Elegí desde dónde nos visitás'); return; }
   if (v === 'otros') {
     const inp  = document.getElementById('gateOtrosInput');
     const inst = inp ? inp.value.trim() : '';
-    if (!inst) { showToast('⚠️ Escribí el nombre de tu colegio o universidad'); return; }
+    if (!inst) { showToast('Escribí el nombre de tu colegio o universidad'); return; }
     // "Otros" se atiende como envío a domicilio; guardamos la institución y avisamos al equipo.
     try { localStorage.setItem(OTROS_KEY, inst); } catch (_) {}
     syncOtrosToProfile(inst);
@@ -261,7 +261,7 @@ function chooseGateSucursal(suc) {
     document.body.style.overflow = '';
     document.body.style.touchAction = '';
   }
-  showToast(suc === 'domicilio' ? '🚚 Entrega: Envío a domicilio' : '🏫 Entrega: Retiro en sucursal');
+  showToast(suc === 'domicilio' ? 'Entrega: Envío a domicilio' : 'Entrega: Retiro en sucursal');
   updateSucursalBadge();
   // Inventario ÚNICO: el stock no depende de la entrega → NO vaciamos el carrito.
   if (typeof products !== 'undefined' && products.length) { renderProducts(); updateCartUI(); }
@@ -277,9 +277,8 @@ function showOtrosWelcome(inst) {
     '<div class="moverlay" id="otrosWelcomeModal" style="z-index:620">' +
       '<div class="modal" style="max-width:420px">' +
         '<div class="mbody" style="text-align:center;padding:32px 26px 10px">' +
-          '<div style="font-size:2.8rem;margin-bottom:12px">🎉</div>' +
           '<h2 style="font-size:1.2rem;font-weight:800;color:var(--g900);letter-spacing:-.02em;margin-bottom:10px">¡Nos encanta que nos visites desde ' + safe + '!</h2>' +
-          '<p style="color:var(--g500);font-size:.9rem;line-height:1.55">Nos interesa mucho saber de dónde nos visitan. Por ahora, en tu zona te atendemos con <b>envío a domicilio</b> en todo El Salvador: hacé tu pedido normalmente y te lo llevamos. 🚚</p>' +
+          '<p style="color:var(--g500);font-size:.9rem;line-height:1.55">Nos interesa mucho saber de dónde nos visitan. Por ahora, en tu zona te atendemos con <b>envío a domicilio</b> en todo El Salvador: hacé tu pedido normalmente y te lo llevamos. </p>' +
         '</div>' +
         '<div class="mfoot" style="padding-bottom:24px">' +
           '<button class="btn-pri" style="flex:none;width:100%" onclick="(function(){var m=document.getElementById(\'otrosWelcomeModal\');if(m)m.remove();})()">Entendido ✓</button>' +
@@ -339,5 +338,5 @@ async function sendOtrosVisitaEmail(institucion) {
   } catch (e) {
     console.warn('notificarVisitaOtros:', e);
   }
-  showToast('⚠️ No se pudo enviar el aviso. Intentá de nuevo o contactanos.');
+  showToast('No se pudo enviar el aviso. Intentá de nuevo o contactanos.');
 }

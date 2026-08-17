@@ -126,7 +126,7 @@ function renderCheckoutPromo() {
   if (stampOk) {
     const sel = selectedDiscount && selectedDiscount.source === 'stamp' ? 'selected' : '';
     const name = (userStampCard && userStampCard.nombre) ? userStampCard.nombre : 'Tarjeta de sellos';
-    opts.push(`<option value="stamp:${escHtml(userStampCard.code)}" ${sel}>🏅 ${escHtml(name)} — ${STAMP_REWARD_PCT}% (8 sellos)</option>`);
+    opts.push(`<option value="stamp:${escHtml(userStampCard.code)}" ${sel}>${escHtml(name)} — ${STAMP_REWARD_PCT}% (8 sellos)</option>`);
   }
 
   const codeVal = (selectedDiscount && selectedDiscount.source === 'code') ? (selectedDiscount.code || '') : '';
@@ -152,12 +152,12 @@ function renderCheckoutPromo() {
 
   container.innerHTML = `
     <div class="checkout-promo">
-      <div class="section-sep"><span>🏷️ Descuentos y créditos</span></div>
+      <div class="section-sep"><span>Descuentos y créditos</span></div>
       ${creditsHtml}
       <div class="cart-discount-box">
         ${hasAnyOption ? `
         <div class="cart-discount-row">
-          <label class="cart-discount-label"><span>🏷️ Descuento</span></label>
+          <label class="cart-discount-label"><span>Descuento</span></label>
           <select id="cartDiscountSelect" onchange="onCartDiscountChange(this)" ${disabledAttr}>
             ${opts.join('')}
           </select>
@@ -182,13 +182,13 @@ function renderCheckoutPromo() {
 function onCartDiscountChange(sel) {
   if (typeof creditsToUse !== 'undefined' && creditsToUse > 0) {
     selectedDiscount = null;
-    showToast('⚠️ No se puede combinar con créditos PICO');
+    showToast('No se puede combinar con créditos PICO');
     renderCartDiscountSelector();
     return;
   }
   if (cartHasProductDiscount()) {
     selectedDiscount = null;
-    showToast('⚠️ No se puede combinar con ofertas de producto');
+    showToast('No se puede combinar con ofertas de producto');
     renderCartDiscountSelector();
     return;
   }
@@ -250,7 +250,7 @@ async function aplicarCodigoDescuentoCart() {
       nombre: resolved.nombre,
       porcentaje: resolved.porcentaje
     };
-    if (msg) { msg.style.color = 'var(--green)'; msg.textContent = `✅ ${resolved.nombre} (−${resolved.porcentaje}%) aplicado.`; }
+    if (msg) { msg.style.color = 'var(--green)'; msg.textContent = `${resolved.nombre} (−${resolved.porcentaje}%) aplicado.`; }
     renderCartDiscountSelector();
   } catch (e) {
     if (msg) { msg.style.color = '#dc2626'; msg.textContent = e.message || 'Código no válido.'; }
@@ -535,7 +535,7 @@ async function saveDiscountAssignment(uid) {
   try {
     await saveUserDiscounts(uid, ids);
     msg.style.color = 'var(--green)';
-    msg.textContent = ids.length > 0 ? `✅ ${ids.length} descuento(s) asignado(s).` : '✅ Descuentos eliminados.';
+    msg.textContent = ids.length > 0 ? `${ids.length} descuento(s) asignado(s).` : 'Descuentos eliminados.';
   } catch(e) {
     msg.style.color = '#dc2626';
     msg.textContent = 'Error al guardar.';
