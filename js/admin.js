@@ -103,11 +103,17 @@ function initQrDesignSection() {
   section.hidden = !allowed;
   if (!allowed) return;
 
-  const already = QrDesignAPI.getSignedInAdmin();
-  if (already) {
-    document.getElementById('qrDesignConnectBtn').style.display = 'none';
-    loadQrDesignsList();
-  }
+  const msg = document.getElementById('qrDesignMsg');
+  msg.textContent = 'Verificando sesión de GeneraQR...';
+  QrDesignAPI.waitForAuthReady().then((user) => {
+    msg.textContent = '';
+    if (user) {
+      document.getElementById('qrDesignConnectBtn').style.display = 'none';
+      loadQrDesignsList();
+    } else {
+      document.getElementById('qrDesignConnectBtn').style.display = '';
+    }
+  });
   refreshActiveQrDesignLabel();
 }
 
@@ -194,6 +200,119 @@ async function useQrDesign(presetId, btn) {
   } finally {
     btn.disabled = false;
     btn.textContent = original;
+  }
+}
+
+// ═══════════════════════════════════════════════════
+//  LECTOR DE QR INTERNO (abrir pedido escaneando su código)
+//  Usa BarcodeDetector nativo si el navegador lo soporta
+//  (Chrome/Edge/Android); si no, cae a la librería jsQR.
+// ═══════════════════════════════════════════════════
+let qrScanStream  = null;
+let qrScanRAF     = null;
+let qrScanBusy    = false;
+let qrScanCanvas  = null;
+
+async function openQrScanner() {
+  openModal('qrScanModal');
+  const video = document.getElementById('qrScanVideo');
+  const msg   = document.getElementById('qrScanMsg');
+  msg.textContent = 'Apunta la cámara al código QR del pedido.';
+  try {
+    qrScanStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment' }
+    });
+  } catch (e) {
+    msg.textContent = 'No se pudo acceder a la cámara. Revisa los permisos del navegador.';
+    return;
+  }
+  video.srcObject = qrScanStream;
+  await video.play().catch(() => {});
+  qrScanBusy = false;
+  runQrScanLoop(video, msg);
+}
+
+function closeQrScanner() {
+  closeModal('qrScanModal');
+  if (qrScanRAF) cancelAnimationFrame(qrScanRAF);
+  qrScanRAF = null;
+  if (qrScanStream) {
+    qrScanStream.getTracks().forEach(t => t.stop());
+    qrScanStream = null;
+  }
+}
+
+function runQrScanLoop(video, msg) {
+  const useNative = typeof BarcodeDetector !== 'undefined';
+  const detector  = useNative ? new BarcodeDetector({ formats: ['qr_code'] }) : null;
+  if (!useNative && typeof jsQR === 'undefined') {
+    msg.textContent = 'Este navegador no puede leer códigos QR. Prueba con Chrome o Edge.';
+    return;
+  }
+  if (!qrScanCanvas) qrScanCanvas = document.createElement('canvas');
+
+  async function tick() {
+    if (!qrScanStream) return; // el modal se cerró
+    if (video.readyState === video.HAVE_ENOUGH_DATA && !qrScanBusy) {
+      try {
+        let text = null;
+        if (useNative) {
+          const codes = await detector.detect(video);
+          if (codes.length) text = codes[0].rawValue;
+        } else {
+          qrScanCanvas.width  = video.videoWidth;
+          qrScanCanvas.height = video.videoHeight;
+          const ctx = qrScanCanvas.getContext('2d');
+          ctx.drawImage(video, 0, 0, qrScanCanvas.width, qrScanCanvas.height);
+          const imgData = ctx.getImageData(0, 0, qrScanCanvas.width, qrScanCanvas.height);
+          const result = jsQR(imgData.data, imgData.width, imgData.height);
+          if (result) text = result.data;
+        }
+        if (text) {
+          qrScanBusy = true;
+          await handleQrScanResult(text, msg);
+        }
+      } catch (_) { /* frame sin código, seguimos */ }
+    }
+    qrScanRAF = requestAnimationFrame(tick);
+  }
+  qrScanRAF = requestAnimationFrame(tick);
+}
+
+async function handleQrScanResult(text, msg) {
+  let pedidoId = null;
+  try {
+    const url = new URL(text);
+    pedidoId = url.searchParams.get('pedido');
+  } catch (_) {
+    // No es una URL completa; probamos por si el texto es directamente el ID.
+  }
+  if (!pedidoId) {
+    msg.textContent = 'Ese código no es un QR de pedido de PICO.';
+    qrScanBusy = false;
+    return;
+  }
+  msg.textContent = 'Pedido encontrado, abriendo...';
+  closeQrScanner();
+  await openScannedOrder(pedidoId);
+}
+
+// Abre el detalle de un pedido a partir de su ID, sin depender de que ya
+// esté cargado en la tabla paginada (lo trae de Firestore si hace falta).
+async function openScannedOrder(firestoreId) {
+  if (findLoadedOrder(firestoreId)) {
+    showOrderDetail(firestoreId);
+    return;
+  }
+  try {
+    const snap = await db.collection('pedidos').doc(firestoreId).get();
+    if (!snap.exists) { showToast('Ese pedido no existe.'); return; }
+    window._qrScanCache = window._qrScanCache || [];
+    window._qrScanCache = window._qrScanCache.filter(o => o.firestoreId !== firestoreId);
+    window._qrScanCache.push({ firestoreId: snap.id, ...snap.data() });
+    showOrderDetail(firestoreId);
+  } catch (e) {
+    showToast('No se pudo abrir el pedido escaneado.');
   }
 }
 

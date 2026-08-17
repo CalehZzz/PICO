@@ -10,6 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://unpkg.com/qr-code-styling@1.9.2/lib/qr-code-styling.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" defer></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
@@ -30,7 +31,13 @@
   <div class="admin-pg">
     <div class="admin-hd">
       <h2>PICO</h2>
-      <button class="nbtn nbtn-ghost" onclick="doLogout()" style="color:var(--g400)">← Cerrar sesión</button>
+      <div style="display:flex;gap:10px;align-items:center">
+        <button class="btn-sec" style="flex:none;padding:10px 16px" onclick="openQrScanner()">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:5px"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg>
+          Escanear QR
+        </button>
+        <button class="nbtn nbtn-ghost" onclick="doLogout()" style="color:var(--g400)">← Cerrar sesión</button>
+      </div>
     </div>
     <!-- ── ADMINISTRADORES (rol real vía custom claims) ── -->
     <div class="atable-wrap" style="margin-bottom:24px">

@@ -58,6 +58,17 @@
     return firebase.auth(app).currentUser;
   }
 
+  /** Espera a que Firebase termine de restaurar la sesión guardada (si la hay). */
+  function waitForAuthReady() {
+    const app = getSecondaryApp();
+    return new Promise((resolve) => {
+      const unsub = firebase.auth(app).onAuthStateChanged((user) => {
+        unsub();
+        resolve(user);
+      });
+    });
+  }
+
   async function getAdminIdToken(forceRefresh) {
     const user = getSignedInAdmin();
     if (!user) throw new Error('Primero conéctate con tu cuenta de GeneraQR.');
@@ -173,6 +184,7 @@
     ADMIN_EMAIL,
     signInAdmin,
     getSignedInAdmin,
+    waitForAuthReady,
     signOutAdmin,
     getActiveDesign,
     listMyDesigns,

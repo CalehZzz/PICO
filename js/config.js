@@ -47,7 +47,8 @@ function findLoadedOrder(firestoreId) {
   return adminPaging.active.docs.find(o => o.firestoreId === firestoreId)
       || adminPaging.done.docs.find(o => o.firestoreId === firestoreId)
       || (myOrdersPaging.docs || []).find(o => o.firestoreId === firestoreId)
-      || (orders || []).find(o => o.firestoreId === firestoreId);
+      || (orders || []).find(o => o.firestoreId === firestoreId)
+      || (window._qrScanCache || []).find(o => o.firestoreId === firestoreId);
 }
 let adminUnsubscribe = null;
 let currentCat       = 'Todos';
