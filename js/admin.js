@@ -551,8 +551,8 @@ async function revertDelivery(firestoreId, data) {
   // mientras el pedido exista (solo se devuelve al cancelar). Aquí solo se revierten
   // los registros de "ventas" y las estadísticas de la entrega.
 
-  // En tarjeta, la venta se registró al PAGAR (no al entregar): no se revierte aquí.
-  const statsAtPayment = data.metodoPago === 'tarjeta' && data.statsRecorded === true;
+  // En tarjeta/Bitcoin, la venta se registró al PAGAR (no al entregar): no se revierte aquí.
+  const statsAtPayment = (data.metodoPago === 'tarjeta' || data.metodoPago === 'bitcoin') && data.statsRecorded === true;
 
   // 1) Borrar los registros de "ventas" solo si se crearon al ENTREGAR (efectivo)
   if (!statsAtPayment) {
@@ -577,13 +577,15 @@ async function revertDelivery(firestoreId, data) {
     limpiarIngresoEnvio = revIngresoEnvio > 0;
     // Comisión Wompi: solo se sumó al entregar si la venta NO se contó al pagar (caso raro).
     const comisionWompi = (!statsAtPayment && typeof data.comisionWompi === 'number') ? data.comisionWompi : 0;
+    const comisionOpenNode = (!statsAtPayment && typeof data.comisionOpenNode === 'number') ? data.comisionOpenNode : 0;
+    const comisionOnline = comisionWompi + comisionOpenNode;
 
     // Productos: solo se revierten si se contabilizaron al ENTREGAR (efectivo).
     const revProdIngreso = statsAtPayment ? 0 : totalEfectivo;
     const revProdCosto   = statsAtPayment ? 0 : costTotal;
 
     statUpdate['ingresosPedidos'] = firebase.firestore.FieldValue.increment(-(+((revProdIngreso + revIngresoEnvio)).toFixed(2)));
-    statUpdate['costosPedidos']   = firebase.firestore.FieldValue.increment(-(+((revProdCosto + comisionWompi)).toFixed(2)));
+    statUpdate['costosPedidos']   = firebase.firestore.FieldValue.increment(-(+((revProdCosto + comisionOnline)).toFixed(2)));
 
     if (!statsAtPayment) {
       // 'ventas' incluye productos + envío cobrado (lo que entró al entregar en efectivo)
@@ -594,6 +596,9 @@ async function revertDelivery(firestoreId, data) {
     // La comisión ya no entra a 'costos' al entregar (entra al confirmar) → aquí solo el campo informativo.
     if (comisionWompi > 0) {
       statUpdate['comisionesWompi']  = firebase.firestore.FieldValue.increment(-(+comisionWompi.toFixed(2)));
+    }
+    if (comisionOpenNode > 0) {
+      statUpdate['comisionesOpenNode'] = firebase.firestore.FieldValue.increment(-(+comisionOpenNode.toFixed(2)));
     }
     if (revIngresoEnvio > 0) {
       statUpdate['ingresosEnvio'] = firebase.firestore.FieldValue.increment(-(+revIngresoEnvio.toFixed(2)));
@@ -637,6 +642,20 @@ async function changeStatus(firestoreId, val) {
       refreshAdminAfterChange();
       showToast('Marcado como pendiente');
       return;
+    }
+
+    if (val === 'delivered') {
+      const preSnap = await db.collection('pedidos').doc(firestoreId).get();
+      const pre = preSnap.data() || {};
+      const esperaOnline = (pre.metodoPago === 'tarjeta' || pre.metodoPago === 'bitcoin')
+        && pre.paymentStatus !== 'paid'
+        && pre.paymentStatus !== 'credits'
+        && !pre.creditsFullyPaid;
+      if (esperaOnline) {
+        showToast('Espera a que se confirme el pago ' + (pre.metodoPago === 'bitcoin' ? 'Bitcoin' : 'con tarjeta'));
+        refreshAdminAfterChange();
+        return;
+      }
     }
 
     const update = { status: val };
@@ -864,7 +883,7 @@ async function adminCancelOrder(firestoreId, code) {
       // Acumuladores numéricos (un campo puede tocarse por comisión y por envío real).
       let decCostos = 0, decCostosPedidos = 0;
 
-      // Si la venta ya se registró al pagar (tarjeta), revertir productos + comisión + envío cobrado + borrar la venta.
+      // Si la venta ya se registró al pagar (tarjeta/Bitcoin), revertir productos + comisión + envío cobrado + borrar la venta.
       if (order.statsRecorded === true && order.items) {
         const discFactor = order.discountPct ? ((100 - order.discountPct) / 100) : 1;
         let totalUnidades = 0, productCost = 0, priceTotal = 0, totalVentasEfectivo = 0;
@@ -879,8 +898,10 @@ async function adminCancelOrder(firestoreId, code) {
         }
         const totalEfectivo = typeof order.totalConDescuento === 'number'
           ? order.totalConDescuento : +(priceTotal * discFactor).toFixed(2);
-        const comision = typeof order.comisionWompi === 'number' ? order.comisionWompi : 0;
-        // Envío cobrado que se sumó a ventas/ingresos al pagar (tarjeta = domicilio).
+        const comisionWompi = typeof order.comisionWompi === 'number' ? order.comisionWompi : 0;
+        const comisionOpenNode = typeof order.comisionOpenNode === 'number' ? order.comisionOpenNode : 0;
+        const comision = comisionWompi + comisionOpenNode;
+        // Envío cobrado que se sumó a ventas/ingresos al pagar (online).
         const envioCobrado = (order.ingresoEnvioRegistrado === true)
           ? (typeof order.envioCosto === 'number' ? order.envioCosto : 0) : 0;
 
@@ -888,7 +909,12 @@ async function adminCancelOrder(firestoreId, code) {
         statUpdate['unidades vendidas'] = firebase.firestore.FieldValue.increment(-totalUnidades);
         statUpdate['numero de ventas']  = firebase.firestore.FieldValue.increment(-1);
         statUpdate['ingresosPedidos']   = firebase.firestore.FieldValue.increment(-(+((totalEfectivo + envioCobrado)).toFixed(2)));
-        statUpdate['comisionesWompi']  = firebase.firestore.FieldValue.increment(-comision);
+        if (comisionWompi > 0) {
+          statUpdate['comisionesWompi'] = firebase.firestore.FieldValue.increment(-comisionWompi);
+        }
+        if (comisionOpenNode > 0) {
+          statUpdate['comisionesOpenNode'] = firebase.firestore.FieldValue.increment(-comisionOpenNode);
+        }
         // 'costos' (principal) NO contiene la comisión → no se toca aquí.
         decCostosPedidos += productCost + comision;  // en 'costosPedidos' la comisión siempre estuvo (función)
         if (envioCobrado > 0) statUpdate['ingresosEnvio'] = firebase.firestore.FieldValue.increment(-(+envioCobrado.toFixed(2)));
@@ -1088,7 +1114,9 @@ function showOrderDetail(firestoreId) {
   if (isDomicilio) {
     const e = o.envio || {};
     const credUsed = Number(o.creditsUsed) || 0;
-    let pagoLabel = o.metodoPago === 'tarjeta' ? 'Tarjeta' : (o.metodoPago === 'efectivo' ? 'Efectivo' : '—');
+    let pagoLabel = o.metodoPago === 'tarjeta' ? 'Tarjeta'
+                  : o.metodoPago === 'bitcoin' ? 'Bitcoin (Lightning)'
+                  : (o.metodoPago === 'efectivo' ? 'Efectivo' : '—');
     if (credUsed > 0 && o.creditsFullyPaid) pagoLabel = 'Créditos PICO (100%)';
     else if (credUsed > 0) pagoLabel = `Créditos $${credUsed.toFixed(2)} + ` + pagoLabel;
     const pagoEstado = o.paymentStatus === 'pending' ? 'Pendiente de pago'
@@ -1111,17 +1139,18 @@ function showOrderDetail(firestoreId) {
     // Acción según el estado del pedido
     let accionBlock = '';
     if (o.status === 'pending') {
-      // Con tarjeta, solo se puede confirmar/enviar una vez se confirmó el pago
+      // Con tarjeta/Bitcoin, solo se puede confirmar/enviar una vez se confirmó el pago
       // (salvo que ya quedó cubierto con créditos).
-      const esperaPago = o.metodoPago === 'tarjeta'
+      const esperaPago = (o.metodoPago === 'tarjeta' || o.metodoPago === 'bitcoin')
         && o.paymentStatus !== 'paid'
         && o.paymentStatus !== 'credits'
         && !o.creditsFullyPaid;
       if (esperaPago) {
+        const medio = o.metodoPago === 'bitcoin' ? 'Bitcoin (Lightning)' : 'tarjeta';
         accionBlock = `
         <div class="odetail-track-box">
           <div class="odetail-track-label">Esperando confirmación de pago</div>
-          <p class="odetail-track-hint">Este pedido se paga con tarjeta. Cuando se confirme el pago,
+          <p class="odetail-track-hint">Este pedido se paga con ${medio}. Cuando se confirme el pago,
           podrás ingresar el costo del envío y asignar el ID de rastreo.</p>
         </div>`;
       } else {
@@ -1191,7 +1220,41 @@ function showOrderDetail(firestoreId) {
          <span>Comisión Wompi (3.5%) · solo admin</span>
          <span>-$${o.comisionWompi.toFixed(2)}</span>
        </div>`
-    : '';
+    : ((typeof o.comisionOpenNode === 'number' && o.comisionOpenNode > 0)
+    ? `<div class="odetail-subtotal" style="color:var(--g400)">
+         <span>Comisión OpenNode · solo admin</span>
+         <span>-$${o.comisionOpenNode.toFixed(2)}</span>
+       </div>`
+    : '');
+
+  // Bloque de pago para retiro en sucursal (tarjeta / bitcoin / efectivo)
+  let pickupPayBlock = '';
+  if (!isDomicilio && o.metodoPago) {
+    const credUsed = Number(o.creditsUsed) || 0;
+    let pagoLabel = o.metodoPago === 'tarjeta' ? 'Tarjeta'
+                  : o.metodoPago === 'bitcoin' ? 'Bitcoin (Lightning)'
+                  : (o.metodoPago === 'efectivo' ? 'Efectivo' : '—');
+    if (credUsed > 0 && o.creditsFullyPaid) pagoLabel = 'Créditos PICO (100%)';
+    else if (credUsed > 0) pagoLabel = `Créditos $${credUsed.toFixed(2)} + ` + pagoLabel;
+    const pagoEstado = o.paymentStatus === 'pending' ? 'Pendiente de pago'
+                     : o.paymentStatus === 'paid'    ? 'Pagado'
+                     : o.paymentStatus === 'credits' ? 'Pagado con créditos'
+                     : o.paymentStatus === 'efectivo'? 'Contra entrega'
+                     : (o.paymentStatus || '—');
+    const esperaPago = (o.metodoPago === 'tarjeta' || o.metodoPago === 'bitcoin')
+      && o.paymentStatus !== 'paid'
+      && o.paymentStatus !== 'credits'
+      && !o.creditsFullyPaid;
+    pickupPayBlock = `
+      <div class="odetail-domicilio" style="margin-bottom:12px">
+        <div class="odetail-section-title">Pago</div>
+        <div class="odetail-pago">
+          <span><b>Método:</b> ${pagoLabel}</span>
+          <span><b>Estado:</b> ${pagoEstado}</span>
+        </div>
+        ${esperaPago ? `<p class="odetail-track-hint" style="margin-top:10px">Esperando confirmación del pago online antes de marcar como entregado.</p>` : ''}
+      </div>`;
+  }
 
   document.getElementById('orderDetailBody').innerHTML = `
     <div style="font-size:.78rem;color:var(--g400);margin-bottom:10px">
@@ -1201,6 +1264,7 @@ function showOrderDetail(firestoreId) {
       ${fmtDate(o.createdAt)}
     </div>
     ${domicilioBlock}
+    ${pickupPayBlock}
     <div class="odetail-list">${items}</div>
     <div class="odetail-subtotal">
       <span>Subtotal productos</span>

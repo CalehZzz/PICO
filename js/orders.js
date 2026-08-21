@@ -153,6 +153,12 @@ function _renderMyOrdersList(el, myOrders) {
     // El cliente NO puede cancelar pedidos a domicilio (solo el admin).
     const canCancel    = isPending && o.tipoEntrega !== 'domicilio';
     const badge        = orderStatusBadge(o);
+    const payPending   = (o.metodoPago === 'bitcoin' || o.metodoPago === 'tarjeta')
+      && o.paymentStatus === 'pending'
+      && !o.creditsFullyPaid;
+    const payLabel = o.metodoPago === 'bitcoin' ? 'Bitcoin'
+                   : o.metodoPago === 'tarjeta' ? 'Tarjeta'
+                   : o.metodoPago === 'efectivo' ? 'Efectivo' : null;
     return `
     <div class="ocard" ${isCancelled ? 'style="opacity:.65;border-color:#fca5a5"' : ''}>
       <div class="ocard-hd">
@@ -164,6 +170,7 @@ function _renderMyOrdersList(el, myOrders) {
         ${orderEntregaMeta(o)}
         <span>${fmtDate(o.createdAt)}</span>
         <span>$${orderDisplayTotal(o).toFixed(2)}</span>
+        ${payLabel ? `<span>${payLabel}${o.paymentStatus === 'paid' ? ' · Pagado' : (o.paymentStatus === 'pending' ? ' · Pendiente de pago' : '')}</span>` : ''}
         ${o.deliveredAt ? `<span>${fmtDate(o.deliveredAt)}</span>` : ''}
       </div>
       ${orderTrackingBlock(o)}
@@ -184,6 +191,20 @@ function _renderMyOrdersList(el, myOrders) {
           </div>
         </div>
       </div>
+      ${payPending && o.metodoPago === 'bitcoin' ? `
+      <div style="margin-top:12px;text-align:right">
+        <button class="btn-pri" style="padding:8px 14px;font-size:.78rem"
+          onclick="startOpenNodeCheckout('${o.firestoreId}','${o.code}').catch(e=>showToast(e.message||'No se pudo abrir el pago Bitcoin'))">
+          Pagar con Bitcoin
+        </button>
+      </div>` : ''}
+      ${payPending && o.metodoPago === 'tarjeta' ? `
+      <div style="margin-top:12px;text-align:right">
+        <button class="btn-pri" style="padding:8px 14px;font-size:.78rem"
+          onclick="startWompiCheckout('${o.firestoreId}').catch(e=>showToast(e.message||'No se pudo abrir el pago'))">
+          Pagar con tarjeta
+        </button>
+      </div>` : ''}
       ${canCancel ? `
       <div style="margin-top:12px;text-align:right">
         <button class="btn-cancel-order" onclick="customerCancelOrder('${o.firestoreId}','${o.code}',this)">

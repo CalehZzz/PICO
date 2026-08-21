@@ -48,8 +48,10 @@ function getShippingProgress(subtotal) {
   };
 }
 
-// Pagos con tarjeta vía Wompi El Salvador (Enlace de Pago · la tarjeta se ingresa en Wompi).
-// La creación del enlace de pago ocurre en la Cloud Function 'crearEnlaceWompi'.
+// Pagos online:
+//  · Tarjeta → Wompi El Salvador (Enlace de Pago · Cloud Function 'crearEnlaceWompi')
+//  · Bitcoin → OpenNode Lightning (Cloud Function 'crearCargoOpenNode' + webhook)
+// Ambos métodos están disponibles en domicilio y en retiro en sucursal.
 
 // ═══════════════════════════════════════════════════
 //  CART  (con persistencia en localStorage)
@@ -155,8 +157,8 @@ function sendOrderEmail(orderId, d) {
         <tr><td style="padding:4px 0;color:#64748b">Teléfono</td><td style="padding:4px 0;font-weight:600">${d.envio.telefono || ''}</td></tr>
         ${d.envio.telefono2 ? `<tr><td style="padding:4px 0;color:#64748b">Tel. adicional</td><td style="padding:4px 0;font-weight:600">${d.envio.telefono2}</td></tr>` : ''}
         ${d.envio.referencia ? `<tr><td style="padding:4px 0;color:#64748b">Referencia</td><td style="padding:4px 0;font-weight:600">${d.envio.referencia}</td></tr>` : ''}
-        ${d.envio.indicaciones ? `<tr><td style="padding:4px 0;color:#64748b">Indicaciones</td><td style="padding:4px 0;font-weight:600">${d.envio.indicaciones}</td></tr>` : ''}
-        <tr><td style="padding:4px 0;color:#64748b">Método de pago</td><td style="padding:4px 0;font-weight:600">${d.metodoPago === 'tarjeta' ? 'Tarjeta' : 'Efectivo'}</td></tr>` : ''}
+        ${d.envio.indicaciones ? `<tr><td style="padding:4px 0;color:#64748b">Indicaciones</td><td style="padding:4px 0;font-weight:600">${d.envio.indicaciones}</td></tr>` : ''}` : ''}
+        ${d.metodoPago ? `<tr><td style="padding:4px 0;color:#64748b">Método de pago</td><td style="padding:4px 0;font-weight:600">${d.metodoPago === 'tarjeta' ? 'Tarjeta' : (d.metodoPago === 'bitcoin' ? 'Bitcoin (Lightning)' : 'Efectivo')}</td></tr>` : ''}
         ${d.email ? `<tr><td style="padding:4px 0;color:#64748b">Correo cliente</td><td style="padding:4px 0;font-weight:600">${d.email}</td></tr>` : ''}
       </table>
       <table style="width:100%;border-collapse:collapse;font-size:14px">
@@ -801,23 +803,24 @@ function openCheckout() {
 }
 
 // ── Tipo de entrega: alterna las secciones de envío y pago ──
-let selectedPayment = 'tarjeta'; // 'tarjeta' | 'efectivo'
+let selectedPayment = 'tarjeta'; // 'tarjeta' | 'bitcoin' | 'efectivo'
 
 // Alterna los campos del checkout según la entrega:
 //   'domicilio' → datos de envío + método de pago
-//   'cdb' (Colegio Don Bosco) → Grado + Sección
-//   'udb' (Universidad Don Bosco) → Teléfono
+//   'cdb' / 'udb' / retiro → datos académicos/teléfono + método de pago
 function toggleDeliveryFields(sucursal) {
   const esDomicilio   = sucursal === 'domicilio';
   const esColegio     = sucursal === 'cdb';
   const esUniversidad = sucursal === 'udb';
+  const tieneEntrega  = !!sucursal;
   const ship = document.getElementById('shippingSection');
   const pay  = document.getElementById('paymentSection');
   const academic   = document.getElementById('academicFields');
   const university = document.getElementById('universityFields');
   const cdbPhone   = document.getElementById('cdbPhoneField');
   if (ship) ship.style.display = esDomicilio ? '' : 'none';
-  if (pay)  pay.style.display  = esDomicilio ? '' : 'none';
+  // Método de pago: domicilio y retiro en sucursal
+  if (pay)  pay.style.display  = tieneEntrega ? '' : 'none';
   if (academic)   academic.style.display   = esColegio     ? '' : 'none';
   if (cdbPhone)   cdbPhone.style.display   = esColegio     ? '' : 'none';
   if (university) university.style.display = esUniversidad ? '' : 'none';
@@ -839,22 +842,36 @@ function toggleDeliveryFields(sucursal) {
     if (saved.shipAddress)    document.getElementById('shipAddress').value    = saved.shipAddress;
     if (saved.shipRef)        document.getElementById('shipRef').value        = saved.shipRef;
     if (saved.shipNotes)      document.getElementById('shipNotes').value      = saved.shipNotes;
-    selectPayment(selectedPayment); // re-aplicar estado visual del método de pago
   }
+  if (tieneEntrega) selectPayment(selectedPayment); // re-aplicar estado visual del método de pago
 }
 
-// ── Selección de método de pago (tarjeta / efectivo) ──
+// ── Selección de método de pago (tarjeta / bitcoin / efectivo) ──
 function selectPayment(method) {
   selectedPayment = method;
   const card = document.getElementById('payCard');
+  const btc  = document.getElementById('payBitcoin');
   const cash = document.getElementById('payCash');
   const cardFields = document.getElementById('cardFields');
+  const btcFields  = document.getElementById('bitcoinFields');
   const cashNote   = document.getElementById('cashNote');
+  const cashText   = document.getElementById('cashNoteText');
   if (!card || !cash) return;
   card.classList.toggle('active', method === 'tarjeta');
+  if (btc) btc.classList.toggle('active', method === 'bitcoin');
   cash.classList.toggle('active', method === 'efectivo');
   if (cardFields) cardFields.style.display = method === 'tarjeta' ? '' : 'none';
+  if (btcFields)  btcFields.style.display  = method === 'bitcoin' ? '' : 'none';
   if (cashNote)   cashNote.style.display   = method === 'efectivo' ? '' : 'none';
+  if (cashText) {
+    const esDom = (typeof getSavedProfile === 'function' && getSavedProfile().sucursal === 'domicilio');
+    cashText.textContent = esDom
+      ? 'Pagarás en efectivo al momento de recibir tu pedido.'
+      : 'Pagarás en efectivo al retirar tu pedido en sucursal.';
+  }
+  if (method === 'bitcoin' && typeof refreshBtcRateHint === 'function') {
+    refreshBtcRateHint();
+  }
 }
 
 async function placeOrder() {
@@ -909,10 +926,14 @@ async function placeOrder() {
     } catch (_) {}
   }
 
-  // ── Datos de envío + método de pago (solo entrega a domicilio) ──
+  // ── Datos de envío (solo domicilio) + método de pago (todos los tipos) ──
   const esDomicilio = sucursal === 'domicilio';
   let envio = null;
-  let metodoPago = null;
+  let metodoPago = selectedPayment; // 'tarjeta' | 'bitcoin' | 'efectivo'
+  if (!['tarjeta', 'bitcoin', 'efectivo'].includes(metodoPago)) {
+    showToast('Selecciona un método de pago');
+    return;
+  }
   if (esDomicilio) {
     const telefono     = document.getElementById('shipPhone').value.trim();
     const telefono2    = document.getElementById('shipPhone2').value.trim();
@@ -926,7 +947,6 @@ async function placeOrder() {
       return;
     }
     envio = { nombre: name, telefono, telefono2, departamento, municipio, direccion, referencia, indicaciones };
-    metodoPago = selectedPayment; // 'tarjeta' | 'efectivo'
     // Con Enlace de Pago la tarjeta se ingresa EN WOMPI, no aquí. No recogemos datos de tarjeta.
     // Guardar los datos de envío en el perfil para futuros pedidos
     try {
@@ -1087,11 +1107,15 @@ async function placeOrder() {
       totalConEnvio: +(payableProducts + shipCost).toFixed(2),
       payableAfterCredits: payableProducts,
       creditsRequested: creditsAmt > 0 ? creditsAmt : null,
-      metodoPago:  metodoPago,   // 'tarjeta' | 'efectivo' | null
-      paymentStatus: esDomicilio ? (metodoPago === 'tarjeta' ? 'pending' : 'efectivo') : null,
+      metodoPago:  metodoPago,   // 'tarjeta' | 'bitcoin' | 'efectivo'
+      paymentStatus: metodoPago === 'tarjeta' || metodoPago === 'bitcoin'
+        ? 'pending'
+        : 'efectivo',
       comisionWompi: null,       // la calcula el servidor al confirmar el pago (solo tarjeta) — SOLO admin
-      statsRecorded: false,      // estadísticas de venta registradas (tarjeta: al pagar / efectivo: al entregar)
-      ingresoEnvioRegistrado: false, // envío cobrado ya sumado a ventas/ingresos (tarjeta: al pagar / efectivo: al entregar)
+      comisionOpenNode: null,    // comisión Bitcoin (OpenNode) al confirmar el pago — SOLO admin
+      opennodeChargeId: null,
+      statsRecorded: false,      // estadísticas de venta registradas (online: al pagar / efectivo: al entregar)
+      ingresoEnvioRegistrado: false, // envío cobrado ya sumado a ventas/ingresos (online: al pagar / efectivo: al entregar)
       costoEnvioRegistrado:   false, // envío real ya sumado a costos (al confirmar/asignar guía)
       trackingId:  null,         // lo asigna el admin; al asignarlo el pedido pasa a 'confirmado'
       confirmedAt: null,
@@ -1212,9 +1236,9 @@ async function placeOrder() {
       ? 'Te enviaremos el ID de rastreo cuando confirmemos tu pedido.'
       : 'Preséntate en el laboratorio con este código o escanea el QR.';
 
-    // Pago con tarjeta a domicilio → crear enlace de pago Wompi y redirigir.
-    // Si créditos + $0 restante (solo envío o nada), Wompi puede devolver fullyCovered.
-    if (esDomicilio && metodoPago === 'tarjeta') {
+    // Pago online (tarjeta Wompi o Bitcoin OpenNode) → iniciar cobro.
+    // Disponible en domicilio y en retiro en sucursal.
+    if (metodoPago === 'tarjeta') {
       btn.textContent = 'Redirigiendo al pago...';
       try {
         const w = await startWompiCheckout(docRef.id);
@@ -1226,6 +1250,20 @@ async function placeOrder() {
       } catch (e) {
         console.error('Wompi checkout:', e);
         showToast((e && e.message ? e.message : 'No se pudo iniciar el pago con tarjeta.') + ' Tu pedido quedó pendiente.');
+        openModal('successModal');
+      }
+    } else if (metodoPago === 'bitcoin') {
+      btn.textContent = 'Generando factura Bitcoin...';
+      try {
+        const b = await startOpenNodeCheckout(docRef.id, code);
+        if (b && b.fullyCoveredByCredits) {
+          openModal('successModal');
+        }
+        // Si hay factura Lightning, el modal Bitcoin queda abierto y al pagar
+        // se muestra el successModal automáticamente.
+      } catch (e) {
+        console.error('OpenNode checkout:', e);
+        showToast((e && e.message ? e.message : 'No se pudo iniciar el pago con Bitcoin.') + ' Tu pedido quedó pendiente.');
         openModal('successModal');
       }
     } else {
@@ -1298,6 +1336,216 @@ async function startWompiCheckout(orderId) {
   } catch (e) {
     hideWompiLoadingOverlay();
     throw new Error(e && e.message ? e.message : 'No se pudo iniciar el pago con Wompi');
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  PAGO CON BITCOIN · OPENNODE (Lightning Network)
+// ════════════════════════════════════════════════════════════════
+// crearCargoOpenNode crea la factura Lightning (monto en USD → BTC al tipo
+// de cambio de OpenNode). El webhook marca paymentStatus='paid' en Firestore.
+// El cliente escucha el pedido en tiempo real (y hace poll de respaldo).
+
+let _btcPayState = {
+  orderId: null,
+  code: null,
+  invoice: null,
+  unsub: null,
+  pollTimer: null,
+  closed: false
+};
+
+async function refreshBtcRateHint() {
+  const el = document.getElementById('btcRateHint');
+  if (!el) return;
+  el.textContent = 'Consultando cotización BTC/USD…';
+  try {
+    const fn = firebase.functions().httpsCallable('getOpenNodeRate');
+    const res = await fn({});
+    const d = (res && res.data) || {};
+    if (d.usdPerBtc) {
+      el.textContent = '1 BTC ≈ $' + Number(d.usdPerBtc).toLocaleString('en-US', {
+        minimumFractionDigits: 0, maximumFractionDigits: 0
+      }) + ' USD (OpenNode, tiempo real)';
+    } else {
+      el.textContent = 'La cotización exacta se fija al crear la factura.';
+    }
+  } catch (_) {
+    el.textContent = 'La cotización exacta se fija al crear la factura Lightning.';
+  }
+}
+
+function formatBtcFromSats(sats) {
+  const n = Number(sats) || 0;
+  const btc = n / 1e8;
+  let s = btc.toFixed(8);
+  s = s.replace(/0+$/, '').replace(/\.$/, '');
+  return s + ' BTC';
+}
+
+async function startOpenNodeCheckout(orderId, code) {
+  if (!currentUser || !currentUser.uid) throw new Error('No hay sesión activa');
+  const fn = firebase.functions().httpsCallable('crearCargoOpenNode');
+  const res = await fn({ orderId, origin: location.origin });
+  const data = (res && res.data) || {};
+  if (data.fullyCoveredByCredits) {
+    return { fullyCoveredByCredits: true };
+  }
+  if (!data.lightningInvoice && !data.uri) {
+    throw new Error('OpenNode no devolvió la factura Lightning');
+  }
+  openBitcoinPayModal({
+    orderId,
+    code: code || '',
+    usd: data.fiatValue,
+    sats: data.amountSats,
+    lightningInvoice: data.lightningInvoice || '',
+    uri: data.uri || '',
+    expiresAt: data.expiresAt || null
+  });
+  return { modal: true, chargeId: data.chargeId };
+}
+
+function openBitcoinPayModal(info) {
+  stopBitcoinPayWatchers();
+  _btcPayState = {
+    orderId: info.orderId,
+    code: info.code || '',
+    invoice: info.lightningInvoice || info.uri || '',
+    unsub: null,
+    pollTimer: null,
+    closed: false
+  };
+
+  const usdEl = document.getElementById('btcPayUsd');
+  const btcEl = document.getElementById('btcPayBtc');
+  const satsEl = document.getElementById('btcPaySats');
+  const statusEl = document.getElementById('btcPayStatus');
+  const qrBox = document.getElementById('btcQrContainer');
+
+  if (usdEl) usdEl.textContent = (typeof info.usd === 'number')
+    ? ('$' + info.usd.toFixed(2) + ' USD')
+    : '—';
+  if (btcEl) btcEl.textContent = formatBtcFromSats(info.sats);
+  if (satsEl) satsEl.textContent = (Number(info.sats) || 0).toLocaleString('en-US') + ' sats · Lightning Network';
+  if (statusEl) {
+    statusEl.classList.remove('btc-paid');
+    statusEl.textContent = 'Esperando pago…';
+  }
+  if (qrBox) {
+    qrBox.innerHTML = '';
+    const qrText = info.lightningInvoice || info.uri || '';
+    try {
+      if (typeof QRCode !== 'undefined' && qrText) {
+        new QRCode(qrBox, {
+          text: qrText,
+          width: 220,
+          height: 220,
+          colorDark: '#0f172a',
+          colorLight: '#ffffff',
+          correctLevel: QRCode.CorrectLevel.M
+        });
+      } else {
+        qrBox.textContent = 'No se pudo generar el QR. Usa “Copiar factura Lightning”.';
+      }
+    } catch (e) {
+      console.warn('QR Bitcoin:', e);
+      qrBox.textContent = 'No se pudo generar el QR. Usa “Copiar factura Lightning”.';
+    }
+  }
+
+  openModal('bitcoinPayModal');
+  watchBitcoinPayment(info.orderId);
+}
+
+function copyBtcInvoice() {
+  const inv = _btcPayState && _btcPayState.invoice;
+  if (!inv) { showToast('No hay factura para copiar'); return; }
+  const done = () => showToast('Factura Lightning copiada');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(inv).then(done).catch(() => {
+      // fallback
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = inv; document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); ta.remove(); done();
+      } catch (_) { showToast('No se pudo copiar'); }
+    });
+  } else {
+    showToast('Copia no disponible en este navegador');
+  }
+}
+
+function stopBitcoinPayWatchers() {
+  if (_btcPayState && _btcPayState.unsub) {
+    try { _btcPayState.unsub(); } catch (_) {}
+    _btcPayState.unsub = null;
+  }
+  if (_btcPayState && _btcPayState.pollTimer) {
+    clearInterval(_btcPayState.pollTimer);
+    _btcPayState.pollTimer = null;
+  }
+}
+
+function watchBitcoinPayment(orderId) {
+  stopBitcoinPayWatchers();
+  if (!orderId) return;
+
+  // 1) Tiempo real: cuando el webhook (o el poll) marca paid en Firestore
+  _btcPayState.unsub = db.collection('pedidos').doc(orderId).onSnapshot(snap => {
+    if (!snap.exists || _btcPayState.closed) return;
+    const o = snap.data() || {};
+    if (o.paymentStatus === 'paid' || o.paymentStatus === 'credits' || o.creditsFullyPaid) {
+      onBitcoinPaymentConfirmed();
+    }
+  }, err => console.warn('btc onSnapshot:', err));
+
+  // 2) Respaldo: consultar el cargo en OpenNode cada 5s por si el webhook tarda
+  _btcPayState.pollTimer = setInterval(async () => {
+    if (_btcPayState.closed || !_btcPayState.orderId) return;
+    try {
+      const fn = firebase.functions().httpsCallable('consultarCargoOpenNode');
+      const res = await fn({ orderId: _btcPayState.orderId });
+      const d = (res && res.data) || {};
+      if (d.status === 'paid' || d.paymentStatus === 'paid') {
+        onBitcoinPaymentConfirmed();
+      } else if (d.status === 'expired') {
+        const st = document.getElementById('btcPayStatus');
+        if (st) st.textContent = 'La factura expiró. Puedes pagar después desde Mis pedidos o contactar soporte.';
+      }
+    } catch (e) {
+      console.warn('consultarCargoOpenNode:', e);
+    }
+  }, 5000);
+}
+
+function onBitcoinPaymentConfirmed() {
+  if (_btcPayState.closed) return;
+  _btcPayState.closed = true;
+  stopBitcoinPayWatchers();
+  const st = document.getElementById('btcPayStatus');
+  if (st) {
+    st.classList.add('btc-paid');
+    st.textContent = '¡Pago confirmado!';
+  }
+  showToast('Pago Bitcoin confirmado');
+  setTimeout(() => {
+    closeModal('bitcoinPayModal');
+    const codeEl = document.getElementById('generatedCode');
+    if (codeEl && _btcPayState.code) codeEl.textContent = _btcPayState.code;
+    openModal('successModal');
+  }, 700);
+}
+
+function closeBitcoinPayModal(showSuccess) {
+  _btcPayState.closed = true;
+  stopBitcoinPayWatchers();
+  closeModal('bitcoinPayModal');
+  if (showSuccess) {
+    const codeEl = document.getElementById('generatedCode');
+    if (codeEl && _btcPayState.code) codeEl.textContent = _btcPayState.code;
+    openModal('successModal');
+    showToast('Tu pedido quedó pendiente de pago Bitcoin');
   }
 }
 

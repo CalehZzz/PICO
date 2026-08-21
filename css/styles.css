@@ -1431,6 +1431,10 @@ tr:hover td{background:rgba(0,113,227,.04)}
 .section-sep::after{content:'';flex:1;height:1px;background:rgba(17,24,39,.1)}
 .section-sep span{font-size:.7rem;font-weight:800;color:var(--b600);text-transform:uppercase;letter-spacing:.09em;white-space:nowrap}
 .pay-methods{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-bottom:15px}
+.pay-methods-3{grid-template-columns:1fr 1fr 1fr}
+@media (max-width:420px){
+  .pay-methods-3{grid-template-columns:1fr;gap:8px}
+}
 .pay-opt{display:flex;align-items:center;justify-content:center;gap:8px;padding:15px 10px;
   border-radius:15px;border:1px solid rgba(17,24,39,.12);background:var(--g50);cursor:pointer;
   font-family:var(--font);font-size:.86rem;font-weight:700;color:var(--g600);transition:border-color .22s var(--ease),background .22s var(--ease),color .22s var(--ease),box-shadow .22s var(--ease)}
@@ -1439,6 +1443,10 @@ tr:hover td{background:rgba(0,113,227,.04)}
 .pay-ico{font-size:1.2rem;line-height:1}
 .pay-note{font-size:.78rem;color:var(--g500);background:var(--g50);border:1px solid rgba(17,24,39,.08);
   border-radius:14px;padding:11px 13px;margin-bottom:4px;line-height:1.5}
+#btcQrContainer canvas,#btcQrContainer img{border-radius:12px;border:1px solid rgba(17,24,39,.08)}
+#bitcoinPayModal .modal{animation:btcModalIn .28s var(--ease)}
+@keyframes btcModalIn{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}
+#btcPayStatus.btc-paid{color:#059669;font-weight:700}
 
 /* ─── ESTADO "CONFIRMADO" ─── */
 .si{background:rgba(0,113,227,.12);color:var(--b600)}
