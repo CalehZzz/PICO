@@ -1,28 +1,21 @@
 // ════════════════════════════════════════════════════════════════
-// PICO · Cloud Functions  ·  PASARELAS: WOMPI (tarjeta) + OPENNODE (Bitcoin)
+// PICO · Cloud Functions  ·  PASARELA: WOMPI EL SALVADOR
 //
-//  WOMPI EL SALVADOR (tarjeta):
+//  Objetivo: cuando un pedido con TARJETA se paga vía Wompi (domicilio o retiro),
+//  registrar las estadísticas de venta + comisión Wompi (3.5%).
+//
+//  Flujo:
 //   1) crearEnlaceWompi (callable) → URL de pago alojada por Wompi
 //   2) wompiWebhook (HTTP) → confirma pago y registra estadísticas
 //   3) confirmWompiOnAck (onUpdate) → respaldo al volver del checkout
 //
-//  OPENNODE (Bitcoin Lightning · sandbox/dev o producción):
-//   1) crearCargoOpenNode (callable) → factura Lightning + montos USD/BTC
-//   2) opennodeWebhook (HTTP) → confirma pago y registra estadísticas
-//   3) consultarCargoOpenNode (callable) → respaldo / poll desde el cliente
-//   4) getOpenNodeRate (callable) → cotización BTC/USD en tiempo real
-//
 //  Secretos (Secret Manager):
 //     firebase functions:secrets:set WOMPI_APP_ID
 //     firebase functions:secrets:set WOMPI_API_SECRET
-//     firebase functions:secrets:set OPENNODE_API_KEY
-//  Opcional (config/env, no secreto):
-//     OPENNODE_ENV = 'dev' (default, sandbox/testnet) | 'live' (mainnet)
 // ════════════════════════════════════════════════════════════════
 
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
-const crypto = require('crypto');
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -33,10 +26,6 @@ const WOMPI_API_BASE = 'https://api.wompi.sv';  // API de pagos
 const WOMPI_FEE_PCT  = 0.035;                    // 3.5% fijo, SIN cargo fijo
 const SECRETS = ['WOMPI_APP_ID', 'WOMPI_API_SECRET'];
 
-// ── Configuración OpenNode (Bitcoin Lightning) ──
-// Dev: https://dev-api.opennode.com  ·  Live: https://api.opennode.com
-const OPENNODE_SECRETS = ['OPENNODE_API_KEY'];
-const OPENNODE_FEE_PCT = 0.01; // fallback ~1% si el webhook no trae fee
 
 // Misma tarifa por tramos que el cliente (js/cart.js)
 const SHIPPING_TIERS = [
@@ -205,16 +194,10 @@ function txAmount(tx) {
 }
 
 // ════════════════════════════════════════════════════════════════
-//  Helper compartido: registra estadísticas de venta de un pedido online
-//  (tarjeta Wompi o Bitcoin OpenNode). Idempotente.
+//  Helper: registra estadísticas de venta de un pedido con tarjeta Wompi.
+//  Idempotente: si ya tiene statsRecorded o paymentStatus 'paid', no hace nada.
 // ════════════════════════════════════════════════════════════════
-async function recordOnlinePaymentStats(orderId, opts = {}) {
-  const provider = opts.provider || 'wompi'; // 'wompi' | 'opennode'
-  const txId = opts.txId || null;
-  const feeUsdOpt = (typeof opts.feeUsd === 'number' && isFinite(opts.feeUsd)) ? opts.feeUsd : null;
-  const feePct = typeof opts.feePct === 'number' ? opts.feePct
-    : (provider === 'opennode' ? OPENNODE_FEE_PCT : WOMPI_FEE_PCT);
-  const allowedMetodos = opts.allowedMetodos || (provider === 'opennode' ? ['bitcoin'] : ['tarjeta']);
+async function recordCardPaymentStats(orderId, wompiTxId) {
   const orderRef = db.collection('pedidos').doc(orderId);
 
   await db.runTransaction(async (tx) => {
@@ -227,8 +210,8 @@ async function recordOnlinePaymentStats(orderId, opts = {}) {
       console.log('Pedido ya tenía estadísticas registradas, se omite:', orderId);
       return;
     }
-    if (!allowedMetodos.includes(o.metodoPago)) {
-      console.log('Pedido metodoPago no coincide, se omite:', orderId, o.metodoPago);
+    if (o.metodoPago !== 'tarjeta') {
+      console.log('Pedido no es de tarjeta, se omite:', orderId);
       return;
     }
 
@@ -250,14 +233,14 @@ async function recordOnlinePaymentStats(orderId, opts = {}) {
       totalUnidades += qty;
       totalVentasEfectivo += itemTotal;
       ventaItems.push({
+        pid: item.id || null,
         productName: item.name,
         qty,
         precioUnit: unitPrice,
         costTotal: round2(unitCost * qty),
         total: itemTotal,
         descPct: o.discountPct || 0,
-        descNombre: o.discountName || '',
-        pid: item.id || null
+        descNombre: o.discountName || ''
       });
     }
 
@@ -265,29 +248,28 @@ async function recordOnlinePaymentStats(orderId, opts = {}) {
       ? o.totalConDescuento
       : round2(priceTotal * discFactor);
 
-    // Comisión sobre el total realmente cobrado (productos con descuento − créditos + envío)
     const creditsUsed = Math.max(0, Number(o.creditsUsed) || 0);
     const baseCobro = typeof o.totalConEnvio === 'number'
       ? o.totalConEnvio
       : round2(Math.max(0, totalEfectivo - creditsUsed) + ((o.tipoEntrega === 'domicilio' && typeof o.envioCosto === 'number') ? o.envioCosto : 0));
-    const comision = feeUsdOpt != null ? round2(feeUsdOpt) : round2(baseCobro * feePct);
+    const comisionWompi = round2(baseCobro * WOMPI_FEE_PCT);
 
     const esDom = o.tipoEntrega === 'domicilio';
     const envioCobrado = esDom ? (typeof o.envioCosto === 'number' ? o.envioCosto : 0) : 0;
 
     const now = new Date();
     const mesKey = now.getFullYear() + '-' + String(now.getMonth()).padStart(2, '0');
-    const seller = provider === 'opennode' ? 'opennode' : 'wompi';
 
     const ventaRef = db.collection('ventas').doc();
-    const ventaDoc = {
+    tx.set(ventaRef, {
       orderNumber: 'PED-' + Date.now().toString().slice(-6) + '-' + Math.random().toString(36).slice(-3),
       items: ventaItems,
       qty: totalUnidades,
       costProductos: round2(productCost),
-      costTotal: round2(productCost + comision),
+      comisionWompi: comisionWompi,
+      costTotal: round2(productCost + comisionWompi),
       total: round2(totalVentasEfectivo),
-      seller,
+      seller: 'wompi',
       sucursal: ventaSucursal,
       date: now.toLocaleDateString('es'),
       timestamp: Date.now(),
@@ -296,10 +278,7 @@ async function recordOnlinePaymentStats(orderId, opts = {}) {
       facturaId:  o.facturaId  || null,
       facturaNum: o.facturaNum || null,
       ...(o.discountPct ? { descuentoAplicado: { nombre: o.discountName, porcentaje: o.discountPct } } : {})
-    };
-    if (provider === 'opennode') ventaDoc.comisionOpenNode = comision;
-    else ventaDoc.comisionWompi = comision;
-    tx.set(ventaRef, ventaDoc);
+    });
 
     const creditsCosto = Math.max(0, Number(o.creditsCosto) || 0);
     const statPayload = {
@@ -307,13 +286,9 @@ async function recordOnlinePaymentStats(orderId, opts = {}) {
       'unidades vendidas': admin.firestore.FieldValue.increment(totalUnidades),
       'numero de ventas':  admin.firestore.FieldValue.increment(1),
       'ingresosPedidos':   admin.firestore.FieldValue.increment(round2(totalEfectivo + envioCobrado)),
-      'costosPedidos':     admin.firestore.FieldValue.increment(round2(productCost + comision))
+      'costosPedidos':     admin.firestore.FieldValue.increment(round2(productCost + comisionWompi)),
+      'comisionesWompi':   admin.firestore.FieldValue.increment(comisionWompi)
     };
-    if (provider === 'opennode') {
-      statPayload['comisionesOpenNode'] = admin.firestore.FieldValue.increment(comision);
-    } else {
-      statPayload['comisionesWompi'] = admin.firestore.FieldValue.increment(comision);
-    }
     if (creditsUsed > 0) {
       statPayload['ventasCreditos'] = admin.firestore.FieldValue.increment(round2(creditsUsed));
     }
@@ -330,22 +305,16 @@ async function recordOnlinePaymentStats(orderId, opts = {}) {
       }, { merge: true });
     }
 
-    const orderPatch = {
+    tx.update(orderRef, {
       paymentStatus: 'paid',
       statsRecorded: true,
       creditsStatsRecorded: creditsUsed > 0,
       ingresoEnvioRegistrado: true,
+      comisionWompi: comisionWompi,
       costTotalProductos: round2(productCost),
-      paidAt: admin.firestore.FieldValue.serverTimestamp()
-    };
-    if (provider === 'opennode') {
-      orderPatch.comisionOpenNode = comision;
-      if (txId) orderPatch.opennodeChargeId = txId;
-    } else {
-      orderPatch.comisionWompi = comision;
-      if (txId) orderPatch.wompiTxId = txId;
-    }
-    tx.update(orderRef, orderPatch);
+      paidAt: admin.firestore.FieldValue.serverTimestamp(),
+      ...(wompiTxId ? { wompiTxId } : {})
+    });
   });
 
   try {
@@ -357,17 +326,7 @@ async function recordOnlinePaymentStats(orderId, opts = {}) {
     console.warn('ensurePedidoFactura falló para', orderId, e && e.message);
   }
 
-  console.log('Estadísticas registradas para pedido', orderId, '(' + provider + ')');
-}
-
-/** Compat: Wompi / tarjeta */
-async function recordCardPaymentStats(orderId, wompiTxId) {
-  return recordOnlinePaymentStats(orderId, {
-    provider: 'wompi',
-    txId: wompiTxId,
-    feePct: WOMPI_FEE_PCT,
-    allowedMetodos: ['tarjeta']
-  });
+  console.log('Estadísticas registradas para pedido', orderId);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -681,477 +640,6 @@ exports.confirmWompiOnAck = functions
       console.error('Error verificando/registrando pago (respaldo) del pedido', orderId, err.status || err);
     }
     return null;
-  });
-
-
-// ════════════════════════════════════════════════════════════════
-//  OPENNODE · Bitcoin Lightning
-// ════════════════════════════════════════════════════════════════
-
-function opennodeApiBase() {
-  const env = String(process.env.OPENNODE_ENV || 'dev').toLowerCase();
-  if (env === 'live' || env === 'prod' || env === 'production') {
-    return 'https://api.opennode.com';
-  }
-  return 'https://dev-api.opennode.com';
-}
-
-async function opennodeApi(path, { method = 'GET', json } = {}) {
-  const key = process.env.OPENNODE_API_KEY;
-  if (!key) {
-    const err = new Error('OPENNODE_API_KEY no configurada');
-    err.status = 500;
-    throw err;
-  }
-  const res = await fetch(opennodeApiBase() + path, {
-    method,
-    headers: {
-      Authorization: key,
-      'Content-Type': 'application/json'
-    },
-    ...(json ? { body: JSON.stringify(json) } : {})
-  });
-  const text = await res.text();
-  let parsed = null;
-  try { parsed = text ? JSON.parse(text) : null; } catch (_) { parsed = text; }
-  if (!res.ok) {
-    const err = new Error('OpenNode API ' + method + ' ' + path + ' → ' + res.status);
-    err.status = res.status;
-    err.body = parsed;
-    throw err;
-  }
-  return parsed;
-}
-
-function verifyOpenNodeWebhook(chargeId, hashedOrder) {
-  const key = process.env.OPENNODE_API_KEY || '';
-  const calculated = crypto.createHmac('sha256', key).update(String(chargeId)).digest('hex');
-  const a = Buffer.from(String(hashedOrder || ''));
-  const b = Buffer.from(calculated);
-  if (a.length !== b.length) return false;
-  try { return crypto.timingSafeEqual(a, b); } catch (_) { return false; }
-}
-
-/** Recalcula el monto a cobrar (USD) desde Firestore — no confiar en el cliente. */
-async function computeOrderPayableUsd(orderId, o) {
-  const items = Array.isArray(o.items) ? o.items : [];
-  if (!items.length) {
-    throw new functions.https.HttpsError('failed-precondition', 'El pedido no tiene productos.');
-  }
-  const prodSnaps = await Promise.all(
-    items.map(it => db.collection('productos').doc(String(it.id)).get())
-  );
-  let subtotal = 0;
-  for (let k = 0; k < items.length; k++) {
-    const psnap = prodSnaps[k];
-    if (!psnap.exists) {
-      throw new functions.https.HttpsError('failed-precondition', 'Un producto del pedido ya no existe.');
-    }
-    const price = Number(psnap.data().price);
-    const qty = Math.max(1, parseInt(items[k].qty, 10) || 0);
-    if (!(price >= 0)) {
-      throw new functions.https.HttpsError('failed-precondition', 'Precio de producto inválido.');
-    }
-    subtotal += price * qty;
-  }
-
-  let pct = 0;
-  let resolvedName = o.discountName || null;
-  if (o.discountId) {
-    try {
-      const dSnap = await db.collection('descuentos').doc(String(o.discountId)).get();
-      if (dSnap.exists) {
-        const p = Number(dSnap.data().porcentaje);
-        if (p > 0 && p <= 100) {
-          pct = p;
-          resolvedName = dSnap.data().nombre || resolvedName;
-        }
-      }
-    } catch (_) {}
-  } else if (o.discountCodeId || o.discountCode) {
-    try {
-      let dSnap = null;
-      if (o.discountCodeId) {
-        dSnap = await db.collection('discount-codes').doc(String(o.discountCodeId)).get();
-      }
-      if ((!dSnap || !dSnap.exists) && o.discountCode) {
-        const q = await db.collection('discount-codes')
-          .where('code', '==', String(o.discountCode).toUpperCase()).limit(1).get();
-        if (!q.empty) dSnap = q.docs[0];
-      }
-      if (dSnap && dSnap.exists) {
-        const d = dSnap.data();
-        const p = Number(d.porcentaje);
-        const activo = d.activo !== false;
-        let vigente = true;
-        if (d.venceAt != null) {
-          const ms = d.venceAt.toMillis ? d.venceAt.toMillis()
-            : (typeof d.venceAt === 'number' ? d.venceAt : Date.parse(d.venceAt));
-          if (ms && Date.now() > ms) vigente = false;
-        }
-        const yaConsumido = o.descuentoConsumido === true;
-        if (((activo && vigente) || yaConsumido) && p > 0 && p <= 100) {
-          pct = p;
-          resolvedName = d.nombre || o.discountCode || resolvedName;
-        }
-      }
-    } catch (_) {}
-  } else if (o.stampCardCode) {
-    try {
-      const cSnap = await db.collection('stamp-cards').doc(String(o.stampCardCode)).get();
-      if (cSnap.exists) {
-        const c = cSnap.data();
-        const emailOk = !o.email || String(c.emailLower || '').toLowerCase() === String(o.email).toLowerCase();
-        const available = c.rewardAvailable === true || (Number(c.sellos) || 0) >= 8;
-        const usedByThis = c.rewardUsed === true && c.rewardUsedOrderId === orderId;
-        if (emailOk && (available || usedByThis)) {
-          pct = Number(c.rewardPct) > 0 ? Number(c.rewardPct) : 40;
-          resolvedName = c.nombre || 'Tarjeta de sellos';
-        }
-      }
-    } catch (_) {}
-  }
-
-  const creditsUsed = Math.max(0, Number(o.creditsUsed) || 0);
-  if (creditsUsed > 0) pct = 0;
-  const conDescuento = pct ? subtotal * (1 - pct / 100) : subtotal;
-  const afterCredits = Math.max(0, conDescuento - creditsUsed);
-  const envioCosto = (o.tipoEntrega === 'domicilio')
-    ? getShippingCostServer(round2(conDescuento))
-    : 0;
-  const monto = round2(afterCredits + envioCosto);
-  return {
-    subtotal: round2(subtotal),
-    pct,
-    resolvedName,
-    conDescuento: round2(conDescuento),
-    afterCredits: round2(afterCredits),
-    creditsUsed,
-    envioCosto,
-    monto
-  };
-}
-
-function feeUsdFromOpenNodeCharge(charge, fiatUsd) {
-  if (!charge) return null;
-  const feeRaw = charge.fee != null ? Number(charge.fee) : NaN;
-  const amountSats = Number(charge.amount);
-  const fiat = typeof fiatUsd === 'number' ? fiatUsd
-    : (Number(charge.fiat_value) || Number(charge.source_fiat_value) || NaN);
-  // fee suele venir en sats
-  if (isFinite(feeRaw) && feeRaw > 0 && isFinite(amountSats) && amountSats > 0 && isFinite(fiat) && fiat > 0) {
-    return round2((feeRaw / amountSats) * fiat);
-  }
-  if (isFinite(feeRaw) && feeRaw > 0 && feeRaw < 100 && isFinite(fiat) && feeRaw <= fiat) {
-    // por si viniera ya en USD
-    return round2(feeRaw);
-  }
-  return null;
-}
-
-async function markOpenNodePaid(orderId, charge) {
-  const fiat = Number(charge && (charge.fiat_value ?? charge.source_fiat_value));
-  const feeUsd = feeUsdFromOpenNodeCharge(charge, isFinite(fiat) ? fiat : null);
-  await recordOnlinePaymentStats(orderId, {
-    provider: 'opennode',
-    txId: charge && charge.id ? String(charge.id) : null,
-    feeUsd: feeUsd,
-    feePct: OPENNODE_FEE_PCT,
-    allowedMetodos: ['bitcoin']
-  });
-}
-
-// ── crearCargoOpenNode (callable) ──
-exports.crearCargoOpenNode = functions
-  .runWith({ secrets: OPENNODE_SECRETS })
-  .https.onCall(async (data, context) => {
-    if (!context.auth) {
-      throw new functions.https.HttpsError('unauthenticated', 'Debes iniciar sesión.');
-    }
-    const uid = context.auth.uid;
-    const orderId = (data && data.orderId || '').toString();
-    if (!orderId) {
-      throw new functions.https.HttpsError('invalid-argument', 'Falta orderId.');
-    }
-
-    const orderRef = db.collection('pedidos').doc(orderId);
-    const snap = await orderRef.get();
-    if (!snap.exists) {
-      throw new functions.https.HttpsError('not-found', 'Pedido no encontrado.');
-    }
-    const o = snap.data();
-    if (o.userId && o.userId !== uid) {
-      throw new functions.https.HttpsError('permission-denied', 'Este pedido no es tuyo.');
-    }
-    if (o.metodoPago !== 'bitcoin') {
-      throw new functions.https.HttpsError('failed-precondition', 'El pedido no es de Bitcoin.');
-    }
-    if (o.paymentStatus === 'paid' || o.statsRecorded === true) {
-      throw new functions.https.HttpsError('failed-precondition', 'El pedido ya fue pagado.');
-    }
-
-    // Reutilizar cargo unpaid existente (evitar duplicar facturas al reintentar)
-    if (o.opennodeChargeId && o.paymentStatus === 'pending') {
-      try {
-        const existing = await opennodeApi('/v1/charge/' + o.opennodeChargeId);
-        const ch = existing && existing.data ? existing.data : existing;
-        if (ch && (ch.status === 'unpaid' || ch.status === 'processing')) {
-          const li = ch.lightning_invoice || {};
-          return {
-            ok: true,
-            chargeId: ch.id,
-            amountSats: Number(ch.amount) || 0,
-            fiatValue: Number(ch.fiat_value ?? ch.source_fiat_value) || 0,
-            currency: ch.currency || 'USD',
-            lightningInvoice: li.payreq || null,
-            uri: ch.uri || null,
-            address: (ch.chain_invoice && ch.chain_invoice.address) || ch.address || null,
-            expiresAt: li.expires_at || null,
-            hostedCheckoutUrl: ch.hosted_checkout_url || null,
-            reused: true
-          };
-        }
-        if (ch && ch.status === 'paid') {
-          await markOpenNodePaid(orderId, ch);
-          return { ok: true, alreadyPaid: true, chargeId: ch.id };
-        }
-      } catch (e) {
-        console.warn('No se pudo reutilizar cargo OpenNode:', e && e.message);
-      }
-    }
-
-    const payable = await computeOrderPayableUsd(orderId, o);
-    if (payable.monto <= 0) {
-      return { ok: true, fullyCoveredByCredits: true, amount: 0 };
-    }
-
-    if (typeof o.totalConEnvio !== 'number' || Math.abs(o.totalConEnvio - payable.monto) > 0.01) {
-      await orderRef.update({
-        total: payable.subtotal,
-        totalConDescuento: payable.pct ? payable.conDescuento : (payable.creditsUsed > 0 ? payable.conDescuento : null),
-        discountPct: payable.pct || null,
-        discountName: payable.resolvedName,
-        envioCosto: payable.envioCosto,
-        totalConEnvio: payable.monto,
-        payableAfterCredits: payable.afterCredits,
-        montoVerificadoServidor: true
-      }).catch(e => console.warn('No se pudo sanar monto OpenNode:', e));
-    }
-
-    const webhookUrl = process.env.OPENNODE_WEBHOOK_URL ||
-      ('https://us-central1-' + process.env.GCLOUD_PROJECT + '.cloudfunctions.net/opennodeWebhook');
-    const base = (data && data.origin) ? data.origin.toString() : 'https://picosv.com';
-
-    let resp;
-    try {
-      resp = await opennodeApi('/v1/charges', {
-        method: 'POST',
-        json: {
-          amount: payable.monto,
-          currency: 'USD',
-          description: 'Pedido PICO ' + (o.code || orderId),
-          order_id: orderId,
-          customer_name: o.name || '',
-          customer_email: o.email || '',
-          callback_url: webhookUrl,
-          success_url: base + '/?btc=ok&order=' + orderId,
-          auto_settle: false,
-          ttl: 60 // minutos — suficiente para Lightning en checkout
-        }
-      });
-    } catch (err) {
-      console.error('Error creando cargo OpenNode para', orderId, err.status, err.body);
-      throw new functions.https.HttpsError('internal', 'No se pudo crear la factura Bitcoin. ¿Configuraste OPENNODE_API_KEY?');
-    }
-
-    const ch = resp && resp.data ? resp.data : resp;
-    if (!ch || !ch.id) {
-      console.error('Respuesta OpenNode sin cargo:', resp);
-      throw new functions.https.HttpsError('internal', 'OpenNode no devolvió la factura.');
-    }
-
-    const li = ch.lightning_invoice || {};
-    await orderRef.update({
-      opennodeChargeId: ch.id,
-      opennodeCreatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      opennodeAmountSats: Number(ch.amount) || null,
-      opennodeFiatValue: Number(ch.fiat_value ?? ch.source_fiat_value) || payable.monto,
-      paymentStatus: 'pending'
-    }).catch(e => console.warn('No se pudo guardar opennodeChargeId:', e));
-
-    return {
-      ok: true,
-      chargeId: ch.id,
-      amountSats: Number(ch.amount) || 0,
-      fiatValue: Number(ch.fiat_value ?? ch.source_fiat_value) || payable.monto,
-      currency: ch.currency || 'USD',
-      lightningInvoice: li.payreq || null,
-      uri: ch.uri || null,
-      address: (ch.chain_invoice && ch.chain_invoice.address) || ch.address || null,
-      expiresAt: li.expires_at || null,
-      hostedCheckoutUrl: ch.hosted_checkout_url || null
-    };
-  });
-
-// ── opennodeWebhook (HTTP) ──
-exports.opennodeWebhook = functions
-  .runWith({ secrets: OPENNODE_SECRETS })
-  .https.onRequest(async (req, res) => {
-    if (req.method !== 'POST') { res.status(405).send('Method Not Allowed'); return; }
-    try {
-      const body = req.body || {};
-      // OpenNode envía application/x-www-form-urlencoded; Functions lo parsea a objeto.
-      const chargeId = body.id || body.charge_id;
-      const status = String(body.status || '').toLowerCase();
-      const orderId = body.order_id || body.orderId || null;
-      const hashed = body.hashed_order;
-
-      if (!chargeId) {
-        console.warn('OpenNode webhook sin id');
-        res.status(200).send('ok');
-        return;
-      }
-
-      if (hashed && !verifyOpenNodeWebhook(chargeId, hashed)) {
-        console.error('OpenNode webhook firma inválida', chargeId);
-        res.status(401).send('invalid signature');
-        return;
-      }
-
-      // Re-consultar el cargo (autoritativo)
-      let charge = null;
-      try {
-        const got = await opennodeApi('/v1/charge/' + chargeId);
-        charge = got && got.data ? got.data : got;
-      } catch (e) {
-        console.error('No se pudo re-consultar cargo OpenNode', chargeId, e && e.message);
-        // Si la firma es válida y status=paid, aún así intentamos con el body
-        charge = { id: chargeId, status, fee: body.fee, amount: body.price || body.amount, fiat_value: null };
-      }
-
-      const st = String((charge && charge.status) || status).toLowerCase();
-      if (st !== 'paid') {
-        console.log('OpenNode webhook: status no paid', chargeId, st);
-        res.status(200).send('ok');
-        return;
-      }
-
-      let oid = orderId || (charge && charge.order_id) || null;
-      if (!oid) {
-        const q = await db.collection('pedidos').where('opennodeChargeId', '==', chargeId).limit(1).get();
-        if (!q.empty) oid = q.docs[0].id;
-      }
-      if (!oid) {
-        console.warn('OpenNode webhook: pedido no encontrado para', chargeId);
-        res.status(200).send('ok');
-        return;
-      }
-
-      // Validar monto fiat si está disponible
-      const orderSnap = await db.collection('pedidos').doc(oid).get();
-      if (orderSnap.exists) {
-        const expected = orderSnap.data().totalConEnvio;
-        const gotFiat = Number(charge.fiat_value ?? charge.source_fiat_value);
-        if (typeof expected === 'number' && isFinite(gotFiat) && Math.abs(expected - gotFiat) > 0.05) {
-          console.error('OpenNode webhook: monto no coincide', oid, 'esperado', expected, 'recibido', gotFiat);
-          // Aun así, si OpenNode marcó paid con nuestro order_id, registramos (el monto lo fijamos nosotros al crear).
-        }
-      }
-
-      await markOpenNodePaid(oid, charge);
-      res.status(200).send('ok');
-    } catch (err) {
-      console.error('Error en opennodeWebhook:', err);
-      res.status(200).send('ok');
-    }
-  });
-
-// ── consultarCargoOpenNode (callable) · poll de respaldo ──
-exports.consultarCargoOpenNode = functions
-  .runWith({ secrets: OPENNODE_SECRETS })
-  .https.onCall(async (data, context) => {
-    if (!context.auth) {
-      throw new functions.https.HttpsError('unauthenticated', 'Debes iniciar sesión.');
-    }
-    const uid = context.auth.uid;
-    const orderId = (data && data.orderId || '').toString();
-    if (!orderId) {
-      throw new functions.https.HttpsError('invalid-argument', 'Falta orderId.');
-    }
-    const snap = await db.collection('pedidos').doc(orderId).get();
-    if (!snap.exists) {
-      throw new functions.https.HttpsError('not-found', 'Pedido no encontrado.');
-    }
-    const o = snap.data();
-    if (o.userId && o.userId !== uid) {
-      throw new functions.https.HttpsError('permission-denied', 'Este pedido no es tuyo.');
-    }
-    if (o.paymentStatus === 'paid' || o.statsRecorded === true) {
-      return { status: 'paid', paymentStatus: 'paid' };
-    }
-    const chargeId = o.opennodeChargeId;
-    if (!chargeId) {
-      return { status: 'missing', paymentStatus: o.paymentStatus || null };
-    }
-    try {
-      const got = await opennodeApi('/v1/charge/' + chargeId);
-      const ch = got && got.data ? got.data : got;
-      const st = String(ch.status || '').toLowerCase();
-      if (st === 'paid') {
-        await markOpenNodePaid(orderId, ch);
-        return { status: 'paid', paymentStatus: 'paid', chargeId };
-      }
-      return {
-        status: st || 'unknown',
-        paymentStatus: o.paymentStatus || 'pending',
-        chargeId,
-        amountSats: Number(ch.amount) || null,
-        fiatValue: Number(ch.fiat_value ?? ch.source_fiat_value) || null
-      };
-    } catch (err) {
-      console.error('consultarCargoOpenNode:', err.status || '', err.body || err);
-      throw new functions.https.HttpsError('internal', 'No se pudo consultar el cargo Bitcoin.');
-    }
-  });
-
-// ── getOpenNodeRate (callable) · cotización BTC/USD para la UI ──
-exports.getOpenNodeRate = functions
-  .runWith({ secrets: OPENNODE_SECRETS })
-  .https.onCall(async (_data, context) => {
-    // Público autenticado (checkout); no exponemos la API key
-    if (!context.auth) {
-      throw new functions.https.HttpsError('unauthenticated', 'Debes iniciar sesión.');
-    }
-    try {
-      const got = await opennodeApi('/v1/rates');
-      const data = got && got.data ? got.data : got;
-      // Formas habituales: { USD: { BTC: 1.2e-5, SATS: 1200 } } o anidado
-      let usdPerBtc = null;
-      let btcPerUsd = null;
-      if (data && data.USD) {
-        if (typeof data.USD.BTC === 'number') btcPerUsd = data.USD.BTC;
-        // A veces traen BTCUSD
-      }
-      if (data && data.BTCUSD && typeof data.BTCUSD === 'number') {
-        usdPerBtc = data.BTCUSD;
-      }
-      if (btcPerUsd && btcPerUsd > 0) {
-        usdPerBtc = 1 / btcPerUsd;
-      }
-      // Alternativa: data.USD.SATS → sats por 1 USD
-      if (!usdPerBtc && data && data.USD && typeof data.USD.SATS === 'number' && data.USD.SATS > 0) {
-        usdPerBtc = 1e8 / data.USD.SATS;
-      }
-      return {
-        ok: true,
-        usdPerBtc: usdPerBtc ? round2(usdPerBtc) : null,
-        btcPerUsd: btcPerUsd || null,
-        env: String(process.env.OPENNODE_ENV || 'dev')
-      };
-    } catch (err) {
-      console.warn('getOpenNodeRate:', err && err.message);
-      return { ok: false, usdPerBtc: null };
-    }
   });
 
 

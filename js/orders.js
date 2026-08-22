@@ -153,11 +153,10 @@ function _renderMyOrdersList(el, myOrders) {
     // El cliente NO puede cancelar pedidos a domicilio (solo el admin).
     const canCancel    = isPending && o.tipoEntrega !== 'domicilio';
     const badge        = orderStatusBadge(o);
-    const payPending   = (o.metodoPago === 'bitcoin' || o.metodoPago === 'tarjeta')
+    const payPending   = o.metodoPago === 'tarjeta'
       && o.paymentStatus === 'pending'
       && !o.creditsFullyPaid;
-    const payLabel = o.metodoPago === 'bitcoin' ? 'Bitcoin'
-                   : o.metodoPago === 'tarjeta' ? 'Tarjeta'
+    const payLabel = o.metodoPago === 'tarjeta' ? 'Tarjeta'
                    : o.metodoPago === 'efectivo' ? 'Efectivo' : null;
     return `
     <div class="ocard" ${isCancelled ? 'style="opacity:.65;border-color:#fca5a5"' : ''}>
@@ -191,14 +190,7 @@ function _renderMyOrdersList(el, myOrders) {
           </div>
         </div>
       </div>
-      ${payPending && o.metodoPago === 'bitcoin' ? `
-      <div style="margin-top:12px;text-align:right">
-        <button class="btn-pri" style="padding:8px 14px;font-size:.78rem"
-          onclick="startOpenNodeCheckout('${o.firestoreId}','${o.code}').catch(e=>showToast(e.message||'No se pudo abrir el pago Bitcoin'))">
-          Pagar con Bitcoin
-        </button>
-      </div>` : ''}
-      ${payPending && o.metodoPago === 'tarjeta' ? `
+      ${payPending ? `
       <div style="margin-top:12px;text-align:right">
         <button class="btn-pri" style="padding:8px 14px;font-size:.78rem"
           onclick="startWompiCheckout('${o.firestoreId}').catch(e=>showToast(e.message||'No se pudo abrir el pago'))">
