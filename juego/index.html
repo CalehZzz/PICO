@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="robots" content="index, follow">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>PICO · LED Arena</title>
+<meta name="description" content="LED Arena: supervivencia por oleadas en PICO. Personaliza tu LED, armas automáticas y bosses de componentes electrónicos.">
+<link rel="canonical" href="https://picosv.com/juego/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-functions-compat.js"></script>
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
+<link rel="icon" type="image/png" sizes="96x96" href="/favicon-96.png">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<meta name="theme-color" content="#0b1020">
+<link rel="stylesheet" href="/css/styles.css">
+<link rel="stylesheet" href="/css/juego.css">
+</head>
+<body data-page="juego" class="juego-body">
+
+<div class="page active" id="page-juego">
+  <div id="ledApp" class="led-app">
+
+    <!-- MENU -->
+    <section id="screenMenu" class="led-screen">
+      <div class="led-menu-bg" aria-hidden="true"></div>
+      <div class="led-card">
+        <div class="led-badge">PICO · Minijuego</div>
+        <h1 class="led-title">LED <span>Arena</span></h1>
+        <p class="led-sub">Arena cerrada, hordas enormes, armas automáticas y bosses de componentes malvados. Solo muévete. Infinito hasta que no puedas más.</p>
+        <label class="led-label" for="playerName">Nombre de jugador</label>
+        <input id="playerName" class="led-input" maxlength="18" placeholder="Ej. LedMaster" autocomplete="nickname">
+        <div class="led-actions">
+          <button type="button" class="led-btn led-btn-primary" id="btnPlay">▶ Comenzar</button>
+          <button type="button" class="led-btn led-btn-ghost" id="btnContinue" disabled>Continuar partida</button>
+          <button type="button" class="led-btn led-btn-ghost" id="btnCustom">✦ Personalizar LED (gratis)</button>
+          <button type="button" class="led-btn led-btn-ghost" id="btnTop">🏆 Top 10</button>
+        </div>
+        <div class="led-stats" id="menuStats">
+          <div><span>Mejor puntaje</span><b id="statBest">0</b></div>
+          <div><span>Kills récord</span><b id="statKills">0</b></div>
+          <div><span>Partidas</span><b id="statGames">0</b></div>
+        </div>
+        <p class="led-hint" id="authHint">Inicia sesión para guardar puntaje, partida y top 10 en la nube.</p>
+      </div>
+    </section>
+
+    <!-- CUSTOM -->
+    <section id="screenCustom" class="led-screen hidden">
+      <div class="led-panel">
+        <div class="led-panel-hd">
+          <h2>Personaliza tu LED</h2>
+          <button type="button" class="led-x" id="btnCustomBack" aria-label="Cerrar">✕</button>
+        </div>
+        <div class="led-custom-grid">
+          <canvas id="previewCanvas" width="220" height="260"></canvas>
+          <div>
+            <label class="led-label">Color</label>
+            <div class="led-row" id="colorRow"></div>
+            <label class="led-label">Sombrero / chonguita</label>
+            <div class="led-row" id="hatRow"></div>
+            <label class="led-label">Zapatos</label>
+            <div class="led-row" id="shoeRow"></div>
+            <label class="led-label">Accesorio</label>
+            <div class="led-row" id="accRow"></div>
+            <button type="button" class="led-btn led-btn-primary" id="btnSaveCustom" style="margin-top:12px;width:100%">Guardar look gratis</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TOP 10 -->
+    <section id="screenTop" class="led-screen hidden">
+      <div class="led-panel">
+        <div class="led-panel-hd">
+          <h2>Top 10 · LED Arena</h2>
+          <button type="button" class="led-x" id="btnTopBack" aria-label="Cerrar">✕</button>
+        </div>
+        <ol class="led-top" id="topList"><li class="led-muted">Cargando…</li></ol>
+      </div>
+    </section>
+
+    <!-- GAME -->
+    <section id="screenGame" class="led-screen led-game hidden">
+      <div class="led-hud">
+        <div class="led-hud-l">
+          <div class="led-pill"><span>Puntos</span><b id="hudScore">0</b></div>
+          <div class="led-pill"><span>Oleada</span><b id="hudWave">1</b></div>
+          <div class="led-pill"><span>Tiempo</span><b id="hudTime">00:00</b></div>
+        </div>
+        <div class="led-hud-c">
+          <div class="led-bar"><div id="hudHp" style="width:100%"></div></div>
+          <div class="led-bar xp"><div id="hudXp" style="width:0%"></div></div>
+          <div class="led-lv" id="hudLv">Nv.1</div>
+        </div>
+        <div class="led-hud-r">
+          <div class="led-weps" id="hudWeps"></div>
+          <button type="button" class="led-ico" id="btnPause">❚❚</button>
+        </div>
+      </div>
+      <canvas id="gameCanvas"></canvas>
+      <div class="led-touch" id="touchPad">
+        <div class="led-joy" id="joyBase"><div class="led-knob" id="joyKnob"></div></div>
+      </div>
+      <div class="led-boss-banner hidden" id="bossBanner"></div>
+      <div class="led-toast" id="gameToast"></div>
+    </section>
+
+    <div id="overlay" class="led-overlay hidden">
+      <div class="led-overlay-card" id="overlayCard"></div>
+    </div>
+  </div>
+</div>
+
+<script src="/js/config.js"></script>
+<script src="/js/components.js"></script>
+<script src="/js/products.js"></script>
+<script src="/js/auth.js"></script>
+<script src="/js/discounts.js"></script>
+<script src="/js/credits.js"></script>
+<script src="/js/admin.js"></script>
+<script src="/js/cart.js"></script>
+<script src="/js/orders.js"></script>
+<script src="/js/catalog.js"></script>
+<script src="/js/profile.js"></script>
+<script src="/js/utils.js"></script>
+<script src="/js/juego.js"></script>
+<script src="/js/init.js"></script>
+</body>
+</html>

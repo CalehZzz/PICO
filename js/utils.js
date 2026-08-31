@@ -11,7 +11,8 @@ const PAGE_URLS = {
   myOrders:   '/mis-pedidos/',
   adminPanel: '/admin/',
   profile:    '/perfil/',
-  stampCards: '/mis-tarjetas/'
+  stampCards: '/mis-tarjetas/',
+  juego:      '/juego/'
 };
 
 // Normaliza una ruta para comparar (quita index.html y barras finales).
@@ -98,6 +99,8 @@ function initPageAfterAuth() {
       showToast('Inicia sesión para ver tus tarjetas');
       setTimeout(() => { location.href = '/'; }, 1300);
     }
+  } else if (page === 'juego') {
+    if (typeof initLedArenaPage === 'function') initLedArenaPage();
   }
   // 'catalog' se renderiza vía loadProducts() -> renderProducts().
 }

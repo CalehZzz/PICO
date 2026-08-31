@@ -20,10 +20,10 @@ try {
     sessionStorage.setItem('pico_auth_fields_once', '1');
   }
 } catch (_) {}
-// Obligar a elegir sucursal antes de continuar (no en página de tarjeta de sellos)
+// Obligar a elegir sucursal antes de continuar (no en sellos ni en el minijuego)
 {
   const p = document.body.dataset.page;
-  if (!selectedSucursal && p !== 'stampCard' && p !== 'stampCards') showSucursalGate();
+  if (!selectedSucursal && p !== 'stampCard' && p !== 'stampCards' && p !== 'juego') showSucursalGate();
 }
 
 // ═══════════════════════════════════════════════════
