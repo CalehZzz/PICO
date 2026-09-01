@@ -65,17 +65,17 @@
   ];
 
   const BOSSES = [
-    { name:'Resistor Rage', color:'#f87171', hp:900, speed:55, dmg:14, size:38, atk:'charge' },
-    { name:'Capacitor Crush', color:'#fbbf24', hp:1200, speed:48, dmg:16, size:42, atk:'burst' },
-    { name:'Diode Demon', color:'#a3e635', hp:1500, speed:62, dmg:15, size:40, atk:'spiral' },
-    { name:'Transistor Tyrant', color:'#34d399', hp:1900, speed:58, dmg:18, size:44, atk:'charge' },
-    { name:'Inductor Inferno', color:'#fb923c', hp:2300, speed:50, dmg:20, size:46, atk:'ring' },
-    { name:'Oscillator Overlord', color:'#22d3ee', hp:2800, speed:64, dmg:18, size:45, atk:'spiral' },
-    { name:'Relay Reaper', color:'#c084fc', hp:3400, speed:70, dmg:22, size:48, atk:'burst' },
-    { name:'IC Invader', color:'#60a5fa', hp:4000, speed:55, dmg:24, size:50, atk:'ring' },
-    { name:'MOSFET Monster', color:'#f472b6', hp:4800, speed:60, dmg:26, size:52, atk:'charge' },
-    { name:'Arduino Abomination', color:'#4ade80', hp:5800, speed:52, dmg:28, size:56, atk:'burst' },
-    { name:'MEGA PICO DARK CORE', color:'#ef4444', hp:12000, speed:68, dmg:32, size:72, atk:'final', final:true }
+    { name:'Resistor Rage', kind:'resistor', color:'#f87171', hp:900, speed:55, dmg:14, size:40, atk:'charge' },
+    { name:'Capacitor Crush', kind:'capacitor', color:'#fbbf24', hp:1200, speed:48, dmg:16, size:44, atk:'burst' },
+    { name:'Diode Demon', kind:'diode', color:'#a3e635', hp:1500, speed:62, dmg:15, size:42, atk:'spiral' },
+    { name:'Transistor Tyrant', kind:'transistor', color:'#34d399', hp:1900, speed:58, dmg:18, size:46, atk:'charge' },
+    { name:'Inductor Inferno', kind:'inductor', color:'#fb923c', hp:2300, speed:50, dmg:20, size:48, atk:'ring' },
+    { name:'Oscillator Overlord', kind:'crystal', color:'#22d3ee', hp:2800, speed:64, dmg:18, size:46, atk:'spiral' },
+    { name:'Relay Reaper', kind:'relay', color:'#c084fc', hp:3400, speed:70, dmg:22, size:50, atk:'burst' },
+    { name:'IC Invader', kind:'ic', color:'#60a5fa', hp:4000, speed:55, dmg:24, size:52, atk:'ring' },
+    { name:'MOSFET Monster', kind:'mosfet', color:'#f472b6', hp:4800, speed:60, dmg:26, size:54, atk:'charge' },
+    { name:'Arduino Abomination', kind:'arduino', color:'#4ade80', hp:5800, speed:52, dmg:28, size:58, atk:'burst' },
+    { name:'MEGA PICO DARK CORE', kind:'motherboard', color:'#ef4444', hp:12000, speed:68, dmg:32, size:76, atk:'final', final:true }
   ];
 
   // ── helpers ──
@@ -136,7 +136,9 @@
 
   const keys = Object.create(null);
   const touch = { x: 0, y: 0 };
+  const mouse = { x: 0, y: 0, down: false, worldX: 0, worldY: 0, gotoX: null, gotoY: null };
   let raf = 0;
+  const isCoarse = () => window.matchMedia && window.matchMedia('(pointer:coarse)').matches;
 
   const G = {
     running: false,
@@ -252,6 +254,10 @@
     });
     window.addEventListener('keydown', (e) => {
       keys[e.code] = true;
+      keys[e.key] = true;
+      if (G.running && !G.paused) {
+        if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+      }
       if (e.code === 'Escape' && G.running) {
         e.preventDefault();
         if (G.paused && G.overlay === 'pause') closeOverlay();
@@ -260,7 +266,44 @@
     });
     window.addEventListener('keyup', (e) => {
       keys[e.code] = false;
+      keys[e.key] = false;
     });
+    setupMouse();
+  }
+
+  function setupMouse() {
+    const c = $('gameCanvas');
+    if (!c) return;
+    const updatePos = (e) => {
+      const rect = c.getBoundingClientRect();
+      mouse.x = e.clientX - rect.left;
+      mouse.y = e.clientY - rect.top;
+      mouse.worldX = mouse.x + G.cam.x;
+      mouse.worldY = mouse.y + G.cam.y;
+    };
+    c.addEventListener('pointerdown', (e) => {
+      if (!G.running || G.paused || isCoarse()) return;
+      if (e.button !== 0) return;
+      // no robar clics del HUD
+      if (e.target.closest && e.target.closest('.led-hud-r, .led-ico')) return;
+      mouse.down = true;
+      updatePos(e);
+      mouse.gotoX = mouse.worldX;
+      mouse.gotoY = mouse.worldY;
+      c.setPointerCapture?.(e.pointerId);
+    });
+    c.addEventListener('pointermove', (e) => {
+      if (!G.running) return;
+      updatePos(e);
+      if (mouse.down && !isCoarse()) {
+        mouse.gotoX = mouse.worldX;
+        mouse.gotoY = mouse.worldY;
+      }
+    });
+    const up = () => { mouse.down = false; };
+    c.addEventListener('pointerup', up);
+    c.addEventListener('pointercancel', up);
+    window.addEventListener('blur', up);
   }
 
   function buildCustomUI() {
@@ -655,13 +698,24 @@
       knob.style.left = '32px';
       knob.style.top = '32px';
     }
-    pad.style.pointerEvents = 'auto';
+    // Solo capturar pointer en móvil; en desktop el mouse mueve por el canvas
+    const enable = () => {
+      pad.style.pointerEvents = isCoarse() ? 'auto' : 'none';
+    };
+    enable();
+    window.addEventListener('resize', enable);
     pad.addEventListener('pointerdown', (e) => {
-      if (!G.running || G.paused) return;
+      if (!G.running || G.paused || !isCoarse()) return;
       pid = e.pointerId;
       pad.setPointerCapture?.(e.pointerId);
-      const rect = base.getBoundingClientRect();
-      setKnob(e.clientX - (rect.left + rect.width / 2), e.clientY - (rect.top + rect.height / 2));
+      // Coloca la base cerca del dedo
+      const rect = pad.getBoundingClientRect();
+      const bx = e.clientX - rect.left - 55;
+      const by = e.clientY - rect.top - 55;
+      base.style.left = Math.max(8, Math.min(rect.width - 118, bx)) + 'px';
+      base.style.top = Math.max(8, Math.min(rect.height - 118, by)) + 'px';
+      base.style.bottom = 'auto';
+      setKnob(0, 0);
     });
     pad.addEventListener('pointermove', (e) => {
       if (pid !== e.pointerId) return;
@@ -696,7 +750,7 @@
     G.lastTs = performance.now();
     cancelAnimationFrame(raf);
     raf = requestAnimationFrame(loop);
-    gameToast('¡Muévete! Las armas disparan solas');
+    gameToast('Muévete: WASD · flechas · mouse · joystick');
   }
 
   function continueGame() {
@@ -745,21 +799,28 @@
     };
     G.obstacles = makeObstacles();
     G.cam = { x: 0, y: 0 };
+    mouse.down = false;
+    mouse.gotoX = null;
+    mouse.gotoY = null;
     hideOverlay();
     updateHud();
     updateWeaponSlots();
+    // asegurar spawn libre
+    if (hitObstacle(G.player.x, G.player.y, G.player.r)) unstickPlayer();
   }
 
   function makeObstacles() {
+    // Evitar el centro (spawn del jugador)
     const spots = [
-      [350, 280], [700, 260], [1050, 300], [400, 560], [700, 550], [1000, 580],
-      [320, 820], [700, 850], [1080, 800], [550, 400], [850, 720]
+      [280, 260], [520, 220], [980, 250], [1180, 320],
+      [260, 520], [480, 720], [920, 500], [1160, 680],
+      [320, 900], [700, 880], [1050, 900], [560, 400], [860, 760]
     ];
     return spots.map(([x, y], i) => ({
       x,
       y,
-      w: 50 + (i % 3) * 18,
-      h: 40 + (i % 2) * 20,
+      w: 46 + (i % 3) * 14,
+      h: 36 + (i % 2) * 16,
       kind: i % 3 === 0 ? 'crate' : i % 3 === 1 ? 'wall' : 'pillar'
     }));
   }
@@ -872,29 +933,73 @@
   function movePlayer(dt) {
     let mx = 0;
     let my = 0;
-    if (keys.KeyW || keys.ArrowUp) my -= 1;
-    if (keys.KeyS || keys.ArrowDown) my += 1;
-    if (keys.KeyA || keys.ArrowLeft) mx -= 1;
-    if (keys.KeyD || keys.ArrowRight) mx += 1;
+    if (keys.KeyW || keys.ArrowUp || keys.w || keys.W) my -= 1;
+    if (keys.KeyS || keys.ArrowDown || keys.s || keys.S) my += 1;
+    if (keys.KeyA || keys.ArrowLeft || keys.a || keys.A) mx -= 1;
+    if (keys.KeyD || keys.ArrowRight || keys.d || keys.D) mx += 1;
     mx += touch.x;
     my += touch.y;
+    const kbOrTouch = Math.abs(mx) + Math.abs(my) > 0.05;
+    if (kbOrTouch) {
+      mouse.gotoX = null;
+      mouse.gotoY = null;
+    }
+    // Mouse: clic / arrastre → camina hacia el punto (también click-to-move)
+    if (mouse.gotoX != null && !isCoarse()) {
+      if (mouse.down) {
+        mouse.worldX = mouse.x + G.cam.x;
+        mouse.worldY = mouse.y + G.cam.y;
+        mouse.gotoX = mouse.worldX;
+        mouse.gotoY = mouse.worldY;
+      }
+      const dx = mouse.gotoX - G.player.x;
+      const dy = mouse.gotoY - G.player.y;
+      if (Math.hypot(dx, dy) > 10) {
+        mx += dx;
+        my += dy;
+      } else {
+        mouse.gotoX = null;
+        mouse.gotoY = null;
+      }
+    }
     const len = Math.hypot(mx, my);
     if (len > 0.05) {
       mx /= len;
       my /= len;
       G.player.facing = mx >= 0 ? 1 : -1;
-      let nx = G.player.x + mx * G.player.speed * dt;
-      let ny = G.player.y + my * G.player.speed * dt;
-      nx = clamp(nx, WALL + G.player.r, ARENA_W - WALL - G.player.r);
-      ny = clamp(ny, WALL + G.player.r, ARENA_H - WALL - G.player.r);
-      if (!hitObstacle(nx, ny, G.player.r)) {
-        G.player.x = nx;
-        G.player.y = ny;
-      } else {
-        if (!hitObstacle(nx, G.player.y, G.player.r)) G.player.x = nx;
-        if (!hitObstacle(G.player.x, ny, G.player.r)) G.player.y = ny;
+      tryMove(mx * G.player.speed * dt, my * G.player.speed * dt);
+    }
+    // Si quedó atrapado en un obstáculo (save viejo), empujarlo fuera
+    if (hitObstacle(G.player.x, G.player.y, G.player.r)) unstickPlayer();
+  }
+
+  function tryMove(dx, dy) {
+    let nx = clamp(G.player.x + dx, WALL + G.player.r, ARENA_W - WALL - G.player.r);
+    let ny = clamp(G.player.y + dy, WALL + G.player.r, ARENA_H - WALL - G.player.r);
+    if (!hitObstacle(nx, ny, G.player.r)) {
+      G.player.x = nx;
+      G.player.y = ny;
+      return;
+    }
+    if (!hitObstacle(nx, G.player.y, G.player.r)) G.player.x = nx;
+    if (!hitObstacle(G.player.x, ny, G.player.r)) G.player.y = ny;
+  }
+
+  function unstickPlayer() {
+    const angles = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => (i * Math.PI) / 4);
+    for (let distTry = 20; distTry <= 160; distTry += 20) {
+      for (const a of angles) {
+        const nx = clamp(G.player.x + Math.cos(a) * distTry, WALL + G.player.r, ARENA_W - WALL - G.player.r);
+        const ny = clamp(G.player.y + Math.sin(a) * distTry, WALL + G.player.r, ARENA_H - WALL - G.player.r);
+        if (!hitObstacle(nx, ny, G.player.r)) {
+          G.player.x = nx;
+          G.player.y = ny;
+          return;
+        }
       }
     }
+    G.player.x = ARENA_W / 2;
+    G.player.y = ARENA_H / 2 + 80;
   }
 
   function hitObstacle(x, y, r) {
@@ -990,6 +1095,7 @@
       speed: def.speed,
       color: def.color,
       name: def.name,
+      kind: def.kind || 'ic',
       dmg: def.dmg * (mini ? 0.85 : 1) * post,
       score: Math.floor(400 * (G.nextBossIdx + 1) * (def.final ? 5 : 1)),
       elite: true,
@@ -1056,6 +1162,12 @@
     let ang = target
       ? Math.atan2(target.y - G.player.y, target.x - G.player.x)
       : Math.random() * Math.PI * 2;
+    const style = def.id === 'laser' || def.id === 'oscope' ? 'beam'
+      : def.id === 'shotgun' || def.id === 'shuri' ? 'shard'
+      : def.id === 'missile' || def.id === 'drone' ? 'rocket'
+      : def.id === 'orb' || def.id === 'plasma' || def.id === 'coil' ? 'orb'
+      : def.id === 'boomer' ? 'boomer'
+      : 'bolt';
     for (let i = 0; i < count; i++) {
       const a = ang + (count === 1 ? 0 : (i - (count - 1) / 2) * (spread || 0.15));
       G.bullets.push({
@@ -1063,17 +1175,20 @@
         y: G.player.y,
         vx: Math.cos(a) * (def.speed || 400),
         vy: Math.sin(a) * (def.speed || 400),
+        ang: a,
         dmg,
-        r: 3.5,
+        r: style === 'orb' ? 6 : style === 'rocket' ? 5 : 3.5,
         life: 1.6,
         color: def.color,
+        style,
         pierce: def.pierce || 0,
         radius: def.radius || 0,
         homing: !!def.homing,
         bounce: !!def.bounce,
         chain: def.chain || 0,
         owner: 'player',
-        hit: new Set()
+        hit: new Set(),
+        trail: []
       });
     }
   }
@@ -1158,7 +1273,13 @@
       }
       b.x += b.vx * dt;
       b.y += b.vy * dt;
+      b.ang = Math.atan2(b.vy, b.vx);
       b.life -= dt;
+      if (b.owner === 'player') {
+        b.trail = b.trail || [];
+        b.trail.push({ x: b.x, y: b.y });
+        if (b.trail.length > 6) b.trail.shift();
+      }
       if (b.life <= 0 || b.x < 0 || b.y < 0 || b.x > ARENA_W || b.y > ARENA_H) {
         G.bullets.splice(i, 1);
         continue;
@@ -1577,36 +1698,83 @@
     ctx.save();
     ctx.translate(-G.cam.x, -G.cam.y);
 
-    ctx.fillStyle = '#0b1224';
+    ctx.fillStyle = '#0c1426';
     ctx.fillRect(0, 0, ARENA_W, ARENA_H);
-    ctx.strokeStyle = 'rgba(56,189,248,.05)';
+    // piso tipo protoboard (verde PCB suave)
+    ctx.fillStyle = '#12261f';
+    ctx.fillRect(WALL, WALL, ARENA_W - WALL * 2, ARENA_H - WALL * 2);
+    ctx.strokeStyle = 'rgba(52, 211, 153, .10)';
     ctx.lineWidth = 1;
-    for (let x = 0; x <= ARENA_W; x += 50) {
+    for (let x = WALL; x <= ARENA_W - WALL; x += 28) {
       ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, ARENA_H);
+      ctx.moveTo(x, WALL);
+      ctx.lineTo(x, ARENA_H - WALL);
       ctx.stroke();
     }
-    for (let y = 0; y <= ARENA_H; y += 50) {
+    for (let y = WALL; y <= ARENA_H - WALL; y += 28) {
       ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(ARENA_W, y);
+      ctx.moveTo(WALL, y);
+      ctx.lineTo(ARENA_W - WALL, y);
       ctx.stroke();
+    }
+    // puntos de protoboard
+    ctx.fillStyle = 'rgba(148, 163, 184, .28)';
+    for (let x = WALL + 14; x < ARENA_W - WALL; x += 28) {
+      for (let y = WALL + 14; y < ARENA_H - WALL; y += 28) {
+        ctx.beginPath();
+        ctx.arc(x, y, 1.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
-    ctx.fillStyle = '#1e293b';
+    ctx.fillStyle = '#1a2744';
     ctx.fillRect(0, 0, ARENA_W, WALL);
     ctx.fillRect(0, ARENA_H - WALL, ARENA_W, WALL);
     ctx.fillRect(0, 0, WALL, ARENA_H);
     ctx.fillRect(ARENA_W - WALL, 0, WALL, ARENA_H);
-    ctx.strokeStyle = 'rgba(125,211,252,.25)';
+    ctx.strokeStyle = 'rgba(56, 189, 248, .45)';
     ctx.lineWidth = 3;
     ctx.strokeRect(WALL, WALL, ARENA_W - WALL * 2, ARENA_H - WALL * 2);
 
     for (const o of G.obstacles) {
-      ctx.fillStyle = o.kind === 'crate' ? '#334155' : o.kind === 'pillar' ? '#1e3a5f' : '#273449';
-      roundRect(ctx, o.x - o.w / 2, o.y - o.h / 2, o.w, o.h, 6);
-      ctx.fill();
+      const ox = o.x - o.w / 2;
+      const oy = o.y - o.h / 2;
+      if (o.kind === 'crate') {
+        // caja de componentes
+        ctx.fillStyle = '#334155';
+        roundRect(ctx, ox, oy, o.w, o.h, 6);
+        ctx.fill();
+        ctx.fillStyle = '#0ea5e9';
+        ctx.fillRect(ox + 6, oy + 6, o.w - 12, 5);
+        ctx.fillStyle = 'rgba(255,255,255,.12)';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('PICO', o.x, o.y + 4);
+      } else if (o.kind === 'pillar') {
+        // capacitor grande
+        ctx.fillStyle = '#1e3a5f';
+        roundRect(ctx, ox + 4, oy, o.w - 8, o.h, 5);
+        ctx.fill();
+        ctx.fillStyle = '#e2e8f0';
+        ctx.fillRect(ox + 4, oy, o.w - 8, 6);
+        ctx.strokeStyle = 'rgba(125,211,252,.35)';
+        ctx.stroke();
+      } else {
+        // IC / chip
+        ctx.fillStyle = '#0f172a';
+        roundRect(ctx, ox, oy, o.w, o.h, 4);
+        ctx.fill();
+        ctx.fillStyle = '#64748b';
+        for (let i = 0; i < 4; i++) {
+          const yy = oy + 6 + i * ((o.h - 12) / 3);
+          ctx.fillRect(ox - 4, yy, 4, 3);
+          ctx.fillRect(ox + o.w, yy, 4, 3);
+        }
+        ctx.fillStyle = '#38bdf8';
+        ctx.beginPath();
+        ctx.arc(o.x - 6, o.y - 4, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.strokeStyle = 'rgba(255,255,255,.08)';
       ctx.stroke();
     }
@@ -1634,14 +1802,10 @@
       }
     }
 
-    for (const b of G.bullets) {
-      ctx.fillStyle = b.color || '#fff';
-      ctx.beginPath();
-      ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    for (const b of G.bullets) drawBullet(ctx, b);
     for (const e of G.enemies) drawEnemy(ctx, e);
     if (G.invuln <= 0 || Math.floor(G.time * 20) % 2 === 0) {
+      drawPlayerWeapons(ctx, G.player, G.weapons, G.time);
       drawLed(ctx, G.player.x, G.player.y, 1.15, G.player.look, G.player.facing, G.time);
     }
     for (const p of G.particles) {
@@ -1663,55 +1827,450 @@
     ctx.restore();
   }
 
+  function drawPlayerWeapons(ctx, player, weapons, t) {
+    if (!weapons || !weapons.length) return;
+    const n = weapons.length;
+    weapons.forEach((w, i) => {
+      const ang = t * 1.6 + (i / n) * Math.PI * 2;
+      const orbit = 26 + n * 2;
+      const x = player.x + Math.cos(ang) * orbit;
+      const y = player.y + Math.sin(ang) * orbit * 0.72;
+      const col = (w.def && w.def.color) || '#7dd3fc';
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(ang + Math.PI / 2);
+      ctx.shadowColor = col;
+      ctx.shadowBlur = 10;
+      // cañón / arma tipo componente
+      ctx.fillStyle = '#1e293b';
+      roundRect(ctx, -4, -10, 8, 16, 2);
+      ctx.fill();
+      ctx.fillStyle = col;
+      roundRect(ctx, -3, -14, 6, 8, 2);
+      ctx.fill();
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(-1.5, -16, 3, 5);
+      // LED tip glow
+      ctx.beginPath();
+      ctx.arc(0, -17, 2.2, 0, Math.PI * 2);
+      ctx.fillStyle = col;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    });
+  }
+
+  function drawBullet(ctx, b) {
+    // trail
+    if (b.trail && b.trail.length > 1 && b.owner === 'player') {
+      ctx.strokeStyle = b.color || '#fff';
+      ctx.globalAlpha = 0.35;
+      ctx.lineWidth = Math.max(1.5, (b.r || 3) * 0.8);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(b.trail[0].x, b.trail[0].y);
+      for (let i = 1; i < b.trail.length; i++) ctx.lineTo(b.trail[i].x, b.trail[i].y);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    ctx.save();
+    ctx.translate(b.x, b.y);
+    ctx.rotate(b.ang || 0);
+    const col = b.color || '#fff';
+    if (b.owner === 'enemy') {
+      ctx.fillStyle = col;
+      ctx.shadowColor = col;
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.arc(0, 0, b.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      return;
+    }
+    ctx.shadowColor = col;
+    ctx.shadowBlur = 10;
+    if (b.style === 'beam') {
+      ctx.fillStyle = col;
+      ctx.fillRect(-10, -1.5, 18, 3);
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(-6, -0.7, 10, 1.4);
+    } else if (b.style === 'rocket') {
+      ctx.fillStyle = col;
+      roundRect(ctx, -8, -3, 14, 6, 2);
+      ctx.fill();
+      ctx.fillStyle = '#fbbf24';
+      ctx.beginPath();
+      ctx.moveTo(-8, -3);
+      ctx.lineTo(-14, 0);
+      ctx.lineTo(-8, 3);
+      ctx.fill();
+    } else if (b.style === 'orb') {
+      const g = ctx.createRadialGradient(0, 0, 1, 0, 0, b.r + 2);
+      g.addColorStop(0, '#fff');
+      g.addColorStop(0.45, col);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(0, 0, b.r + 2, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (b.style === 'shard') {
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.moveTo(7, 0);
+      ctx.lineTo(-4, -4);
+      ctx.lineTo(-2, 0);
+      ctx.lineTo(-4, 4);
+      ctx.closePath();
+      ctx.fill();
+    } else if (b.style === 'boomer') {
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, 6, -0.8, Math.PI + 0.8);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 6, 2.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(2, 0, 1.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   function drawEnemy(ctx, e) {
     ctx.save();
     ctx.translate(e.x, e.y);
     if (e.boss) {
-      ctx.fillStyle = e.color;
-      roundRect(ctx, -e.r, -e.r * 0.75, e.r * 2, e.r * 1.5, 8);
-      ctx.fill();
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(-e.r * 0.7, -e.r * 0.35, e.r * 1.4, e.r * 0.7);
-      ctx.fillStyle = '#ef4444';
-      ctx.beginPath();
-      ctx.arc(-e.r * 0.3, -e.r * 0.05, e.r * 0.18, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(e.r * 0.3, -e.r * 0.05, e.r * 0.18, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#fff';
-      ctx.font = `bold ${Math.max(10, e.r * 0.35)}px sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.fillText(e.final ? 'PICO' : String(e.name).split(' ')[0].slice(0, 6), 0, e.r * 0.55);
+      drawBossComponent(ctx, e);
       const bw = e.r * 2.2;
-      ctx.fillStyle = 'rgba(0,0,0,.5)';
-      ctx.fillRect(-bw / 2, -e.r - 14, bw, 6);
-      ctx.fillStyle = '#ef4444';
-      ctx.fillRect(-bw / 2, -e.r - 14, bw * (e.hp / e.maxHp), 6);
+      ctx.fillStyle = 'rgba(0,0,0,.55)';
+      ctx.fillRect(-bw / 2, -e.r - 16, bw, 7);
+      ctx.fillStyle = '#f87171';
+      ctx.fillRect(-bw / 2, -e.r - 16, bw * Math.max(0, e.hp / e.maxHp), 7);
+      ctx.fillStyle = '#fff';
+      ctx.font = `bold ${Math.max(10, e.r * 0.28)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText(e.name, 0, -e.r - 22);
     } else {
-      ctx.fillStyle = e.color;
-      ctx.beginPath();
-      ctx.moveTo(0, -e.r);
-      ctx.lineTo(e.r * 0.9, e.r * 0.7);
-      ctx.lineTo(-e.r * 0.9, e.r * 0.7);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = '#0f172a';
-      ctx.beginPath();
-      ctx.arc(-3, -2, 2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(3, -2, 2, 0, Math.PI * 2);
-      ctx.fill();
+      // enemigos = mini componentes
+      const kind = e.name === 'Bug' ? 'chip' : e.name === 'Glitch' ? 'cap' : e.name === 'Spam' ? 'led' : e.name === 'Leak' ? 'res' : 'diode';
+      drawMiniPart(ctx, e, kind);
       if (e.elite) {
         ctx.strokeStyle = '#fbbf24';
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(0, 0, e.r + 3, 0, Math.PI * 2);
+        ctx.arc(0, 0, e.r + 4, 0, Math.PI * 2);
         ctx.stroke();
       }
     }
     ctx.restore();
+  }
+
+  function drawMiniPart(ctx, e, kind) {
+    const r = e.r;
+    ctx.fillStyle = e.color;
+    if (kind === 'res') {
+      ctx.fillStyle = '#f59e0b';
+      roundRect(ctx, -r, -r * 0.45, r * 2, r * 0.9, 3);
+      ctx.fill();
+      ctx.strokeStyle = '#78350f';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.4, -r * 0.45);
+      ctx.lineTo(-r * 0.4, r * 0.45);
+      ctx.moveTo(r * 0.15, -r * 0.45);
+      ctx.lineTo(r * 0.15, r * 0.45);
+      ctx.stroke();
+      ctx.strokeStyle = '#94a3b8';
+      ctx.beginPath();
+      ctx.moveTo(-r - 4, 0);
+      ctx.lineTo(-r, 0);
+      ctx.moveTo(r, 0);
+      ctx.lineTo(r + 4, 0);
+      ctx.stroke();
+    } else if (kind === 'cap') {
+      ctx.fillStyle = e.color;
+      roundRect(ctx, -r * 0.7, -r, r * 1.4, r * 1.7, 3);
+      ctx.fill();
+      ctx.fillStyle = '#e2e8f0';
+      ctx.fillRect(-r * 0.7, -r, r * 1.4, 4);
+      ctx.strokeStyle = '#94a3b8';
+      ctx.beginPath();
+      ctx.moveTo(-3, r * 0.7);
+      ctx.lineTo(-3, r + 4);
+      ctx.moveTo(3, r * 0.7);
+      ctx.lineTo(3, r + 4);
+      ctx.stroke();
+    } else if (kind === 'led') {
+      const g = ctx.createRadialGradient(-2, -2, 1, 0, 0, r);
+      g.addColorStop(0, '#fff');
+      g.addColorStop(0.4, e.color);
+      g.addColorStop(1, shade(e.color, -50));
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(0, -2, r * 0.85, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillRect(-3, r * 0.4, 2, 6);
+      ctx.fillRect(1, r * 0.4, 2, 8);
+    } else if (kind === 'diode') {
+      ctx.fillStyle = e.color;
+      ctx.beginPath();
+      ctx.moveTo(-r, -r * 0.7);
+      ctx.lineTo(r * 0.5, 0);
+      ctx.lineTo(-r, r * 0.7);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillRect(r * 0.45, -r * 0.7, 3, r * 1.4);
+      ctx.strokeStyle = '#94a3b8';
+      ctx.beginPath();
+      ctx.moveTo(-r - 4, 0);
+      ctx.lineTo(-r, 0);
+      ctx.moveTo(r * 0.45 + 3, 0);
+      ctx.lineTo(r + 4, 0);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = '#334155';
+      roundRect(ctx, -r, -r * 0.7, r * 2, r * 1.4, 3);
+      ctx.fill();
+      ctx.fillStyle = e.color;
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.35, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(-r * 0.35, -r * 0.15, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(r * 0.35, -r * 0.15, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawBossComponent(ctx, e) {
+    const r = e.r;
+    const kind = e.kind || 'ic';
+    ctx.shadowColor = e.color;
+    ctx.shadowBlur = 16;
+    if (kind === 'resistor') {
+      ctx.fillStyle = '#f59e0b';
+      roundRect(ctx, -r * 1.2, -r * 0.45, r * 2.4, r * 0.9, 8);
+      ctx.fill();
+      const bands = ['#ef4444', '#000', '#fbbf24', '#a16207'];
+      bands.forEach((c, i) => {
+        ctx.fillStyle = c;
+        ctx.fillRect(-r * 0.8 + i * r * 0.4, -r * 0.45, r * 0.18, r * 0.9);
+      });
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(-r * 1.2 - 14, 0);
+      ctx.lineTo(-r * 1.2, 0);
+      ctx.moveTo(r * 1.2, 0);
+      ctx.lineTo(r * 1.2 + 14, 0);
+      ctx.stroke();
+      // ojos malvados
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#7f1d1d';
+      ctx.beginPath(); ctx.arc(-r * 0.25, 0, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(r * 0.35, 0, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fecaca';
+      ctx.beginPath(); ctx.arc(-r * 0.25, 0, 2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(r * 0.35, 0, 2, 0, Math.PI * 2); ctx.fill();
+    } else if (kind === 'capacitor') {
+      ctx.fillStyle = e.color;
+      roundRect(ctx, -r * 0.75, -r, r * 1.5, r * 1.85, 6);
+      ctx.fill();
+      ctx.fillStyle = '#e2e8f0';
+      ctx.fillRect(-r * 0.75, -r, r * 1.5, 8);
+      ctx.fillStyle = '#0f172a';
+      ctx.font = `bold ${Math.max(10, r * 0.35)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText('1000µF', 0, 8);
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-8, r * 0.85); ctx.lineTo(-8, r + 12);
+      ctx.moveTo(8, r * 0.85); ctx.lineTo(8, r + 16);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath(); ctx.arc(-10, -r * 0.35, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(10, -r * 0.35, 5, 0, Math.PI * 2); ctx.fill();
+    } else if (kind === 'diode') {
+      ctx.fillStyle = '#111827';
+      roundRect(ctx, -r, -r * 0.55, r * 1.5, r * 1.1, 6);
+      ctx.fill();
+      ctx.fillStyle = e.color;
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.2, -r * 0.45);
+      ctx.lineTo(r * 0.55, 0);
+      ctx.lineTo(-r * 0.2, r * 0.45);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillRect(r * 0.55, -r * 0.45, 5, r * 0.9);
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(r * 0.4, -r * 0.55, 6, r * 1.1);
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-r - 12, 0); ctx.lineTo(-r, 0);
+      ctx.moveTo(r * 0.55 + 5, 0); ctx.lineTo(r + 10, 0);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath(); ctx.arc(-r * 0.45, -8, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(-r * 0.45, 8, 4, 0, Math.PI * 2); ctx.fill();
+    } else if (kind === 'transistor') {
+      ctx.fillStyle = '#0f172a';
+      roundRect(ctx, -r * 0.7, -r * 0.7, r * 1.4, r * 1.4, 8);
+      ctx.fill();
+      ctx.fillStyle = e.color;
+      ctx.beginPath(); ctx.arc(0, 0, r * 0.35, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-6, r * 0.7); ctx.lineTo(-6, r + 12);
+      ctx.moveTo(0, r * 0.7); ctx.lineTo(0, r + 16);
+      ctx.moveTo(6, r * 0.7); ctx.lineTo(6, r + 12);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath(); ctx.arc(-10, -8, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(10, -8, 4, 0, Math.PI * 2); ctx.fill();
+    } else if (kind === 'inductor') {
+      ctx.strokeStyle = e.color;
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      for (let i = 0; i < 5; i++) {
+        ctx.arc(-r * 0.8 + i * r * 0.4, 0, r * 0.22, Math.PI, 0);
+      }
+      ctx.stroke();
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-r - 10, 0); ctx.lineTo(-r * 0.8, 0);
+      ctx.moveTo(r * 0.8, 0); ctx.lineTo(r + 10, 0);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath(); ctx.arc(-r * 0.3, -r * 0.5, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(r * 0.3, -r * 0.5, 4, 0, Math.PI * 2); ctx.fill();
+    } else if (kind === 'crystal') {
+      ctx.fillStyle = e.color;
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath();
+      ctx.moveTo(0, -r);
+      ctx.lineTo(r * 0.55, -r * 0.2);
+      ctx.lineTo(r * 0.35, r);
+      ctx.lineTo(-r * 0.35, r);
+      ctx.lineTo(-r * 0.55, -r * 0.2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = 'rgba(255,255,255,.45)';
+      ctx.beginPath();
+      ctx.moveTo(0, -r * 0.7);
+      ctx.lineTo(r * 0.2, -r * 0.1);
+      ctx.lineTo(0, r * 0.3);
+      ctx.lineTo(-r * 0.15, -r * 0.1);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#7f1d1d';
+      ctx.beginPath(); ctx.arc(-8, 0, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(8, 0, 4, 0, Math.PI * 2); ctx.fill();
+    } else if (kind === 'relay') {
+      ctx.fillStyle = '#1e293b';
+      roundRect(ctx, -r, -r * 0.7, r * 2, r * 1.4, 6);
+      ctx.fill();
+      ctx.fillStyle = e.color;
+      roundRect(ctx, -r * 0.7, -r * 0.4, r * 1.4, r * 0.8, 4);
+      ctx.fill();
+      ctx.fillStyle = '#94a3b8';
+      for (let i = -2; i <= 2; i++) {
+        ctx.fillRect(i * 10 - 2, r * 0.7, 4, 10);
+      }
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath(); ctx.arc(-12, -r * 0.15, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(12, -r * 0.15, 4, 0, Math.PI * 2); ctx.fill();
+    } else if (kind === 'ic' || kind === 'mosfet') {
+      ctx.fillStyle = '#0f172a';
+      roundRect(ctx, -r, -r * 0.7, r * 2, r * 1.4, 5);
+      ctx.fill();
+      ctx.fillStyle = '#1e293b';
+      roundRect(ctx, -r * 0.75, -r * 0.45, r * 1.5, r * 0.9, 3);
+      ctx.fill();
+      ctx.fillStyle = e.color;
+      ctx.font = `bold ${Math.max(11, r * 0.32)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText(kind === 'mosfet' ? 'MOSFET' : 'PICO·IC', 0, 6);
+      ctx.fillStyle = '#94a3b8';
+      for (let i = 0; i < 6; i++) {
+        const yy = -r * 0.5 + i * (r / 5);
+        ctx.fillRect(-r - 8, yy, 8, 3);
+        ctx.fillRect(r, yy, 8, 3);
+      }
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath(); ctx.arc(-14, -10, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(14, -10, 4, 0, Math.PI * 2); ctx.fill();
+    } else if (kind === 'arduino') {
+      ctx.fillStyle = '#0f766e';
+      roundRect(ctx, -r * 1.15, -r * 0.75, r * 2.3, r * 1.5, 8);
+      ctx.fill();
+      ctx.fillStyle = '#134e4a';
+      roundRect(ctx, -r * 0.95, -r * 0.55, r * 1.1, r * 1.1, 4);
+      ctx.fill();
+      ctx.fillStyle = '#fbbf24';
+      for (let i = 0; i < 5; i++) {
+        ctx.beginPath();
+        ctx.arc(-r * 0.7 + i * 12, -r * 0.35, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = '#38bdf8';
+      roundRect(ctx, r * 0.35, -r * 0.35, r * 0.55, r * 0.7, 3);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = `bold ${Math.max(10, r * 0.28)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText('ARDUINO', 0, r * 0.85);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath(); ctx.arc(-20, 0, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(20, 0, 5, 0, Math.PI * 2); ctx.fill();
+    } else {
+      // motherboard / dark core
+      ctx.fillStyle = '#111827';
+      roundRect(ctx, -r, -r * 0.8, r * 2, r * 1.6, 8);
+      ctx.fill();
+      ctx.strokeStyle = e.color;
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 4; i++) {
+        ctx.strokeRect(-r * 0.85 + i * 8, -r * 0.65, r * 0.5, r * 0.35);
+      }
+      ctx.fillStyle = '#1d4ed8';
+      roundRect(ctx, -r * 0.35, -r * 0.15, r * 0.7, r * 0.55, 3);
+      ctx.fill();
+      ctx.fillStyle = e.color;
+      ctx.beginPath(); ctx.arc(0, -r * 0.4, r * 0.22, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = `bold ${Math.max(11, r * 0.28)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText('PICO CORE', 0, r * 0.7);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#fecaca';
+      ctx.beginPath(); ctx.arc(-18, -8, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(18, -8, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#7f1d1d';
+      ctx.beginPath(); ctx.arc(-18, -8, 2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(18, -8, 2, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.shadowBlur = 0;
   }
 
   // ── HUD / overlays ──
