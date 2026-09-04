@@ -782,15 +782,40 @@
     // Demo rápida de bosses/FX: /juego/?demoFx=1
     try {
       if (new URLSearchParams(location.search).get('demoFx') === '1') {
+        G._demoFx = true;
+        G.invuln = 12;
         setTimeout(() => {
-          G.time = BOSS_AT[0] - 1;
-          G.nextBossIdx = 0;
+          if (!G.running || !G._demoFx) return;
+          G.enemies = [];
+          G.bullets = [];
+          G.spawnAcc = 0;
+          G.player.hp = G.player.maxHp;
+          G.invuln = 12;
+          ensureFx().storms = [];
+          ensureFx().lastWaveFx = G.wave;
+          ensureFx().lastMinuteMark = Math.floor(G.time / 300);
           triggerFieldEvent('bossWarn', BOSSES[0]);
-        }, 800);
+          banner('⚠ DEMO BOSS');
+        }, 600);
         setTimeout(() => {
+          if (!G.running || !G._demoFx) return;
+          G.enemies = [];
+          G.bullets = [];
+          G.spawnAcc = 0;
+          G.invuln = 12;
+          G.nextBossIdx = 0;
           if (!G.bossActive) spawnBoss(BOSSES[0], false);
-        }, 2600);
-        setTimeout(() => triggerFieldEvent('voltageSurge'), 5000);
+        }, 2200);
+        setTimeout(() => {
+          if (!G.running || !G._demoFx) return;
+          G.invuln = Math.max(G.invuln, 8);
+          triggerFieldEvent('voltageSurge');
+        }, 4800);
+        setTimeout(() => {
+          if (!G.running || !G._demoFx) return;
+          G.invuln = Math.max(G.invuln, 6);
+          triggerFieldEvent('overclock');
+        }, 7500);
       }
     } catch (_) {}
   }
@@ -830,6 +855,7 @@
     G.overlay = null;
     G.paused = false;
     G.fx = freshFx();
+    G._demoFx = false;
     G.player = {
       x: ARENA_W / 2,
       y: ARENA_H / 2,
@@ -1055,15 +1081,21 @@
   }
 
   function spawnEnemies(dt) {
+    if (G._demoFx) {
+      // En demo solo el boss + poquitos extras
+      if (!G.bossActive || G.enemies.length >= 8) return;
+    }
     const d = difficultyMul();
     const w = waveExp();
     const post = G.bossesDefeated >= 11 ? 1.45 + (G.time - 7200) / 1800 : 1;
-    // Spawn crece fuerte pero con techo jugable
-    const rate = Math.min(32, (2.0 + G.wave * 0.32) * Math.pow(d, 0.55) * Math.sqrt(w) * post);
+    // Durante boss: menos spam para que el jefe se lea bien
+    const bossMul = G.bossActive ? 0.35 : 1;
+    const rate = Math.min(32, (2.0 + G.wave * 0.32) * Math.pow(d, 0.55) * Math.sqrt(w) * post * bossMul);
     G.spawnAcc += dt * rate;
     const cap = Math.min(280, Math.floor(38 + G.wave * 7 + (G.time / 22) * Math.min(2.4, Math.sqrt(d))));
+    const softCap = G.bossActive ? Math.min(cap, 55) : cap;
     const eliteChance = Math.min(0.42, 0.05 + G.time / 2200 + G.bossesDefeated * 0.018 + G.wave * 0.004);
-    while (G.spawnAcc >= 1 && G.enemies.length < cap) {
+    while (G.spawnAcc >= 1 && G.enemies.length < softCap) {
       G.spawnAcc -= 1;
       spawnOne(Math.random() < eliteChance);
     }
@@ -1171,6 +1203,7 @@
     });
     banner(def.final ? '⚠ BOSS FINAL: ' + def.name : '⚠ BOSS: ' + def.name);
     gameToast(def.final ? '¡El Dark Core ha despertado!' : '¡Un componente malvado aparece!');
+    G.invuln = Math.max(G.invuln, def.final ? 3.2 : 2.2);
     triggerFieldEvent(def.final ? 'darkCore' : 'bossSpawn', def);
   }
 
@@ -1623,14 +1656,23 @@
     });
   }
   function spawnStorm(x, y, r, life, color, dmg) {
-    ensureFx().storms.push({
-      x: x ?? rnd(WALL + 80, ARENA_W - WALL - 80),
-      y: y ?? rnd(WALL + 80, ARENA_H - WALL - 80),
+    const fx = ensureFx();
+    let sx = x ?? rnd(WALL + 80, ARENA_W - WALL - 80);
+    let sy = y ?? rnd(WALL + 80, ARENA_H - WALL - 80);
+    // No spawnear encima del jugador
+    if (G.player && dist(sx, sy, G.player.x, G.player.y) < 140) {
+      const ang = Math.random() * Math.PI * 2;
+      sx = clamp(G.player.x + Math.cos(ang) * 200, WALL + 80, ARENA_W - WALL - 80);
+      sy = clamp(G.player.y + Math.sin(ang) * 200, WALL + 80, ARENA_H - WALL - 80);
+    }
+    fx.storms.push({
+      x: sx,
+      y: sy,
       r: r || 70,
       life: life || 8,
       max: life || 8,
       color: color || '56,189,248',
-      dmg: dmg || 8,
+      dmg: dmg || 6,
       tick: 0
     });
   }
@@ -1655,7 +1697,7 @@
       fx.gridMode = 2;
       addFieldRing(ARENA_W / 2, WALL + 90, col, 700, 1.6);
       addFieldRing(ARENA_W / 2, WALL + 90, '#fecaca', 420, 1.1);
-      for (let i = 0; i < 3; i++) spawnStorm(null, null, 55 + Math.random() * 40, 10, '248,113,113', 10);
+      for (let i = 0; i < 3; i++) spawnStorm(null, null, 55 + Math.random() * 40, 10, '248,113,113', 7);
       burst(ARENA_W / 2, WALL + 90, col, 40);
     } else if (kind === 'darkCore') {
       fx.flash = 0.9;
@@ -1666,7 +1708,7 @@
       fx.surge = 2.5;
       fx.gridMode = 4;
       addFieldRing(ARENA_W / 2, ARENA_H / 2, '#ef4444', 900, 2.2);
-      for (let i = 0; i < 5; i++) spawnStorm(null, null, 70 + Math.random() * 50, 14, '239,68,68', 14);
+      for (let i = 0; i < 5; i++) spawnStorm(null, null, 70 + Math.random() * 50, 14, '239,68,68', 10);
     } else if (kind === 'bossDown') {
       fx.flash = 0.4;
       fx.flashColor = '#67e8f9';
