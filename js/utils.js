@@ -22,7 +22,7 @@ function normPath(p) {
 
 // Navega a la página solicitada. Si ya estamos en ella, solo sube al inicio.
 function showPage(name) {
-  if (name === 'adminPanel' && !isAdmin) {
+  if ((name === 'adminPanel' || name === 'juego') && !isAdmin) {
     showToast('Acceso solo para administradores');
     return;
   }
@@ -100,7 +100,14 @@ function initPageAfterAuth() {
       setTimeout(() => { location.href = '/'; }, 1300);
     }
   } else if (page === 'juego') {
-    if (typeof initLedArenaPage === 'function') initLedArenaPage();
+    if (isAdmin) {
+      const juegoPage = document.getElementById('page-juego');
+      if (juegoPage) juegoPage.classList.remove('hidden');
+      if (typeof initLedArenaPage === 'function') initLedArenaPage();
+    } else {
+      showToast('Acceso solo para administradores');
+      setTimeout(() => { location.href = '/'; }, 1300);
+    }
   }
   // 'catalog' se renderiza vía loadProducts() -> renderProducts().
 }

@@ -114,24 +114,26 @@
         <input type="text" id="profileShipNotes" class="finput" placeholder="Instrucciones para la entrega...">
       </div>
 
-      <hr class="divider" style="margin:20px 0">
-      <p style="font-size:.88rem;font-weight:600;color:var(--g700);margin:0 0 4px">LED Arena</p>
-      <p style="font-size:.78rem;color:var(--g400);margin-bottom:12px">Tu récord del minijuego de supervivencia (se guarda en la nube).</p>
-      <div id="profileLedArena" class="profile-led-arena" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px">
-        <div style="background:var(--b50);border:1px solid var(--b200);border-radius:10px;padding:10px;text-align:center">
-          <div style="font-size:.68rem;color:var(--g400)">Mejor puntaje</div>
-          <div style="font-weight:800;color:var(--g900)" id="profLedScore">0</div>
+      <div id="profileLedArenaSection" class="hidden">
+        <hr class="divider" style="margin:20px 0">
+        <p style="font-size:.88rem;font-weight:600;color:var(--g700);margin:0 0 4px">LED Arena</p>
+        <p style="font-size:.78rem;color:var(--g400);margin-bottom:12px">Tu récord del minijuego de supervivencia (se guarda en la nube).</p>
+        <div id="profileLedArena" class="profile-led-arena" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px">
+          <div style="background:var(--b50);border:1px solid var(--b200);border-radius:10px;padding:10px;text-align:center">
+            <div style="font-size:.68rem;color:var(--g400)">Mejor puntaje</div>
+            <div style="font-weight:800;color:var(--g900)" id="profLedScore">0</div>
+          </div>
+          <div style="background:var(--b50);border:1px solid var(--b200);border-radius:10px;padding:10px;text-align:center">
+            <div style="font-size:.68rem;color:var(--g400)">Kills récord</div>
+            <div style="font-weight:800;color:var(--g900)" id="profLedKills">0</div>
+          </div>
+          <div style="background:var(--b50);border:1px solid var(--b200);border-radius:10px;padding:10px;text-align:center">
+            <div style="font-size:.68rem;color:var(--g400)">Partidas</div>
+            <div style="font-weight:800;color:var(--g900)" id="profLedGames">0</div>
+          </div>
         </div>
-        <div style="background:var(--b50);border:1px solid var(--b200);border-radius:10px;padding:10px;text-align:center">
-          <div style="font-size:.68rem;color:var(--g400)">Kills récord</div>
-          <div style="font-weight:800;color:var(--g900)" id="profLedKills">0</div>
-        </div>
-        <div style="background:var(--b50);border:1px solid var(--b200);border-radius:10px;padding:10px;text-align:center">
-          <div style="font-size:.68rem;color:var(--g400)">Partidas</div>
-          <div style="font-weight:800;color:var(--g900)" id="profLedGames">0</div>
-        </div>
+        <button type="button" class="btn-auth" style="background:linear-gradient(135deg,#0071e3,#38bdf8);margin-bottom:8px" onclick="location.href='/juego/'">Jugar LED Arena →</button>
       </div>
-      <button type="button" class="btn-auth" style="background:linear-gradient(135deg,#0071e3,#38bdf8);margin-bottom:8px" onclick="location.href='/juego/'">Jugar LED Arena →</button>
 
       <button class="btn-auth" onclick="saveProfile()">Guardar cambios</button>
       <button onclick="doLogout()" style="width:100%;margin-top:10px;padding:11px;border-radius:9px;border:1.5px solid #fca5a5;background:#fff;color:#dc2626;font-family:var(--font);font-size:.87rem;font-weight:700;cursor:pointer;transition:all .16s" onmouseover="this.style.background='#fee2e2'" onmouseout="this.style.background='#fff'">Cerrar Sesión</button>

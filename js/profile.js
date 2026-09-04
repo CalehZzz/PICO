@@ -108,22 +108,24 @@ function renderProfile() {
   // Mostrar/ocultar secciones según la sucursal elegida
   toggleProfileSections(saved.sucursal || '');
 
-  // Stats LED Arena (colección ledArena + resumen en perfil)
-  const fmtN = (n) => Number(n || 0).toLocaleString('es-SV');
-  const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-  setTxt('profLedScore', fmtN(saved.ledArenaBestScore || 0));
-  setTxt('profLedKills', fmtN(saved.ledArenaBestKills || 0));
-  setTxt('profLedGames', fmtN(saved.ledArenaGamesPlayed || 0));
-  // Si hay sesión, refrescar desde la colección dedicada
-  if (currentUser && typeof db !== 'undefined') {
-    db.collection('ledArena').doc(currentUser.uid).get().then((snap) => {
-      if (!snap.exists) return;
-      const d = snap.data() || {};
-      const st = d.stats || {};
-      setTxt('profLedScore', fmtN(st.bestScore || d.bestScore || saved.ledArenaBestScore || 0));
-      setTxt('profLedKills', fmtN(st.bestKills || saved.ledArenaBestKills || 0));
-      setTxt('profLedGames', fmtN(st.gamesPlayed || saved.ledArenaGamesPlayed || 0));
-    }).catch(() => {});
+  // Stats LED Arena (colección ledArena + resumen en perfil) — solo admin
+  if (typeof isAdmin !== 'undefined' && isAdmin) {
+    const fmtN = (n) => Number(n || 0).toLocaleString('es-SV');
+    const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    setTxt('profLedScore', fmtN(saved.ledArenaBestScore || 0));
+    setTxt('profLedKills', fmtN(saved.ledArenaBestKills || 0));
+    setTxt('profLedGames', fmtN(saved.ledArenaGamesPlayed || 0));
+    // Si hay sesión, refrescar desde la colección dedicada
+    if (currentUser && typeof db !== 'undefined') {
+      db.collection('ledArena').doc(currentUser.uid).get().then((snap) => {
+        if (!snap.exists) return;
+        const d = snap.data() || {};
+        const st = d.stats || {};
+        setTxt('profLedScore', fmtN(st.bestScore || d.bestScore || saved.ledArenaBestScore || 0));
+        setTxt('profLedKills', fmtN(st.bestKills || saved.ledArenaBestKills || 0));
+        setTxt('profLedGames', fmtN(st.gamesPlayed || saved.ledArenaGamesPlayed || 0));
+      }).catch(() => {});
+    }
   }
 }
 
