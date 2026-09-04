@@ -65,17 +65,17 @@
   ];
 
   const BOSSES = [
-    { name:'Resistor Rage', kind:'resistor', color:'#f87171', hp:900, speed:55, dmg:14, size:40, atk:'charge' },
-    { name:'Capacitor Crush', kind:'capacitor', color:'#fbbf24', hp:1200, speed:48, dmg:16, size:44, atk:'burst' },
-    { name:'Diode Demon', kind:'diode', color:'#a3e635', hp:1500, speed:62, dmg:15, size:42, atk:'spiral' },
-    { name:'Transistor Tyrant', kind:'transistor', color:'#34d399', hp:1900, speed:58, dmg:18, size:46, atk:'charge' },
-    { name:'Inductor Inferno', kind:'inductor', color:'#fb923c', hp:2300, speed:50, dmg:20, size:48, atk:'ring' },
-    { name:'Oscillator Overlord', kind:'crystal', color:'#22d3ee', hp:2800, speed:64, dmg:18, size:46, atk:'spiral' },
-    { name:'Relay Reaper', kind:'relay', color:'#c084fc', hp:3400, speed:70, dmg:22, size:50, atk:'burst' },
-    { name:'IC Invader', kind:'ic', color:'#60a5fa', hp:4000, speed:55, dmg:24, size:52, atk:'ring' },
-    { name:'MOSFET Monster', kind:'mosfet', color:'#f472b6', hp:4800, speed:60, dmg:26, size:54, atk:'charge' },
-    { name:'Arduino Abomination', kind:'arduino', color:'#4ade80', hp:5800, speed:52, dmg:28, size:58, atk:'burst' },
-    { name:'MEGA PICO DARK CORE', kind:'motherboard', color:'#ef4444', hp:12000, speed:68, dmg:32, size:76, atk:'final', final:true }
+    { name:'Resistor Rage', kind:'resistor', color:'#f87171', hp:1100, speed:58, dmg:16, size:52, atk:'charge' },
+    { name:'Capacitor Crush', kind:'capacitor', color:'#fbbf24', hp:1600, speed:50, dmg:18, size:56, atk:'burst' },
+    { name:'Diode Demon', kind:'diode', color:'#a3e635', hp:2200, speed:66, dmg:18, size:54, atk:'spiral' },
+    { name:'Transistor Tyrant', kind:'transistor', color:'#34d399', hp:3000, speed:62, dmg:21, size:58, atk:'charge' },
+    { name:'Inductor Inferno', kind:'inductor', color:'#fb923c', hp:4000, speed:54, dmg:24, size:62, atk:'ring' },
+    { name:'Oscillator Overlord', kind:'crystal', color:'#22d3ee', hp:5200, speed:68, dmg:22, size:60, atk:'spiral' },
+    { name:'Relay Reaper', kind:'relay', color:'#c084fc', hp:6800, speed:74, dmg:26, size:66, atk:'burst' },
+    { name:'IC Invader', kind:'ic', color:'#60a5fa', hp:8800, speed:58, dmg:28, size:70, atk:'ring' },
+    { name:'MOSFET Monster', kind:'mosfet', color:'#f472b6', hp:11200, speed:64, dmg:32, size:74, atk:'charge' },
+    { name:'Arduino Abomination', kind:'arduino', color:'#4ade80', hp:14500, speed:56, dmg:34, size:80, atk:'burst' },
+    { name:'MEGA PICO DARK CORE', kind:'motherboard', color:'#ef4444', hp:28000, speed:72, dmg:40, size:98, atk:'final', final:true }
   ];
 
   // ── helpers ──
@@ -164,8 +164,36 @@
     spawnAcc: 0,
     saveAcc: 0,
     invuln: 0,
-    lastTs: 0
+    lastTs: 0,
+    fx: null
   };
+
+  function freshFx() {
+    return {
+      shake: 0,
+      flash: 0,
+      flashColor: '#ef4444',
+      tint: 0,
+      tintRgb: '239,68,68',
+      surge: 0,
+      gridMode: 0, // 0 normal, 1 voltaje, 2 sangre, 3 overclock, 4 void
+      rings: [],
+      storms: [],
+      sparks: [],
+      lastWaveFx: 0,
+      lastMinuteMark: 0,
+      bossWarnIdx: -1,
+      vignette: 0
+    };
+  }
+
+  /** Escala exponencial con el tiempo (~1 → ~2.1 a 5min → ~4.4 a 10min → ~19 a 20min). */
+  function difficultyMul() {
+    return Math.pow(1.15, G.time / 60);
+  }
+  function waveExp() {
+    return Math.pow(1.07, Math.max(0, G.wave - 1));
+  }
 
   // ── boot ──
   function boot() {
@@ -751,6 +779,20 @@
     cancelAnimationFrame(raf);
     raf = requestAnimationFrame(loop);
     gameToast('Muévete: WASD · flechas · mouse · joystick');
+    // Demo rápida de bosses/FX: /juego/?demoFx=1
+    try {
+      if (new URLSearchParams(location.search).get('demoFx') === '1') {
+        setTimeout(() => {
+          G.time = BOSS_AT[0] - 1;
+          G.nextBossIdx = 0;
+          triggerFieldEvent('bossWarn', BOSSES[0]);
+        }, 800);
+        setTimeout(() => {
+          if (!G.bossActive) spawnBoss(BOSSES[0], false);
+        }, 2600);
+        setTimeout(() => triggerFieldEvent('voltageSurge'), 5000);
+      }
+    } catch (_) {}
   }
 
   function continueGame() {
@@ -787,6 +829,7 @@
     G.invuln = 1.2;
     G.overlay = null;
     G.paused = false;
+    G.fx = freshFx();
     G.player = {
       x: ARENA_W / 2,
       y: ARENA_H / 2,
@@ -919,13 +962,15 @@
     updateEnemies(dt);
     updatePickups(dt);
     updateParticles(dt);
+    updateFieldFx(dt);
     collidePlayer();
 
     const c = $('gameCanvas');
     const vw = c ? c.clientWidth : 800;
     const vh = c ? c.clientHeight : 600;
-    G.cam.x = clamp(G.player.x - vw / 2, 0, Math.max(0, ARENA_W - vw));
-    G.cam.y = clamp(G.player.y - vh / 2, 0, Math.max(0, ARENA_H - vh));
+    const sh = G.fx && G.fx.shake > 0 ? G.fx.shake : 0;
+    G.cam.x = clamp(G.player.x - vw / 2 + (Math.random() - 0.5) * sh * 10, 0, Math.max(0, ARENA_W - vw));
+    G.cam.y = clamp(G.player.y - vh / 2 + (Math.random() - 0.5) * sh * 10, 0, Math.max(0, ARENA_H - vh));
     updateHud();
     if (G.player.hp <= 0) gameOver();
   }
@@ -1010,14 +1055,17 @@
   }
 
   function spawnEnemies(dt) {
-    const difficulty = 1 + G.time / 600;
-    const post = G.bossesDefeated >= 11 ? 1.35 + (G.time - 7200) / 2400 : 1;
-    const rate = Math.min(18, (2.2 + G.wave * 0.35) * difficulty * post);
+    const d = difficultyMul();
+    const w = waveExp();
+    const post = G.bossesDefeated >= 11 ? 1.45 + (G.time - 7200) / 1800 : 1;
+    // Spawn crece fuerte pero con techo jugable
+    const rate = Math.min(32, (2.0 + G.wave * 0.32) * Math.pow(d, 0.55) * Math.sqrt(w) * post);
     G.spawnAcc += dt * rate;
-    const cap = Math.min(220, 40 + G.wave * 8 + Math.floor(G.time / 30));
+    const cap = Math.min(280, Math.floor(38 + G.wave * 7 + (G.time / 22) * Math.min(2.4, Math.sqrt(d))));
+    const eliteChance = Math.min(0.42, 0.05 + G.time / 2200 + G.bossesDefeated * 0.018 + G.wave * 0.004);
     while (G.spawnAcc >= 1 && G.enemies.length < cap) {
       G.spawnAcc -= 1;
-      spawnOne(Math.random() < 0.08);
+      spawnOne(Math.random() < eliteChance);
     }
     if (Math.random() < dt * 0.08 && G.pickups.filter((p) => p.kind === 'weapon').length < 3) {
       spawnWeaponPickup();
@@ -1042,7 +1090,8 @@
       y = rnd(WALL, ARENA_H - WALL);
     }
 
-    const tScale = 1 + G.time / 900;
+    const d = difficultyMul();
+    const w = waveExp();
     const types = [
       { name: 'Bug', color: '#f87171', hp: 18, speed: 70, r: 10, score: 10 },
       { name: 'Glitch', color: '#fb923c', hp: 28, speed: 95, r: 9, score: 14 },
@@ -1051,18 +1100,20 @@
       { name: 'Noise', color: '#38bdf8', hp: 22, speed: 110, r: 8, score: 16 }
     ];
     const base = types[Math.floor(Math.random() * types.length)];
-    const hpMul = tScale * (elite ? 3 : 1) * (1 + G.wave * 0.05);
+    const hpMul = d * w * (elite ? 3.4 : 1);
+    const spdMul = Math.min(2.35, 1 + Math.log2(1 + d) * 0.28) * (elite ? 1.22 : 1);
+    const dmgMul = Math.min(5.5, Math.pow(d, 0.62) * Math.sqrt(w)) * (elite ? 1.7 : 1);
     G.enemies.push({
       x,
       y,
-      r: base.r * (elite ? 1.4 : 1),
+      r: base.r * (elite ? 1.45 : 1),
       hp: base.hp * hpMul,
       maxHp: base.hp * hpMul,
-      speed: base.speed * (0.9 + Math.random() * 0.3) * (elite ? 1.15 : 1),
+      speed: base.speed * (0.9 + Math.random() * 0.3) * spdMul,
       color: base.color,
       name: base.name,
-      dmg: (6 + G.wave * 0.4) * (elite ? 1.5 : 1),
-      score: Math.floor(base.score * tScale * (elite ? 3 : 1)),
+      dmg: (6.5 + G.wave * 0.55) * dmgMul,
+      score: Math.floor(base.score * d * (elite ? 3.5 : 1)),
       elite: !!elite,
       boss: false,
       t: Math.random() * 10,
@@ -1071,9 +1122,17 @@
   }
 
   function maybeSpawnBoss() {
+    // Aviso de campo ~18s antes del boss
+    if (G.fx && G.nextBossIdx < BOSS_AT.length) {
+      const eta = BOSS_AT[G.nextBossIdx] - G.time;
+      if (eta > 0 && eta < 18 && G.fx.bossWarnIdx !== G.nextBossIdx && !G.bossActive) {
+        G.fx.bossWarnIdx = G.nextBossIdx;
+        triggerFieldEvent('bossWarn', BOSSES[G.nextBossIdx]);
+      }
+    }
     if (G.nextBossIdx >= BOSS_AT.length) {
       if (!G.bossActive && G.time > 7200) {
-        const cycle = Math.floor((G.time - 7200) / 480);
+        const cycle = Math.floor((G.time - 7200) / 420);
         if (cycle + 11 > G.bossesDefeated) spawnBoss(BOSSES[cycle % 10], true);
       }
       return;
@@ -1084,30 +1143,35 @@
 
   function spawnBoss(def, mini) {
     G.bossActive = true;
-    const scale = mini ? 0.7 : 1;
-    const post = G.bossesDefeated >= 11 ? 1.2 + (G.bossesDefeated - 11) * 0.08 : 1;
+    const scale = mini ? 0.72 : 1.15;
+    const idx = Math.min(G.nextBossIdx, BOSSES.length - 1);
+    const post = G.bossesDefeated >= 11 ? 1.35 + (G.bossesDefeated - 11) * 0.12 : 1;
+    const exp = Math.pow(1.16, idx) * difficultyMul() * 0.35 + Math.pow(1.16, idx);
+    const hp = def.hp * scale * post * Math.max(1, exp * 0.55);
     G.enemies.push({
       x: ARENA_W / 2,
-      y: WALL + 80,
+      y: WALL + 90,
       r: def.size * scale,
-      hp: def.hp * scale * post,
-      maxHp: def.hp * scale * post,
-      speed: def.speed,
+      hp,
+      maxHp: hp,
+      speed: def.speed * (mini ? 0.95 : 1.08) * Math.min(1.45, 1 + idx * 0.03),
       color: def.color,
       name: def.name,
       kind: def.kind || 'ic',
-      dmg: def.dmg * (mini ? 0.85 : 1) * post,
-      score: Math.floor(400 * (G.nextBossIdx + 1) * (def.final ? 5 : 1)),
+      dmg: def.dmg * (mini ? 0.9 : 1.15) * post * Math.min(2.8, Math.pow(1.09, idx)),
+      score: Math.floor(500 * (idx + 1) * (def.final ? 6 : 1) * difficultyMul()),
       elite: true,
       boss: true,
       final: !!def.final,
       atk: def.atk,
       t: 0,
-      atkCd: 2,
-      phase: 0
+      atkCd: 1.4,
+      phase: 0,
+      pulse: 0
     });
-    banner(def.final ? '⚠ BOSS FINAL: ' + def.name : 'BOSS: ' + def.name);
+    banner(def.final ? '⚠ BOSS FINAL: ' + def.name : '⚠ BOSS: ' + def.name);
     gameToast(def.final ? '¡El Dark Core ha despertado!' : '¡Un componente malvado aparece!');
+    triggerFieldEvent(def.final ? 'darkCore' : 'bossSpawn', def);
   }
 
   function nearestEnemy(x, y, range, exclude) {
@@ -1353,36 +1417,44 @@
   function updateBossAI(e, dt) {
     const p = G.player;
     const ang = Math.atan2(p.y - e.y, p.x - e.x);
+    e.pulse = (e.pulse || 0) + dt;
+    const rage = 1 + (1 - Math.max(0, e.hp / e.maxHp)) * 0.85; // más agresivo al perder vida
     if (e.atk === 'charge' && e.atkCd <= 0) {
-      e.phase = 0.7;
-      e.vx = Math.cos(ang) * 320;
-      e.vy = Math.sin(ang) * 320;
-      e.atkCd = 3.2;
+      e.phase = 0.75;
+      e.vx = Math.cos(ang) * (340 + rage * 80);
+      e.vy = Math.sin(ang) * (340 + rage * 80);
+      e.atkCd = Math.max(1.6, 3.0 / rage);
+      addFieldRing(e.x, e.y, e.color, e.r * 2.5, 0.55);
     }
     if (e.phase > 0) {
       e.phase -= dt;
       e.x += (e.vx || 0) * dt;
       e.y += (e.vy || 0) * dt;
     } else {
-      e.x += Math.cos(ang) * e.speed * dt;
-      e.y += Math.sin(ang) * e.speed * dt;
+      e.x += Math.cos(ang) * e.speed * rage * dt;
+      e.y += Math.sin(ang) * e.speed * rage * dt;
     }
     e.x = clamp(e.x, WALL + e.r, ARENA_W - WALL - e.r);
     e.y = clamp(e.y, WALL + e.r, ARENA_H - WALL - e.r);
 
     if (e.atkCd <= 0) {
       if (e.atk === 'burst' || e.atk === 'final') {
-        const n = e.final ? 16 : 10;
-        for (let i = 0; i < n; i++) enemyShot(e, (Math.PI * 2 * i) / n + e.t, 220);
-        e.atkCd = e.final ? 2.2 : 2.8;
+        const n = e.final ? 20 : 12;
+        for (let i = 0; i < n; i++) enemyShot(e, (Math.PI * 2 * i) / n + e.t, 200 + rage * 60);
+        if (e.final) {
+          for (let i = 0; i < 8; i++) enemyShot(e, (Math.PI * 2 * i) / 8 + e.t * 0.5, 140);
+        }
+        e.atkCd = (e.final ? 1.7 : 2.3) / rage;
+        addFieldRing(e.x, e.y, e.color, e.r * 3, 0.7);
       } else if (e.atk === 'spiral') {
-        for (let i = 0; i < 3; i++) enemyShot(e, e.t * 3 + i * 2.1, 260);
-        e.atkCd = 0.35;
+        for (let i = 0; i < 4; i++) enemyShot(e, e.t * 3.4 + i * 1.7, 240 + rage * 40);
+        e.atkCd = 0.28 / rage;
       } else if (e.atk === 'ring') {
-        for (let i = 0; i < 12; i++) enemyShot(e, (i * Math.PI) / 6, 180);
-        e.atkCd = 3.5;
+        for (let i = 0; i < 16; i++) enemyShot(e, (i * Math.PI) / 8, 170 + rage * 50);
+        e.atkCd = 2.8 / rage;
+        addFieldRing(e.x, e.y, e.color, e.r * 4, 0.85);
       } else if (e.atk === 'charge') {
-        e.atkCd = 2.5;
+        e.atkCd = 2.2 / rage;
       }
     }
   }
@@ -1506,6 +1578,7 @@
       gameToast('La arena se vuelve más hostil…');
       spawnWeaponPickup(e.x, e.y);
       spawnWeaponPickup(e.x + 40, e.y);
+      triggerFieldEvent(e.final ? 'darkCoreDown' : 'bossDown', e);
     }
   }
 
@@ -1530,6 +1603,267 @@
         r: 2 + Math.random() * 3
       });
     }
+  }
+
+  // ── Field FX (arena reactions) ──
+  function ensureFx() {
+    if (!G.fx) G.fx = freshFx();
+    return G.fx;
+  }
+  function addFieldRing(x, y, color, maxR, life) {
+    const fx = ensureFx();
+    fx.rings.push({
+      x, y,
+      r: 8,
+      maxR: maxR || 180,
+      life: life || 0.7,
+      max: life || 0.7,
+      color: color || '#38bdf8',
+      width: 3 + Math.random() * 3
+    });
+  }
+  function spawnStorm(x, y, r, life, color, dmg) {
+    ensureFx().storms.push({
+      x: x ?? rnd(WALL + 80, ARENA_W - WALL - 80),
+      y: y ?? rnd(WALL + 80, ARENA_H - WALL - 80),
+      r: r || 70,
+      life: life || 8,
+      max: life || 8,
+      color: color || '56,189,248',
+      dmg: dmg || 8,
+      tick: 0
+    });
+  }
+  function triggerFieldEvent(kind, payload) {
+    const fx = ensureFx();
+    if (kind === 'bossWarn') {
+      fx.surge = Math.max(fx.surge, 1.2);
+      fx.tint = Math.max(fx.tint, 0.55);
+      fx.tintRgb = '239,68,68';
+      fx.gridMode = 2;
+      fx.shake = Math.max(fx.shake, 0.45);
+      addFieldRing(ARENA_W / 2, ARENA_H / 2, '#f87171', 520, 1.4);
+      gameToast('⚠ Interferencia detectada…');
+    } else if (kind === 'bossSpawn') {
+      const col = (payload && payload.color) || '#f87171';
+      fx.flash = 0.55;
+      fx.flashColor = col;
+      fx.shake = 1.4;
+      fx.tint = 0.85;
+      fx.tintRgb = '239,68,68';
+      fx.surge = 1.8;
+      fx.gridMode = 2;
+      addFieldRing(ARENA_W / 2, WALL + 90, col, 700, 1.6);
+      addFieldRing(ARENA_W / 2, WALL + 90, '#fecaca', 420, 1.1);
+      for (let i = 0; i < 3; i++) spawnStorm(null, null, 55 + Math.random() * 40, 10, '248,113,113', 10);
+      burst(ARENA_W / 2, WALL + 90, col, 40);
+    } else if (kind === 'darkCore') {
+      fx.flash = 0.9;
+      fx.flashColor = '#7f1d1d';
+      fx.shake = 2.2;
+      fx.tint = 1.2;
+      fx.tintRgb = '127,29,29';
+      fx.surge = 2.5;
+      fx.gridMode = 4;
+      addFieldRing(ARENA_W / 2, ARENA_H / 2, '#ef4444', 900, 2.2);
+      for (let i = 0; i < 5; i++) spawnStorm(null, null, 70 + Math.random() * 50, 14, '239,68,68', 14);
+    } else if (kind === 'bossDown') {
+      fx.flash = 0.4;
+      fx.flashColor = '#67e8f9';
+      fx.shake = 0.8;
+      fx.tint = 0.5;
+      fx.tintRgb = '34,211,238';
+      fx.surge = 1.1;
+      fx.gridMode = 1;
+      fx.storms = [];
+      const x = (payload && payload.x) || ARENA_W / 2;
+      const y = (payload && payload.y) || ARENA_H / 2;
+      addFieldRing(x, y, '#67e8f9', 600, 1.3);
+      addFieldRing(x, y, '#a78bfa', 420, 1.0);
+    } else if (kind === 'darkCoreDown') {
+      fx.flash = 0.7;
+      fx.flashColor = '#fbbf24';
+      fx.shake = 1.6;
+      fx.tint = 0.7;
+      fx.tintRgb = '250,204,21';
+      fx.surge = 1.6;
+      fx.gridMode = 3;
+      fx.storms = [];
+      addFieldRing(ARENA_W / 2, ARENA_H / 2, '#fbbf24', 900, 2);
+    } else if (kind === 'voltageSurge') {
+      fx.surge = Math.max(fx.surge, 1.6);
+      fx.flash = Math.max(fx.flash, 0.25);
+      fx.flashColor = '#38bdf8';
+      fx.tint = Math.max(fx.tint, 0.4);
+      fx.tintRgb = '56,189,248';
+      fx.gridMode = 1;
+      fx.shake = Math.max(fx.shake, 0.55);
+      addFieldRing(G.player.x, G.player.y, '#38bdf8', 380, 0.9);
+      for (let i = 0; i < 2; i++) spawnStorm(null, null, 60, 7, '56,189,248', 7);
+      gameToast('⚡ Sobretensión en el protoboard');
+    } else if (kind === 'overclock') {
+      fx.surge = Math.max(fx.surge, 2);
+      fx.gridMode = 3;
+      fx.tint = Math.max(fx.tint, 0.55);
+      fx.tintRgb = '167,139,250';
+      fx.flash = Math.max(fx.flash, 0.3);
+      fx.flashColor = '#a78bfa';
+      fx.shake = Math.max(fx.shake, 0.7);
+      for (let i = 0; i < 4; i++) spawnStorm(null, null, 50 + Math.random() * 35, 9, '167,139,250', 9);
+      gameToast('🔥 Overclock del campo');
+    }
+  }
+
+  function updateFieldFx(dt) {
+    const fx = ensureFx();
+    fx.shake = Math.max(0, fx.shake - dt * 1.8);
+    fx.flash = Math.max(0, fx.flash - dt * 1.4);
+    fx.tint = Math.max(0, fx.tint - dt * 0.35);
+    fx.surge = Math.max(0, fx.surge - dt * 0.28);
+    if (!G.bossActive && fx.gridMode === 2 && fx.tint < 0.15) fx.gridMode = fx.surge > 0.4 ? 1 : 0;
+    if (!G.bossActive && fx.gridMode === 4 && fx.tint < 0.2) fx.gridMode = 0;
+
+    // Vignette por vida baja
+    const hpRatio = G.player ? G.player.hp / G.player.maxHp : 1;
+    fx.vignette = hpRatio < 0.32 ? (0.32 - hpRatio) / 0.32 : 0;
+
+    // Hitos de oleada
+    if (G.wave >= 5 && G.wave % 5 === 0 && fx.lastWaveFx !== G.wave) {
+      fx.lastWaveFx = G.wave;
+      triggerFieldEvent(G.wave % 10 === 0 ? 'overclock' : 'voltageSurge');
+    }
+    // Hitos de minuto (5, 10, 15…)
+    const minute = Math.floor(G.time / 300); // cada 5 min
+    if (minute > 0 && minute !== fx.lastMinuteMark) {
+      fx.lastMinuteMark = minute;
+      triggerFieldEvent(minute % 2 === 0 ? 'overclock' : 'voltageSurge');
+    }
+
+    // Sparks during surge
+    if (fx.surge > 0.3 && Math.random() < dt * fx.surge * 8) {
+      fx.sparks.push({
+        x: rnd(WALL, ARENA_W - WALL),
+        y: rnd(WALL, ARENA_H - WALL),
+        life: 0.15 + Math.random() * 0.25,
+        max: 0.4,
+        len: 10 + Math.random() * 28,
+        ang: Math.random() * Math.PI * 2,
+        color: fx.gridMode === 2 || fx.gridMode === 4 ? '#f87171' : fx.gridMode === 3 ? '#c4b5fd' : '#67e8f9'
+      });
+    }
+    for (let i = fx.sparks.length - 1; i >= 0; i--) {
+      fx.sparks[i].life -= dt;
+      if (fx.sparks[i].life <= 0) fx.sparks.splice(i, 1);
+    }
+    for (let i = fx.rings.length - 1; i >= 0; i--) {
+      const r = fx.rings[i];
+      r.life -= dt;
+      const t = 1 - r.life / r.max;
+      r.r = r.maxR * t;
+      if (r.life <= 0) fx.rings.splice(i, 1);
+    }
+    for (let i = fx.storms.length - 1; i >= 0; i--) {
+      const s = fx.storms[i];
+      s.life -= dt;
+      s.tick = (s.tick || 0) + dt;
+      if (s.tick >= 0.55) {
+        s.tick = 0;
+        if (G.player && dist(G.player.x, G.player.y, s.x, s.y) < s.r + G.player.r) {
+          if (G.invuln <= 0) {
+            G.player.hp -= s.dmg;
+            G.invuln = 0.35;
+            burst(G.player.x, G.player.y, '#7dd3fc', 5);
+          }
+        }
+      }
+      if (s.life <= 0) fx.storms.splice(i, 1);
+    }
+  }
+
+  function drawFieldFxUnder(ctx) {
+    const fx = ensureFx();
+    // Storm zones on floor
+    for (const s of fx.storms) {
+      const a = 0.12 + 0.1 * Math.sin(G.time * 6 + s.x);
+      const g = ctx.createRadialGradient(s.x, s.y, 4, s.x, s.y, s.r);
+      g.addColorStop(0, `rgba(${s.color},${0.35 + a})`);
+      g.addColorStop(0.55, `rgba(${s.color},.14)`);
+      g.addColorStop(1, `rgba(${s.color},0)`);
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = `rgba(${s.color},${0.35 + a})`;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 8]);
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r * (0.85 + 0.08 * Math.sin(G.time * 5)), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    // Expanding rings
+    for (const r of fx.rings) {
+      ctx.globalAlpha = Math.max(0, r.life / r.max) * 0.85;
+      ctx.strokeStyle = r.color;
+      ctx.lineWidth = r.width || 3;
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, Math.max(1, r.r), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    // Electric sparks
+    for (const sp of fx.sparks) {
+      ctx.globalAlpha = Math.max(0, sp.life / sp.max);
+      ctx.strokeStyle = sp.color;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(sp.x, sp.y);
+      ctx.lineTo(sp.x + Math.cos(sp.ang) * sp.len, sp.y + Math.sin(sp.ang) * sp.len);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  function drawFieldFxOver(ctx, vw, vh) {
+    const fx = ensureFx();
+    // Screen flash (screen space)
+    if (fx.flash > 0) {
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = Math.min(0.55, fx.flash);
+      ctx.fillStyle = fx.flashColor || '#ef4444';
+      ctx.fillRect(0, 0, vw, vh);
+      ctx.restore();
+    }
+    // Tint + vignette
+    if (fx.tint > 0.02 || fx.vignette > 0) {
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      if (fx.tint > 0.02) {
+        ctx.globalAlpha = Math.min(0.35, fx.tint * 0.28);
+        ctx.fillStyle = `rgb(${fx.tintRgb})`;
+        ctx.fillRect(0, 0, vw, vh);
+      }
+      if (fx.vignette > 0) {
+        const g = ctx.createRadialGradient(vw / 2, vh / 2, Math.min(vw, vh) * 0.25, vw / 2, vh / 2, Math.max(vw, vh) * 0.72);
+        g.addColorStop(0, 'rgba(0,0,0,0)');
+        g.addColorStop(1, `rgba(127,29,29,${0.15 + fx.vignette * 0.55})`);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, vw, vh);
+      }
+      ctx.restore();
+    }
+  }
+
+  function arenaGridColors() {
+    const fx = ensureFx();
+    const mode = fx.gridMode || 0;
+    if (mode === 2) return { floor: '#1a0f14', grid: 'rgba(248,113,113,.16)', dots: 'rgba(252,165,165,.3)', wall: '#2a1520', border: 'rgba(248,113,113,.65)' };
+    if (mode === 3) return { floor: '#16122a', grid: 'rgba(167,139,250,.18)', dots: 'rgba(196,181,253,.32)', wall: '#1e1638', border: 'rgba(167,139,250,.7)' };
+    if (mode === 4) return { floor: '#0a0608', grid: 'rgba(239,68,68,.22)', dots: 'rgba(127,29,29,.45)', wall: '#1a0808', border: 'rgba(239,68,68,.85)' };
+    if (mode === 1 || fx.surge > 0.4) return { floor: '#0e1f2a', grid: 'rgba(56,189,248,.16)', dots: 'rgba(125,211,252,.32)', wall: '#123044', border: 'rgba(56,189,248,.65)' };
+    return { floor: '#12261f', grid: 'rgba(52, 211, 153, .10)', dots: 'rgba(148, 163, 184, .28)', wall: '#1a2744', border: 'rgba(56, 189, 248, .45)' };
   }
 
   function xpToLevel(lv) {
@@ -1698,13 +2032,15 @@
     ctx.save();
     ctx.translate(-G.cam.x, -G.cam.y);
 
+    const pal = arenaGridColors();
     ctx.fillStyle = '#0c1426';
     ctx.fillRect(0, 0, ARENA_W, ARENA_H);
-    // piso tipo protoboard (verde PCB suave)
-    ctx.fillStyle = '#12261f';
+    // piso tipo protoboard
+    ctx.fillStyle = pal.floor;
     ctx.fillRect(WALL, WALL, ARENA_W - WALL * 2, ARENA_H - WALL * 2);
-    ctx.strokeStyle = 'rgba(52, 211, 153, .10)';
+    ctx.strokeStyle = pal.grid;
     ctx.lineWidth = 1;
+    const gridPulse = ensureFx().surge > 0 ? 1 + Math.sin(G.time * 10) * 0.04 : 1;
     for (let x = WALL; x <= ARENA_W - WALL; x += 28) {
       ctx.beginPath();
       ctx.moveTo(x, WALL);
@@ -1718,23 +2054,25 @@
       ctx.stroke();
     }
     // puntos de protoboard
-    ctx.fillStyle = 'rgba(148, 163, 184, .28)';
+    ctx.fillStyle = pal.dots;
     for (let x = WALL + 14; x < ARENA_W - WALL; x += 28) {
       for (let y = WALL + 14; y < ARENA_H - WALL; y += 28) {
         ctx.beginPath();
-        ctx.arc(x, y, 1.6, 0, Math.PI * 2);
+        ctx.arc(x, y, 1.6 * gridPulse, 0, Math.PI * 2);
         ctx.fill();
       }
     }
 
-    ctx.fillStyle = '#1a2744';
+    ctx.fillStyle = pal.wall;
     ctx.fillRect(0, 0, ARENA_W, WALL);
     ctx.fillRect(0, ARENA_H - WALL, ARENA_W, WALL);
     ctx.fillRect(0, 0, WALL, ARENA_H);
     ctx.fillRect(ARENA_W - WALL, 0, WALL, ARENA_H);
-    ctx.strokeStyle = 'rgba(56, 189, 248, .45)';
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = pal.border;
+    ctx.lineWidth = 3 + (ensureFx().surge > 0.5 ? Math.sin(G.time * 8) * 1.5 : 0);
     ctx.strokeRect(WALL, WALL, ARENA_W - WALL * 2, ARENA_H - WALL * 2);
+
+    drawFieldFxUnder(ctx);
 
     for (const o of G.obstacles) {
       const ox = o.x - o.w / 2;
@@ -1825,6 +2163,7 @@
       ctx.globalAlpha = 1;
     }
     ctx.restore();
+    drawFieldFxOver(ctx, vw, vh);
   }
 
   function drawPlayerWeapons(ctx, player, weapons, t) {
@@ -1942,21 +2281,58 @@
   }
 
   function drawEnemy(ctx, e) {
+    if (e.boss) {
+      const pulse = 1 + Math.sin((e.pulse || e.t || 0) * 5) * 0.08;
+      const auraR = e.r * (2.4 + Math.sin(G.time * 3) * 0.25);
+      const g2 = ctx.createRadialGradient(e.x, e.y, 4, e.x, e.y, auraR);
+      g2.addColorStop(0, 'rgba(255,255,255,.14)');
+      g2.addColorStop(0.25, e.final ? 'rgba(239,68,68,.42)' : 'rgba(251,113,133,.3)');
+      g2.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g2;
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, auraR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = e.final ? 'rgba(252,165,165,.8)' : 'rgba(254,202,202,.58)';
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([10, 8]);
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, e.r * 1.85 * pulse, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, e.r * 2.35 * pulse, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
     ctx.save();
     ctx.translate(e.x, e.y);
     if (e.boss) {
+      const pulse = 1 + Math.sin((e.pulse || e.t || 0) * 4.5) * 0.06;
+      ctx.scale(pulse, pulse);
       drawBossComponent(ctx, e);
-      const bw = e.r * 2.2;
-      ctx.fillStyle = 'rgba(0,0,0,.55)';
-      ctx.fillRect(-bw / 2, -e.r - 16, bw, 7);
-      ctx.fillStyle = '#f87171';
-      ctx.fillRect(-bw / 2, -e.r - 16, bw * Math.max(0, e.hp / e.maxHp), 7);
-      ctx.fillStyle = '#fff';
-      ctx.font = `bold ${Math.max(10, e.r * 0.28)}px sans-serif`;
+      ctx.shadowColor = e.color;
+      ctx.shadowBlur = 18;
+      ctx.fillStyle = e.final ? '#fecaca' : '#fff7ed';
+      ctx.font = `bold ${Math.max(11, e.r * 0.32)}px sans-serif`;
       ctx.textAlign = 'center';
-      ctx.fillText(e.name, 0, -e.r - 22);
+      ctx.fillText(e.final ? '☠ BOSS FINAL' : '⚠ BOSS', 0, -e.r - 34);
+      ctx.shadowBlur = 0;
+      const bw = e.r * 2.6;
+      ctx.fillStyle = '#450a0a';
+      ctx.fillRect(-bw / 2, -e.r - 22, bw, 9);
+      const hpPct = Math.max(0, e.hp / e.maxHp);
+      const hg = ctx.createLinearGradient(-bw / 2, 0, bw / 2, 0);
+      hg.addColorStop(0, '#ef4444');
+      hg.addColorStop(0.5, '#fbbf24');
+      hg.addColorStop(1, '#f87171');
+      ctx.fillStyle = hg;
+      ctx.fillRect(-bw / 2, -e.r - 22, bw * hpPct, 9);
+      ctx.strokeStyle = 'rgba(255,255,255,.35)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(-bw / 2, -e.r - 22, bw, 9);
+      ctx.fillStyle = '#fff';
+      ctx.font = `bold ${Math.max(10, e.r * 0.26)}px sans-serif`;
+      ctx.fillText(e.name, 0, -e.r - 28);
     } else {
-      // enemigos = mini componentes
       const kind = e.name === 'Bug' ? 'chip' : e.name === 'Glitch' ? 'cap' : e.name === 'Spam' ? 'led' : e.name === 'Leak' ? 'res' : 'diode';
       drawMiniPart(ctx, e, kind);
       if (e.elite) {
@@ -2054,8 +2430,17 @@
   function drawBossComponent(ctx, e) {
     const r = e.r;
     const kind = e.kind || 'ic';
+    const glow = 18 + Math.sin((e.pulse || e.t || 0) * 6) * 10;
     ctx.shadowColor = e.color;
-    ctx.shadowBlur = 16;
+    ctx.shadowBlur = glow;
+    // halo exterior
+    ctx.globalAlpha = 0.35;
+    ctx.strokeStyle = e.color;
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 1.25, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
     if (kind === 'resistor') {
       ctx.fillStyle = '#f59e0b';
       roundRect(ctx, -r * 1.2, -r * 0.45, r * 2.4, r * 0.9, 8);
