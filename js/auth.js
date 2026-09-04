@@ -87,8 +87,17 @@ function updateNavAuth() {
   const area     = document.getElementById('authNavArea');
   const profBtn  = document.getElementById('profileNavBtn');
   const adminBtn = document.getElementById('adminNavBtn');
+  const juegoBtn = document.getElementById('juegoNavBtn');
+  const juegoCta = document.getElementById('ledArenaCta');
+  const juegoProf = document.getElementById('profileLedArenaSection');
   const stampsBtn = document.getElementById('stampsNavBtn');
   const stampsLabel = document.getElementById('stampsNavLabelBtn');
+
+  const setJuegoVisible = (visible) => {
+    if (juegoBtn) juegoBtn.classList.toggle('hidden', !visible);
+    if (juegoCta) juegoCta.classList.toggle('hidden', !visible);
+    if (juegoProf) juegoProf.classList.toggle('hidden', !visible);
+  };
 
   if (currentUser) {
     const initials = currentUser.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -110,6 +119,7 @@ function updateNavAuth() {
     document.body.classList.toggle('is-admin', !!isAdmin);
     const invBtn = document.getElementById('inventoryNavBtn');
     isAdmin ? invBtn.classList.remove('hidden') : invBtn.classList.add('hidden');
+    setJuegoVisible(!!isAdmin);
     // Preview de Descuentos solo para admin
     if (!isAdmin && typeof discountMode !== 'undefined' && discountMode) {
       discountMode = false;
@@ -124,6 +134,7 @@ function updateNavAuth() {
     adminBtn.classList.add('hidden');
     document.body.classList.remove('is-admin');
     document.getElementById('inventoryNavBtn').classList.add('hidden');
+    setJuegoVisible(false);
     // Salir del preview de descuentos si ya no hay sesión admin
     if (typeof discountMode !== 'undefined' && discountMode) {
       discountMode = false;

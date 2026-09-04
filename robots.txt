@@ -3,5 +3,6 @@ Allow: /
 Disallow: /admin/
 Disallow: /perfil/
 Disallow: /mis-pedidos/
+Disallow: /juego/
 
 Sitemap: https://picosv.com/sitemap.xml
