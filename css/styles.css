@@ -69,7 +69,7 @@ body::before{content:'';position:fixed;inset:0;z-index:-1;
 nav{position:sticky;top:12px;z-index:200;
   margin:14px 16px 0;border-radius:999px;
   background:rgba(255,255,255,.82);
-  -webkit-backdrop-filter:saturate(180%) blur(16px);backdrop-filter:saturate(180%) blur(16px);
+  -webkit-backdrop-filter:saturate(160%) blur(12px);backdrop-filter:saturate(160%) blur(12px);
   border:1px solid rgba(255,255,255,.7);padding:0 12px 0 18px;height:58px;
   display:flex;align-items:center;justify-content:space-between;
   box-shadow:0 10px 30px rgba(17,24,39,.1),0 2px 8px rgba(17,24,39,.06)}
@@ -542,9 +542,16 @@ body.discount-mode .toast{
   width:58px;height:68px;display:block;pointer-events:none;
   transform:rotate(-18deg);transform-origin:50% 20%;
   filter:drop-shadow(0 5px 12px rgba(255,138,128,.4));
+  /* Idle bob solo en hover: ahorra compositing en hasta 10 tarjetas a la vez */
   animation:tagIdleBob 2.6s ease-in-out infinite;
+  animation-play-state:paused;
 }
 .discount-tag svg{display:block;width:100%;height:100%}
+.pcard-sale:hover .discount-tag,
+.pcard-fire-shell:hover .discount-tag,
+.pcard:hover .discount-tag{
+  animation-play-state:running;
+}
 .pcard-sale:hover .discount-tag,
 .pcard-fire-shell:hover .discount-tag{
   animation:tagWiggle .65s var(--spring);
@@ -552,7 +559,9 @@ body.discount-mode .toast{
 .discount-tag-lg{
   top:10px;left:10px;width:72px;height:84px;transform:rotate(-14deg);
   animation:tagIdleBobLg 2.8s ease-in-out infinite;
+  animation-play-state:paused;
 }
+.pd-img:hover .discount-tag-lg{animation-play-state:running}
 @keyframes tagIdleBob{
   0%,100%{transform:rotate(-18deg) translateY(0)}
   50%{transform:rotate(-14deg) translateY(-4px)}
@@ -608,8 +617,8 @@ body.discount-mode .pcard-fire-shell .add-btn{
   animation:addBtnPulse 1.8s ease-in-out infinite;
 }
 @keyframes addBtnPulse{
-  0%,100%{transform:scale(1);box-shadow:0 4px 12px rgba(255,138,128,.35)}
-  50%{transform:scale(1.08);box-shadow:0 8px 18px rgba(244,143,177,.45),0 4px 12px rgba(206,147,216,.28)}
+  0%,100%{transform:scale(1)}
+  50%{transform:scale(1.08)}
 }
 
 .pd-fire-shell{
@@ -649,18 +658,18 @@ body.discount-mode .pcard-fire-shell .add-btn{
 .pd-orb-a{
   width:120px;height:120px;left:-36px;top:18%;
   background:radial-gradient(circle,rgba(255,138,128,.55) 0%,transparent 70%);
-  animation:orbFloatA 3.4s ease-in-out infinite;
 }
 .pd-orb-b{
   width:150px;height:150px;right:-48px;top:42%;
   background:radial-gradient(circle,rgba(206,147,216,.5) 0%,transparent 70%);
-  animation:orbFloatB 4s ease-in-out infinite;
 }
 .pd-orb-c{
   width:130px;height:130px;left:22%;bottom:-42px;
   background:radial-gradient(circle,rgba(255,204,128,.48) 0%,transparent 70%);
-  animation:orbFloatC 3.7s ease-in-out infinite;
 }
+.pd-fire-shell.has-fire .pd-orb-a{animation:orbFloatA 3.4s ease-in-out infinite}
+.pd-fire-shell.has-fire .pd-orb-b{animation:orbFloatB 4s ease-in-out infinite}
+.pd-fire-shell.has-fire .pd-orb-c{animation:orbFloatC 3.7s ease-in-out infinite}
 @keyframes orbFloatA{
   0%,100%{transform:translate(0,0) scale(1);opacity:.75}
   50%{transform:translate(10px,-14px) scale(1.12);opacity:1}
@@ -686,6 +695,13 @@ body.discount-mode .pcard-fire-shell .add-btn{
 .pd-spark-4{right:6%;bottom:22%;animation:sparkTwinkle 2s .1s ease-in-out infinite}
 .pd-spark-5{left:48%;top:4%;animation:sparkTwinkle 1.8s .35s ease-in-out infinite}
 .pd-spark-6{right:28%;bottom:6%;animation:sparkTwinkle 2.1s .55s ease-in-out infinite}
+
+.pd-fire-shell.has-fire .pd-spark-1{animation:sparkTwinkle 1.6s ease-in-out infinite}
+.pd-fire-shell.has-fire .pd-spark-2{animation:sparkTwinkle 1.9s .2s ease-in-out infinite}
+.pd-fire-shell.has-fire .pd-spark-3{animation:sparkTwinkle 1.7s .4s ease-in-out infinite}
+.pd-fire-shell.has-fire .pd-spark-4{animation:sparkTwinkle 2s .1s ease-in-out infinite}
+.pd-fire-shell.has-fire .pd-spark-5{animation:sparkTwinkle 1.8s .35s ease-in-out infinite}
+.pd-fire-shell.has-fire .pd-spark-6{animation:sparkTwinkle 2.1s .55s ease-in-out infinite}
 @keyframes sparkTwinkle{
   0%,100%{opacity:.15;transform:scale(.55)}
   40%{opacity:1;transform:scale(1.25)}
@@ -719,16 +735,18 @@ body.discount-mode .pcard-fire-shell .add-btn{
 .pcard{background:#fff;border-radius:var(--r);border:1px solid rgba(17,24,39,.05);
   box-shadow:var(--sh1);overflow:hidden;display:flex;flex-direction:column;
   transition:transform .4s var(--spring),box-shadow .4s var(--ease),border-color .3s var(--ease);
-  animation:fadeUp .5s var(--ease) both}
+  content-visibility:auto;contain-intrinsic-size:auto 360px}
 .pcard:hover{transform:translateY(-7px);box-shadow:var(--sh3);border-color:rgba(0,113,227,.16)}
 @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+.pcard-slot.is-static,.pcard-fire-shell.is-static{animation:none}
 .pimg{aspect-ratio:4/3;background:#fff;
   display:flex;align-items:center;justify-content:center;font-size:3.1rem;
   position:relative;overflow:hidden}
 .pimg-photo{width:var(--pimg-scale,100%);height:var(--pimg-scale,100%);object-fit:contain;
   display:block;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
   transition:transform .55s var(--ease),width .2s var(--ease),height .2s var(--ease);
-  background:#fff;max-width:100%;max-height:100%}
+  background:#fff;max-width:100%;max-height:100%;
+  content-visibility:auto}
 .pcard:hover .pimg-photo{transform:translate(-50%,-50%) scale(1.06)}
 .pimg-emoji{position:relative;z-index:1;filter:drop-shadow(0 8px 16px rgba(17,24,39,.14));transition:transform .45s var(--spring)}
 .pcard:hover .pimg-emoji{transform:scale(1.14) rotate(-4deg)}

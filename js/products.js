@@ -80,9 +80,22 @@ function normalizeImageScale(v) {
  */
 function applyRawProducts(rawProducts, opts) {
   const keepPage = !!(opts && opts.keepPage);
+  const force = !!(opts && opts.force);
   const loadEl = document.getElementById('loadingProducts');
   const gridEl = document.getElementById('productsGrid');
   const hasGrid = !!(loadEl && gridEl);
+
+  const sig = _productsDataSig(rawProducts);
+  // Sync en background sin cambios reales: no re-procesar ni re-pintar.
+  if (!force && sig && sig === _lastAppliedProductsSig && products.length) {
+    if (hasGrid) {
+      loadEl.style.display = 'none';
+      gridEl.style.display = '';
+    }
+    if (typeof updateCartUI === 'function') updateCartUI();
+    return;
+  }
+  _lastAppliedProductsSig = sig;
 
   products = [];
   productGroups = {};
@@ -172,18 +185,41 @@ function applyRawProducts(rawProducts, opts) {
   _prefetchVisibleProductImages();
 }
 
-/** Prefetch de URLs ya visibles en tarjetas (misma URL del modal; 0 lecturas Firestore). */
+/** Decode async de fotos ya visibles (sin duplicar descarga; 0 lecturas Firestore). */
 function _prefetchVisibleProductImages() {
   try {
     const grid = document.getElementById('productsGrid');
     if (!grid) return;
-    grid.querySelectorAll('img.pimg-photo[src]').forEach(el => {
-      const src = el.getAttribute('src');
-      if (!src) return;
-      const img = new Image();
-      img.src = src;
+    grid.querySelectorAll('img.pimg-photo[src]').forEach((el, idx) => {
+      if (idx > 3) return;
+      if (typeof el.decode === 'function') el.decode().catch(() => {});
     });
   } catch (_) {}
+}
+
+/** Firma liviana del catálogo crudo para saltar re-pintados idénticos tras sync. */
+function _productsDataSig(rawProducts) {
+  if (!Array.isArray(rawProducts) || !rawProducts.length) return '0';
+  let maxTs = 0;
+  const parts = rawProducts.map(d => {
+    const ts = updatedAtToMs(d.updatedAt);
+    if (ts > maxTs) maxTs = ts;
+    const scale = normalizeImageScale(d.imageScale);
+    const stock = typeof d.stockCdb === 'number' ? d.stockCdb
+      : (typeof d.stock === 'number' ? d.stock : 0);
+    return d.id + ':' + (d.price || 0) + ':' + stock + ':' + scale + ':' +
+      (d.imageUrl || '') + ':' + (d.name || '') + ':' + (d.descuentoPct || 0);
+  });
+  parts.sort();
+  return rawProducts.length + '@' + maxTs + '#' + parts.join('|');
+}
+
+let _lastAppliedProductsSig = '';
+
+function _writeProdCacheIdle(data, syncTs) {
+  const run = () => { try { writeProdCache(data, syncTs); } catch (_) {} };
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 1200 });
+  else setTimeout(run, 0);
 }
 
 // ═══════════════════════════════════════════════════
@@ -267,11 +303,11 @@ async function loadProducts() {
 
     const rawProducts = Array.from(byId.values());
     if (changed) {
-      writeProdCache(rawProducts, maxSyncTs);
+      _writeProdCacheIdle(rawProducts, maxSyncTs);
       applyRawProducts(rawProducts, { keepPage: paintedFromCache });
     } else if (!paintedFromCache) {
       // Sin caché previo y sin docs (catálogo vacío): igual ocultar spinner.
-      writeProdCache(rawProducts, maxSyncTs);
+      _writeProdCacheIdle(rawProducts, maxSyncTs);
       applyRawProducts(rawProducts, { keepPage: false });
     }
   } catch (err) {
