@@ -221,7 +221,7 @@ function _renderProductCard(p, i) {
   const card =
     `<article class="pcard${pct > 0 ? ' pcard-sale' : ''}" data-pid="${_pdEsc(p.id)}">` +
       `<div class="pimg pimg-clickable" onclick="openProductDetail('${p.id}')">` +
-        `${coverImg ? `<img class="pimg-photo" src="${_pdEsc(coverImg)}" alt="${_pdEsc(p.name)}" loading="lazy" style="--pimg-scale:${cardScale}%" onerror="this.style.display='none'">` : ''}` +
+        `${coverImg ? `<img class="pimg-photo" src="${_pdEsc(coverImg)}" alt="${_pdEsc(p.name)}" width="400" height="300" loading="${i < 2 ? 'eager' : 'lazy'}" decoding="async" fetchpriority="${i < 2 ? 'high' : 'low'}" style="--pimg-scale:${cardScale}%" onerror="this.style.display='none'">` : ''}` +
         `${_discountTagHtml(pct)}` +
         `<span class="pstock ${stockClass(s)}">${stockLabel(s)}</span>` +
         `<span class="pimg-emoji"${coverImg ? ' style="display:none"' : ''}>${p.e}</span>` +
@@ -240,6 +240,7 @@ function _renderProductCard(p, i) {
       `</div>` +
     `</article>`;
   const shellClass = pct > 0 ? 'pcard-fire-shell' : 'pcard-slot';
+  if (i < 0) return `<div class="${shellClass} is-static">${card}</div>`;
   return `<div class="${shellClass}" style="animation-delay:${Math.min(i, 9) * .04}s">${card}</div>`;
 }
 
@@ -261,7 +262,7 @@ function _renderGroupCard(g, i) {
   const card =
     `<article class="pcard pcard-group${pct > 0 ? ' pcard-sale' : ''}" data-pid="${_pdEsc(rep && rep.id || g.id)}">` +
       `<div class="pimg pimg-clickable" onclick="openGroupDetail('${gid}')">` +
-        `${rep && rep.img ? `<img class="pimg-photo" src="${_pdEsc(rep.img)}" alt="${_pdEsc(g.name)}" loading="lazy" style="--pimg-scale:${cardScale}%" onerror="this.style.display='none'">` : ''}` +
+        `${rep && rep.img ? `<img class="pimg-photo" src="${_pdEsc(rep.img)}" alt="${_pdEsc(g.name)}" width="400" height="300" loading="${i < 2 ? 'eager' : 'lazy'}" decoding="async" fetchpriority="${i < 2 ? 'high' : 'low'}" style="--pimg-scale:${cardScale}%" onerror="this.style.display='none'">` : ''}` +
         `${_discountTagHtml(pct)}` +
         `<span class="pstock ${stockClass(s)}">${_pdEsc(stockTxt)}</span>` +
         `<span class="pimg-emoji"${rep && rep.img ? ' style="display:none"' : ''}>${_pdEsc((g.e || (rep && rep.e) || ''))}</span>` +
@@ -282,8 +283,13 @@ function _renderGroupCard(g, i) {
       `</div>` +
     `</article>`;
   const shellClass = pct > 0 ? 'pcard-fire-shell' : 'pcard-slot';
+  if (i < 0) return `<div class="${shellClass} is-static">${card}</div>`;
   return `<div class="${shellClass}" style="animation-delay:${Math.min(i, 9) * .04}s">${card}</div>`;
 }
+
+// Firma de la página visible: evita re-montar DOM cuando el sync no cambió nada.
+let _lastSliceSig = '';
+let _lastSlicePage = -1;
 
 function _renderVisibleSlice() {
   const grid   = document.getElementById('productsGrid');
@@ -292,6 +298,7 @@ function _renderVisibleSlice() {
 
   if (!items.length) {
     grid.innerHTML = '';
+    _lastSliceSig = '';
     noRes.classList.remove('hidden');
     _updatePagers(false);
     return;
@@ -303,8 +310,35 @@ function _renderVisibleSlice() {
 
   const start = (currentPage - 1) * PAGE_SIZE;
   const slice = items.slice(start, start + PAGE_SIZE);
+  // Firma de la página: evita re-montar el DOM (y reiniciar animaciones/imágenes)
+  // cuando el sync en segundo plano no cambió lo visible.
+  const sig = slice.map(it => {
+    if (it.type === 'group') {
+      const g = it.group;
+      const rep = (typeof _groupRepProduct === 'function') ? _groupRepProduct(g) : null;
+      return 'g:' + g.id + ':' + (rep && rep.img || '') + ':' + (rep && rep.imageScale || 100) + ':' +
+        (discountMode ? _groupDiscountPct(g) : 0) + ':' + _groupStockTotal(g);
+    }
+    const p = it.product;
+    const cover = (() => {
+      const withImg = _productEnabledColors(p).find(c => c.imageUrl);
+      return (withImg && withImg.imageUrl) || p.img || '';
+    })();
+    return 'p:' + p.id + ':' + cover + ':' + (p.imageScale || 100) + ':' +
+      (discountMode ? _productDiscountPct(p.id) : 0) + ':' + _variantStock(p) + ':' + (p.price || 0) + ':' + (p.name || '');
+  }).join('|');
+
+  if (sig === _lastSliceSig && grid.children.length === slice.length) {
+    _updatePagers(true, currentPage, totalPages);
+    return;
+  }
+  const animateIn = (_lastSliceSig === '' || _lastSlicePage !== currentPage);
+  _lastSliceSig = sig;
+  _lastSlicePage = currentPage;
+
   grid.innerHTML = slice.map((it, i) =>
-    it.type === 'group' ? _renderGroupCard(it.group, i) : _renderProductCard(it.product, i)
+    it.type === 'group' ? _renderGroupCard(it.group, animateIn ? i : -1)
+                        : _renderProductCard(it.product, animateIn ? i : -1)
   ).join('');
 
   // Controles de paginación (arriba y abajo)
@@ -664,7 +698,7 @@ function _fillProductDetailModal(p, g, opts) {
 
   // Escala imageScale aplica a la VISTA PREVIA del catálogo (tarjeta), no al modal.
   const imgHtml = displayImg
-    ? `<img src="${_pdEsc(displayImg)}" alt="${_pdEsc(displayName)}" onerror="this.style.display='none';this.parentNode.innerHTML='${_pdEsc(p.e || '')}'">`
+    ? `<img src="${_pdEsc(displayImg)}" alt="${_pdEsc(displayName)}" width="480" height="280" decoding="async" fetchpriority="high" onerror="this.style.display='none';this.parentNode.innerHTML='${_pdEsc(p.e || '')}'">`
     : _pdEsc(p.e || '');
 
   const descHtml = (p.desc && p.desc.trim())
