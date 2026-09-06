@@ -215,10 +215,13 @@ function _renderProductCard(p, i) {
     const withImg = _productEnabledColors(p).find(c => c.imageUrl);
     return (withImg && withImg.imageUrl) || p.img || '';
   })();
+  const cardScale = (typeof normalizeImageScale === 'function')
+    ? normalizeImageScale(p.imageScale)
+    : 100;
   const card =
-    `<article class="pcard${pct > 0 ? ' pcard-sale' : ''}">` +
+    `<article class="pcard${pct > 0 ? ' pcard-sale' : ''}" data-pid="${_pdEsc(p.id)}">` +
       `<div class="pimg pimg-clickable" onclick="openProductDetail('${p.id}')">` +
-        `${coverImg ? `<img class="pimg-photo" src="${_pdEsc(coverImg)}" alt="${_pdEsc(p.name)}" loading="lazy" onerror="this.style.display='none'">` : ''}` +
+        `${coverImg ? `<img class="pimg-photo" src="${_pdEsc(coverImg)}" alt="${_pdEsc(p.name)}" loading="lazy" style="--pimg-scale:${cardScale}%" onerror="this.style.display='none'">` : ''}` +
         `${_discountTagHtml(pct)}` +
         `<span class="pstock ${stockClass(s)}">${stockLabel(s)}</span>` +
         `<span class="pimg-emoji"${coverImg ? ' style="display:none"' : ''}>${p.e}</span>` +
@@ -252,10 +255,13 @@ function _renderGroupCard(g, i) {
   const stockTxt = s === 0 ? 'Sin stock' : (s <= 5 ? `Pocas · ${optsLabel}` : `${optsLabel}`);
   const gid = _pdEsc(g.id).replace(/'/g, "\\'");
   const colorDots = _groupColorDots(g);
+  const cardScale = (typeof normalizeImageScale === 'function')
+    ? normalizeImageScale(rep && rep.imageScale)
+    : 100;
   const card =
-    `<article class="pcard pcard-group${pct > 0 ? ' pcard-sale' : ''}">` +
+    `<article class="pcard pcard-group${pct > 0 ? ' pcard-sale' : ''}" data-pid="${_pdEsc(rep && rep.id || g.id)}">` +
       `<div class="pimg pimg-clickable" onclick="openGroupDetail('${gid}')">` +
-        `${rep && rep.img ? `<img class="pimg-photo" src="${_pdEsc(rep.img)}" alt="${_pdEsc(g.name)}" loading="lazy" onerror="this.style.display='none'">` : ''}` +
+        `${rep && rep.img ? `<img class="pimg-photo" src="${_pdEsc(rep.img)}" alt="${_pdEsc(g.name)}" loading="lazy" style="--pimg-scale:${cardScale}%" onerror="this.style.display='none'">` : ''}` +
         `${_discountTagHtml(pct)}` +
         `<span class="pstock ${stockClass(s)}">${_pdEsc(stockTxt)}</span>` +
         `<span class="pimg-emoji"${rep && rep.img ? ' style="display:none"' : ''}>${_pdEsc((g.e || (rep && rep.e) || ''))}</span>` +
@@ -656,11 +662,9 @@ function _fillProductDetailModal(p, g, opts) {
   const overlay = document.getElementById('productDetailModal');
   if (overlay) overlay.classList.toggle('pd-sale-overlay', pct > 0);
 
-  const imgScale = (typeof normalizeImageScale === 'function')
-    ? normalizeImageScale(p.imageScale)
-    : 100;
+  // Escala imageScale aplica a la VISTA PREVIA del catálogo (tarjeta), no al modal.
   const imgHtml = displayImg
-    ? `<img src="${_pdEsc(displayImg)}" alt="${_pdEsc(displayName)}" style="--pd-img-scale:${imgScale}%" onerror="this.style.display='none';this.parentNode.innerHTML='${_pdEsc(p.e || '')}'">`
+    ? `<img src="${_pdEsc(displayImg)}" alt="${_pdEsc(displayName)}" onerror="this.style.display='none';this.parentNode.innerHTML='${_pdEsc(p.e || '')}'">`
     : _pdEsc(p.e || '');
 
   const descHtml = (p.desc && p.desc.trim())
@@ -671,10 +675,10 @@ function _fillProductDetailModal(p, g, opts) {
     ? `<div class="pd-desc-h">Descripción <button class="pd-edit-btn" onclick="startEditProductDesc('${p.id}')">Editar</button></div>`
     : `<div class="pd-desc-h">Descripción</div>`;
 
-  // Solo admin: ajustar tamaño visual de la foto (no el modal).
+  // Solo admin: tamaño de la foto en la tarjeta del catálogo (vista previa).
   const imgScaleCtrl = isAdmin
     ? `<div class="pd-img-admin">` +
-        `<button type="button" class="pd-edit-btn" onclick="startEditProductImageScale('${p.id}')">Tamaño imagen</button>` +
+        `<button type="button" class="pd-edit-btn" onclick="startEditProductImageScale('${p.id}')">Tamaño vista previa</button>` +
         `<div id="pdImgScaleArea"></div>` +
       `</div>`
     : '';
@@ -767,8 +771,8 @@ async function saveProductDesc(id) {
   }
 }
 
-// ── Escala de imagen del modal (solo ADMIN) ──
-// Baja el % para que la foto no toque los bordes del recuadro (más margen blanco).
+// ── Escala de la vista previa en catálogo (solo ADMIN) ──
+// Baja el % para que la foto de la tarjeta no toque los bordes (más margen blanco).
 function startEditProductImageScale(id) {
   if (!isAdmin) return;
   const p = products.find(x => x.id === id);
@@ -777,13 +781,30 @@ function startEditProductImageScale(id) {
   const cur = (typeof normalizeImageScale === 'function')
     ? normalizeImageScale(p.imageScale)
     : 100;
+  const previewSrc = (() => {
+    const modalImg = document.querySelector('#productDetailBody .pd-img img');
+    if (modalImg && modalImg.getAttribute('src')) return modalImg.getAttribute('src');
+    const withImg = (typeof _productEnabledColors === 'function')
+      ? _productEnabledColors(p).find(c => c.imageUrl)
+      : null;
+    return (withImg && withImg.imageUrl) || p.img || '';
+  })();
+  const previewHtml = previewSrc
+    ? `<div class="pd-card-preview" aria-hidden="true">` +
+        `<div class="pd-card-preview-frame">` +
+          `<img src="${_pdEsc(previewSrc)}" alt="" id="pdCardPreviewImg" style="--pimg-scale:${cur}%">` +
+        `</div>` +
+        `<div class="pd-card-preview-hint">Así se ve en el catálogo</div>` +
+      `</div>`
+    : '';
   area.innerHTML =
     `<div class="pd-img-scale-edit">` +
-      `<label class="pd-img-scale-label" for="pdImgScaleInput">Tamaño de la foto` +
+      previewHtml +
+      `<label class="pd-img-scale-label" for="pdImgScaleInput">Tamaño en la tarjeta` +
         `<span id="pdImgScaleVal">${cur}%</span>` +
       `</label>` +
       `<input type="range" id="pdImgScaleInput" class="pd-img-scale-range" min="50" max="100" step="1" value="${cur}"` +
-        ` oninput="previewProductImageScale(this.value)">` +
+        ` oninput="previewProductImageScale(this.value, '${id}')">` +
       `<div class="pd-desc-actions">` +
         `<button class="btn-sec" onclick="cancelEditProductImageScale('${id}')">Cancelar</button>` +
         `<button class="btn-pri" id="pdImgScaleSaveBtn" onclick="saveProductImageScale('${id}')">Guardar</button>` +
@@ -791,14 +812,21 @@ function startEditProductImageScale(id) {
     `</div>`;
 }
 
-function previewProductImageScale(val) {
+function previewProductImageScale(val, productId) {
   const scale = (typeof normalizeImageScale === 'function')
     ? normalizeImageScale(val)
     : Math.max(50, Math.min(100, parseInt(val, 10) || 100));
   const label = document.getElementById('pdImgScaleVal');
   if (label) label.textContent = scale + '%';
-  const img = document.querySelector('#productDetailBody .pd-img img');
-  if (img) img.style.setProperty('--pd-img-scale', scale + '%');
+  // Mini vista previa dentro del editor (tarjeta).
+  const preview = document.getElementById('pdCardPreviewImg');
+  if (preview) preview.style.setProperty('--pimg-scale', scale + '%');
+  // Actualizar en vivo las tarjetas visibles del mismo producto.
+  if (productId) {
+    document.querySelectorAll('.pcard[data-pid="' + productId + '"] .pimg-photo').forEach(img => {
+      img.style.setProperty('--pimg-scale', scale + '%');
+    });
+  }
 }
 
 function cancelEditProductImageScale(id) {
@@ -827,7 +855,8 @@ async function saveProductImageScale(id) {
         writeProdCache(cache.data, Math.max(cache.syncTs || 0, ts));
       }
     } catch (_) {}
-    showToast('Tamaño de imagen actualizado');
+    showToast('Tamaño de vista previa actualizado');
+    if (typeof renderProducts === 'function') renderProducts({ keepPage: true });
     openProductDetail(id);
   } catch (e) {
     console.error('saveProductImageScale:', e);

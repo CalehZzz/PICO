@@ -66,7 +66,7 @@ function _normalizeGroupColors(raw) {
   return out;
 }
 
-/** Escala de imagen del modal (50–100 %). Default 100 = llena el recuadro. */
+/** Escala de la foto en la tarjeta del catálogo (50–100 %). Default 100 = llena el recuadro. */
 function normalizeImageScale(v) {
   const n = typeof v === 'number' ? v : parseInt(v, 10);
   if (!isFinite(n)) return 100;
@@ -118,7 +118,7 @@ function applyRawProducts(rawProducts, opts) {
       // Descuento de oferta en tienda (inventario). 0 = sin oferta.
       descuentoPct: (typeof d.descuentoPct === 'number' && d.descuentoPct > 0 && d.descuentoPct <= 100)
         ? Math.round(d.descuentoPct) : 0,
-      // Escala visual de la foto en el modal (solo CSS; no cambia el modal).
+      // Escala visual de la foto en la tarjeta del catálogo (solo CSS).
       imageScale: normalizeImageScale(d.imageScale),
       stock: s, cat, e,
       groupId, groupKind, groupName, variantLabel, variantColor, variantEnabled,
