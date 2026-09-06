@@ -142,17 +142,24 @@ function _buildCatalogItems() {
   return items;
 }
 
-function renderProducts() {
+function renderProducts(opts) {
   updateSucursalBadge();
   // En páginas sin catálogo no hay grid que renderizar.
   if (!document.getElementById('productsGrid')) return;
-  // Cada vez que cambia el filtro/búsqueda, volver a la primera página
-  currentPage = 1;
+  // Cada vez que cambia el filtro/búsqueda, volver a la primera página.
+  // keepPage: sync en segundo plano (no saltar la página del usuario).
+  const keepPage = !!(opts && opts.keepPage);
+  if (!keepPage) currentPage = 1;
   catalogItems = _buildCatalogItems();
   // Compat: currentFiltered = productos raíz listados (sin variantes de grupo).
   currentFiltered = catalogItems
     .filter(it => it.type === 'product')
     .map(it => it.product);
+  if (keepPage) {
+    const total = catalogItems.length;
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    currentPage = Math.min(Math.max(1, currentPage), totalPages);
+  }
   _renderVisibleSlice();
 }
 
@@ -649,8 +656,11 @@ function _fillProductDetailModal(p, g, opts) {
   const overlay = document.getElementById('productDetailModal');
   if (overlay) overlay.classList.toggle('pd-sale-overlay', pct > 0);
 
+  const imgScale = (typeof normalizeImageScale === 'function')
+    ? normalizeImageScale(p.imageScale)
+    : 100;
   const imgHtml = displayImg
-    ? `<img src="${_pdEsc(displayImg)}" alt="${_pdEsc(displayName)}" onerror="this.style.display='none';this.parentNode.innerHTML='${_pdEsc(p.e || '')}'">`
+    ? `<img src="${_pdEsc(displayImg)}" alt="${_pdEsc(displayName)}" style="--pd-img-scale:${imgScale}%" onerror="this.style.display='none';this.parentNode.innerHTML='${_pdEsc(p.e || '')}'">`
     : _pdEsc(p.e || '');
 
   const descHtml = (p.desc && p.desc.trim())
@@ -660,6 +670,14 @@ function _fillProductDetailModal(p, g, opts) {
   const descHeader = isAdmin
     ? `<div class="pd-desc-h">Descripción <button class="pd-edit-btn" onclick="startEditProductDesc('${p.id}')">Editar</button></div>`
     : `<div class="pd-desc-h">Descripción</div>`;
+
+  // Solo admin: ajustar tamaño visual de la foto (no el modal).
+  const imgScaleCtrl = isAdmin
+    ? `<div class="pd-img-admin">` +
+        `<button type="button" class="pd-edit-btn" onclick="startEditProductImageScale('${p.id}')">Tamaño imagen</button>` +
+        `<div id="pdImgScaleArea"></div>` +
+      `</div>`
+    : '';
 
   const variantPicker = g
     ? _renderVariantPicker(g, p.id)
@@ -673,6 +691,7 @@ function _fillProductDetailModal(p, g, opts) {
 
   body.innerHTML =
     `<div class="pd-img">${imgHtml}${_discountTagHtml(pct, 'lg')}</div>` +
+    imgScaleCtrl +
     `<div class="pd-tags">` +
       `<span class="pd-tag">${_pdEsc(p.cat)}</span>` +
       `<span class="pd-tag ${stockClass(s)}" style="background:transparent">${_pdEsc(stockLabel(s))}</span>` +
@@ -744,6 +763,75 @@ async function saveProductDesc(id) {
   } catch (e) {
     console.error('saveProductDesc:', e);
     showToast('No se pudo guardar la descripción');
+    if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; }
+  }
+}
+
+// ── Escala de imagen del modal (solo ADMIN) ──
+// Baja el % para que la foto no toque los bordes del recuadro (más margen blanco).
+function startEditProductImageScale(id) {
+  if (!isAdmin) return;
+  const p = products.find(x => x.id === id);
+  const area = document.getElementById('pdImgScaleArea');
+  if (!p || !area) return;
+  const cur = (typeof normalizeImageScale === 'function')
+    ? normalizeImageScale(p.imageScale)
+    : 100;
+  area.innerHTML =
+    `<div class="pd-img-scale-edit">` +
+      `<label class="pd-img-scale-label" for="pdImgScaleInput">Tamaño de la foto` +
+        `<span id="pdImgScaleVal">${cur}%</span>` +
+      `</label>` +
+      `<input type="range" id="pdImgScaleInput" class="pd-img-scale-range" min="50" max="100" step="1" value="${cur}"` +
+        ` oninput="previewProductImageScale(this.value)">` +
+      `<div class="pd-desc-actions">` +
+        `<button class="btn-sec" onclick="cancelEditProductImageScale('${id}')">Cancelar</button>` +
+        `<button class="btn-pri" id="pdImgScaleSaveBtn" onclick="saveProductImageScale('${id}')">Guardar</button>` +
+      `</div>` +
+    `</div>`;
+}
+
+function previewProductImageScale(val) {
+  const scale = (typeof normalizeImageScale === 'function')
+    ? normalizeImageScale(val)
+    : Math.max(50, Math.min(100, parseInt(val, 10) || 100));
+  const label = document.getElementById('pdImgScaleVal');
+  if (label) label.textContent = scale + '%';
+  const img = document.querySelector('#productDetailBody .pd-img img');
+  if (img) img.style.setProperty('--pd-img-scale', scale + '%');
+}
+
+function cancelEditProductImageScale(id) {
+  openProductDetail(id);
+}
+
+async function saveProductImageScale(id) {
+  if (!isAdmin) return;
+  const p = products.find(x => x.id === id);
+  const input = document.getElementById('pdImgScaleInput');
+  if (!p || !input) return;
+  const nuevo = (typeof normalizeImageScale === 'function')
+    ? normalizeImageScale(input.value)
+    : Math.max(50, Math.min(100, parseInt(input.value, 10) || 100));
+  const btn = document.getElementById('pdImgScaleSaveBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+  try {
+    const ts = Date.now();
+    await db.collection('productos').doc(id).update({ imageScale: nuevo, updatedAt: ts });
+    p.imageScale = nuevo;
+    try {
+      const cache = readProdCache();
+      if (cache && Array.isArray(cache.data)) {
+        const raw = cache.data.find(d => d.id === id);
+        if (raw) { raw.imageScale = nuevo; raw.updatedAt = ts; }
+        writeProdCache(cache.data, Math.max(cache.syncTs || 0, ts));
+      }
+    } catch (_) {}
+    showToast('Tamaño de imagen actualizado');
+    openProductDetail(id);
+  } catch (e) {
+    console.error('saveProductImageScale:', e);
+    showToast('No se pudo guardar el tamaño');
     if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; }
   }
 }

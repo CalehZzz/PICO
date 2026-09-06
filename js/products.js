@@ -2,6 +2,9 @@
 // PICO · Carga de productos desde Firestore + detección de categoría
 // ════════════════════════════════════════════════════════════════
 
+// Generación para invalidar cargas concurrentes (auth / gate / etc.).
+let _loadProductsGen = 0;
+
 // ═══════════════════════════════════════════════════
 //  CATEGORY / EMOJI DETECTION  (sin tocar Firestore)
 // ═══════════════════════════════════════════════════
@@ -63,30 +66,163 @@ function _normalizeGroupColors(raw) {
   return out;
 }
 
+/** Escala de imagen del modal (50–100 %). Default 100 = llena el recuadro. */
+function normalizeImageScale(v) {
+  const n = typeof v === 'number' ? v : parseInt(v, 10);
+  if (!isFinite(n)) return 100;
+  return Math.max(50, Math.min(100, Math.round(n)));
+}
+
+/**
+ * Convierte docs crudos (caché o Firestore) en el modelo en memoria y pinta el catálogo.
+ * opts.keepPage: no resetear paginación (útil tras sync en segundo plano).
+ * opts.silentUi: no tocar loading/grid (ya visibles desde caché).
+ */
+function applyRawProducts(rawProducts, opts) {
+  const keepPage = !!(opts && opts.keepPage);
+  const loadEl = document.getElementById('loadingProducts');
+  const gridEl = document.getElementById('productsGrid');
+  const hasGrid = !!(loadEl && gridEl);
+
+  products = [];
+  productGroups = {};
+  rawProducts.forEach(d => {
+    const det = detectCatEmoji(d.name, d.desc);
+    // Categoría: si el admin la asignó explícitamente, se usa esa;
+    // si no, se cae al detector automático (compatibilidad con productos viejos).
+    const cat = (d.categoria && String(d.categoria).trim()) ? String(d.categoria).trim() : det.cat;
+    const e   = det.e;
+    // Stock único: 'stockCdb'. Fallback al 'stock' legado si el producto viejo no tiene stockCdb.
+    let s = typeof d.stockCdb === 'number' ? d.stockCdb
+          : (typeof d.stock === 'number' ? d.stock : 0);
+    const groupColors = _normalizeGroupColors(d.groupColors);
+    const groupId = (d.groupId && String(d.groupId).trim()) ? String(d.groupId).trim() : '';
+    // Si trae groupColors, el color vive en este doc: no es variante multi-doc.
+    const groupKind = groupColors.length
+      ? 'color'
+      : ((d.groupKind === 'color') ? 'color' : (d.groupKind === 'valor' ? 'valor' : ''));
+    const groupName = (d.groupName && String(d.groupName).trim()) ? String(d.groupName).trim() : '';
+    const variantLabel = (d.variantLabel && String(d.variantLabel).trim()) ? String(d.variantLabel).trim() : '';
+    const variantColor = (d.variantColor && String(d.variantColor).trim()) ? String(d.variantColor).trim() : '';
+    // false = deshabilitada en inventario (p.ej. sin stock de ese color). Ausente = habilitada.
+    const variantEnabled = d.variantEnabled === false ? false : true;
+    const p = {
+      id:    d.id,
+      name:  d.name  || 'Producto',
+      price: typeof d.price === 'number' ? d.price : 0,
+      cost:  typeof d.cost  === 'number' ? d.cost  : 0,
+      desc:  d.desc  || '',
+      img:   d.imageUrl || '',
+      // Orden manual decidido por el admin (menor = aparece primero). null = automático.
+      orden: (typeof d.orden === 'number' && isFinite(d.orden)) ? d.orden : null,
+      // Descuento de oferta en tienda (inventario). 0 = sin oferta.
+      descuentoPct: (typeof d.descuentoPct === 'number' && d.descuentoPct > 0 && d.descuentoPct <= 100)
+        ? Math.round(d.descuentoPct) : 0,
+      // Escala visual de la foto en el modal (solo CSS; no cambia el modal).
+      imageScale: normalizeImageScale(d.imageScale),
+      stock: s, cat, e,
+      groupId, groupKind, groupName, variantLabel, variantColor, variantEnabled,
+      groupColors
+    };
+    products.push(p);
+    stockMap[d.id] = s;
+
+    // Índice de grupos multi-doc (valor, o color legado sin groupColors).
+    // Productos con groupColors NO entran: son la tarjeta raíz ellos mismos.
+    if (groupId && !groupColors.length) {
+      if (!productGroups[groupId]) {
+        productGroups[groupId] = {
+          id: groupId,
+          name: groupName || p.name,
+          kind: groupKind || 'valor',
+          cat, e,
+          orden: p.orden,
+          variants: []
+        };
+      }
+      const g = productGroups[groupId];
+      g.variants.push(p);
+      if (groupName) g.name = groupName;
+      if (groupKind) g.kind = groupKind;
+      // Orden del grupo = menor orden entre variantes (null = ignorar)
+      if (p.orden != null && (g.orden == null || p.orden < g.orden)) g.orden = p.orden;
+      // Categoría representativa: la más frecuente / primera
+      if (!g.cat) g.cat = cat;
+      if (!g.e) g.e = e;
+    }
+  });
+  // Ordenar variantes dentro de cada grupo (por label, luego nombre)
+  Object.keys(productGroups).forEach(gid => {
+    productGroups[gid].variants.sort((a, b) =>
+      (a.variantLabel || a.name).localeCompare(b.variantLabel || b.name, 'es', { numeric: true })
+    );
+  });
+
+  // El stock que se muestra es directamente 'stockCdb' leído de Firebase. El
+  // descuento por pedido ya está aplicado en Firebase al momento de crear el
+  // pedido, así que NO se vuelve a restar aquí (evita doble descuento).
+
+  if (hasGrid) {
+    loadEl.style.display = 'none';
+    gridEl.style.display = '';
+  }
+  if (typeof buildCategoryFilter === 'function') buildCategoryFilter();
+  if (typeof renderProducts === 'function') renderProducts(keepPage ? { keepPage: true } : undefined);
+  if (typeof updateCartUI === 'function') updateCartUI();
+  _prefetchVisibleProductImages();
+}
+
+/** Prefetch de URLs ya visibles en tarjetas (misma URL del modal; 0 lecturas Firestore). */
+function _prefetchVisibleProductImages() {
+  try {
+    const grid = document.getElementById('productsGrid');
+    if (!grid) return;
+    grid.querySelectorAll('img.pimg-photo[src]').forEach(el => {
+      const src = el.getAttribute('src');
+      if (!src) return;
+      const img = new Image();
+      img.src = src;
+    });
+  } catch (_) {}
+}
+
 // ═══════════════════════════════════════════════════
 //  LOAD PRODUCTS FROM FIRESTORE
 // ═══════════════════════════════════════════════════
 async function loadProducts() {
+  const gen = ++_loadProductsGen;
   const loadEl = document.getElementById('loadingProducts');
   const gridEl = document.getElementById('productsGrid');
   // Las páginas sin catálogo (mis-pedidos, admin, perfil) igual cargan los
   // productos para que el carrito muestre nombres, precios y stock correctos.
   const hasGrid = !!(loadEl && gridEl);
-  if (hasGrid) { loadEl.style.display = ''; gridEl.style.display = 'none'; }
+
   try {
     // ── Caché eterno + sincronización incremental ──────────────────────────
-    // 1) Partimos del caché de localStorage (si existe).
+    // 1) Partimos del caché de localStorage (si existe) y PINTAMOS YA.
     // 2) Preguntamos a Firestore SOLO por los productos cambiados desde la
     //    última sync (updatedAt > syncTs). Si no hay caché, traemos todo.
     // 3) Fusionamos: cada doc devuelto reemplaza/añade al caché; los marcados
     //    'eliminado' se quitan. Guardamos y avanzamos el syncTs.
+    // Sin lecturas extra: misma consulta incremental de siempre; solo deja de
+    // bloquear la UI mientras espera la red cuando ya hay caché.
     try { localStorage.removeItem(PROD_CACHE_KEY_OLD); } catch (_) {}
 
     const cache = readProdCache();
-    // Mapa id -> producto crudo, base sobre la que fusionar.
     const byId = new Map();
     let maxSyncTs = cache ? (cache.syncTs || 0) : 0;
     if (cache) cache.data.forEach(d => byId.set(d.id, d));
+
+    let paintedFromCache = false;
+    if (cache && cache.data.length) {
+      // Pintar de inmediato: el visitante ve el catálogo sin esperar Firestore.
+      applyRawProducts(Array.from(byId.values()), { keepPage: false });
+      paintedFromCache = true;
+    } else if (hasGrid) {
+      // Solo cold start: mostrar spinner.
+      loadEl.style.display = '';
+      gridEl.style.display = 'none';
+    }
 
     let changedSnap;
     if (!cache) {
@@ -109,113 +245,40 @@ async function loadProducts() {
       }
     }
 
+    // Si otra loadProducts() empezó mientras esperábamos, no pisar su resultado.
+    if (gen !== _loadProductsGen) return;
+
+    let changed = !cache; // cold start siempre aplica el snapshot completo
+    if (cache && byId.size === 0 && changedSnap) {
+      // Recarga completa tras fallo de índice: hay que reaplicar.
+      changed = true;
+    }
     changedSnap.forEach(doc => {
       const d = { id: doc.id, ...doc.data() };
       const ts = updatedAtToMs(d.updatedAt);
       if (ts > maxSyncTs) maxSyncTs = ts;
       if (d.eliminado) {
-        // Borrado lógico: quitar del caché.
         byId.delete(d.id);
       } else {
         byId.set(d.id, d);
       }
+      changed = true;
     });
 
     const rawProducts = Array.from(byId.values());
-    writeProdCache(rawProducts, maxSyncTs);
-
-    // Procesar productos (detectar cat/emoji, calcular stock)
-    // INVENTARIO ÚNICO: tras eliminar EXSAL, todo (domicilio, Colegio Don Bosco,
-    // Universidad Don Bosco y "Otros") sale del mismo stock: 'stockCdb'.
-    //
-    // Grupos en tienda:
-    // - Por color: UN solo documento con `groupColors` [{label,color,imageUrl?,enabled}].
-    //   Stock compartido del producto raíz; no se listan productos extra.
-    // - Por valor: varios docs con el mismo `groupId` + groupKind:'valor'.
-    // - Legado color multi-doc (groupKind:'color' sin groupColors): se agrupa como antes.
-    products = [];
-    productGroups = {};
-    rawProducts.forEach(d => {
-      const det = detectCatEmoji(d.name, d.desc);
-      // Categoría: si el admin la asignó explícitamente, se usa esa;
-      // si no, se cae al detector automático (compatibilidad con productos viejos).
-      const cat = (d.categoria && String(d.categoria).trim()) ? String(d.categoria).trim() : det.cat;
-      const e   = det.e;
-      // Stock único: 'stockCdb'. Fallback al 'stock' legado si el producto viejo no tiene stockCdb.
-      let s = typeof d.stockCdb === 'number' ? d.stockCdb
-            : (typeof d.stock === 'number' ? d.stock : 0);
-      const groupColors = _normalizeGroupColors(d.groupColors);
-      const groupId = (d.groupId && String(d.groupId).trim()) ? String(d.groupId).trim() : '';
-      // Si trae groupColors, el color vive en este doc: no es variante multi-doc.
-      const groupKind = groupColors.length
-        ? 'color'
-        : ((d.groupKind === 'color') ? 'color' : (d.groupKind === 'valor' ? 'valor' : ''));
-      const groupName = (d.groupName && String(d.groupName).trim()) ? String(d.groupName).trim() : '';
-      const variantLabel = (d.variantLabel && String(d.variantLabel).trim()) ? String(d.variantLabel).trim() : '';
-      const variantColor = (d.variantColor && String(d.variantColor).trim()) ? String(d.variantColor).trim() : '';
-      // false = deshabilitada en inventario (p.ej. sin stock de ese color). Ausente = habilitada.
-      const variantEnabled = d.variantEnabled === false ? false : true;
-      const p = {
-        id:    d.id,
-        name:  d.name  || 'Producto',
-        price: typeof d.price === 'number' ? d.price : 0,
-        cost:  typeof d.cost  === 'number' ? d.cost  : 0,
-        desc:  d.desc  || '',
-        img:   d.imageUrl || '',
-        // Orden manual decidido por el admin (menor = aparece primero). null = automático.
-        orden: (typeof d.orden === 'number' && isFinite(d.orden)) ? d.orden : null,
-        // Descuento de oferta en tienda (inventario). 0 = sin oferta.
-        descuentoPct: (typeof d.descuentoPct === 'number' && d.descuentoPct > 0 && d.descuentoPct <= 100)
-          ? Math.round(d.descuentoPct) : 0,
-        stock: s, cat, e,
-        groupId, groupKind, groupName, variantLabel, variantColor, variantEnabled,
-        groupColors
-      };
-      products.push(p);
-      stockMap[d.id] = s;
-
-      // Índice de grupos multi-doc (valor, o color legado sin groupColors).
-      // Productos con groupColors NO entran: son la tarjeta raíz ellos mismos.
-      if (groupId && !groupColors.length) {
-        if (!productGroups[groupId]) {
-          productGroups[groupId] = {
-            id: groupId,
-            name: groupName || p.name,
-            kind: groupKind || 'valor',
-            cat, e,
-            orden: p.orden,
-            variants: []
-          };
-        }
-        const g = productGroups[groupId];
-        g.variants.push(p);
-        if (groupName) g.name = groupName;
-        if (groupKind) g.kind = groupKind;
-        // Orden del grupo = menor orden entre variantes (null = ignorar)
-        if (p.orden != null && (g.orden == null || p.orden < g.orden)) g.orden = p.orden;
-        // Categoría representativa: la más frecuente / primera
-        if (!g.cat) g.cat = cat;
-        if (!g.e) g.e = e;
-      }
-    });
-    // Ordenar variantes dentro de cada grupo (por label, luego nombre)
-    Object.keys(productGroups).forEach(gid => {
-      productGroups[gid].variants.sort((a, b) =>
-        (a.variantLabel || a.name).localeCompare(b.variantLabel || b.name, 'es', { numeric: true })
-      );
-    });
-
-    // El stock que se muestra es directamente 'stockCdb' leído de Firebase. El
-    // descuento por pedido ya está aplicado en Firebase al momento de crear el
-    // pedido, así que NO se vuelve a restar aquí (evita doble descuento).
-
-    if (hasGrid) { loadEl.style.display = 'none'; gridEl.style.display = ''; }
-    buildCategoryFilter();   // construir el filtro con las categorías reales del catálogo
-    renderProducts();
-    // Re-renderizar carrito ahora que products ya está cargado (fix: al init loadCart corre antes que Firestore)
-    updateCartUI();
+    if (changed) {
+      writeProdCache(rawProducts, maxSyncTs);
+      applyRawProducts(rawProducts, { keepPage: paintedFromCache });
+    } else if (!paintedFromCache) {
+      // Sin caché previo y sin docs (catálogo vacío): igual ocultar spinner.
+      writeProdCache(rawProducts, maxSyncTs);
+      applyRawProducts(rawProducts, { keepPage: false });
+    }
   } catch (err) {
-    if (loadEl) loadEl.innerHTML = '<div class="ni"></div><p>Error al cargar productos. Recarga la página.</p>';
+    if (gen !== _loadProductsGen) return;
+    if (loadEl && products.length === 0) {
+      loadEl.innerHTML = '<div class="ni"></div><p>Error al cargar productos. Recarga la página.</p>';
+    }
     console.error('loadProducts:', err);
   }
 }
