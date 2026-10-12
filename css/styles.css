@@ -902,8 +902,8 @@ body.discount-mode .qspin-btn:hover{background:rgba(255,138,128,.14)}
 .ship-msg .ship-free{color:var(--green);font-size:1.15rem;font-weight:800}
 .ship-progress-compact .ship-msg .ship-free{font-size:1.1rem}
 .ship-msg .ship-free b{color:var(--green)}
-.ship-msg .ship-free-goal{display:block;margin-top:3px;font-size:.92rem;font-weight:800;color:var(--green);letter-spacing:-.01em}
-.ship-progress-compact .ship-msg .ship-free-goal{font-size:.88rem}
+.ship-msg .ship-free-goal{display:block;margin-top:5px;font-size:1.12rem;font-weight:800;color:var(--green);letter-spacing:-.02em;line-height:1.25}
+.ship-progress-compact .ship-msg .ship-free-goal{font-size:1.08rem}
 .ship-cost{flex-shrink:0;font-size:.88rem;font-weight:800;color:var(--b600);
   background:#fff;border:1px solid rgba(0,113,227,.2);border-radius:999px;
   padding:6px 12px;white-space:nowrap}
