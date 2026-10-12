@@ -559,14 +559,15 @@ function renderShippingProgress() {
   const pg  = getShippingProgress(subtotal);
   const pct = Math.max(0, Math.min(100, (subtotal / FREE_SHIPPING_AT) * 100));
 
-  // Mensaje principal según el tramo
+  // Mensaje principal según el tramo (envío GRATIS desde $24 bien visible)
   let headline;
   if (pg.isFree) {
     headline = `<span class="ship-free">¡Ya tenés envío <b>GRATIS</b>!</span>`;
   } else if (pg.nextCost === 0) {
-    headline = `Te falta <b>$${pg.remaining.toFixed(2)}</b> para <b class="ship-hl">envío GRATIS</b>`;
+    headline = `Te falta <b>$${pg.remaining.toFixed(2)}</b> para <b class="ship-hl">envío GRATIS</b> desde $24`;
   } else {
-    headline = `Te falta <b>$${pg.remaining.toFixed(2)}</b> para bajar el envío a <b class="ship-hl">$${pg.nextCost.toFixed(2)}</b>`;
+    headline = `Te falta <b>$${pg.remaining.toFixed(2)}</b> para bajar el envío a <b class="ship-hl">$${pg.nextCost.toFixed(2)}</b>`
+      + `<span class="ship-free-goal">Envío <b>GRATIS</b> desde $24</span>`;
   }
 
   // Marcadores (dots) en los umbrales de cada tramo
