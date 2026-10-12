@@ -1013,12 +1013,19 @@ function copyFieldRow(label, value) {
     </div>`;
 }
 
-// Asignar ID de rastreo + costo real del envío → el pedido pasa a 'confirmado'
+// Asignar link + ID de rastreo + costo real del envío → el pedido pasa a 'confirmado'
 async function setTrackingId(firestoreId) {
+  const urlInput = document.getElementById('trackingUrlInput');
   const input = document.getElementById('trackingInput');
   const envioInput = document.getElementById('envioRealInput');
+  const rawUrl = (urlInput?.value || '').trim();
   const tid = (input?.value || '').trim();
-  if (!tid) { showToast('Ingresa un ID de rastreo'); return; }
+  if (!rawUrl) { showToast('Ingresa el link de rastreo'); return; }
+  if (!tid) { showToast('Ingresa el número de rastreo'); return; }
+  const trackingUrl = (typeof normalizeTrackingUrl === 'function')
+    ? normalizeTrackingUrl(rawUrl)
+    : rawUrl;
+  if (!trackingUrl) { showToast('Link de rastreo inválido (usa http:// o https://)'); return; }
 
   const rawEnvio = (envioInput?.value || '').trim();
   if (rawEnvio === '') { showToast('Ingresa el costo real del envío'); return; }
@@ -1033,7 +1040,7 @@ async function setTrackingId(firestoreId) {
     : diff < 0
     ? `El envío costó $${(-diff).toFixed(2)} menos de lo cobrado → se sumará a la ganancia.`
     : 'El costo del envío coincide con lo cobrado.';
-  if (!confirm(`¿Confirmar el pedido?\n\nID de rastreo: ${tid}\nCosto real del envío: $${costoEnvioReal.toFixed(2)}\n${aviso}\n\nEl cliente podrá ver el ID de rastreo.`)) return;
+  if (!confirm(`¿Confirmar el pedido?\n\nNúmero: ${tid}\nLink: ${trackingUrl}\nCosto real del envío: $${costoEnvioReal.toFixed(2)}\n${aviso}\n\nEl cliente verá el número y al tocarlo abrirá el link.`)) return;
 
   try {
     const fresh = (await db.collection('pedidos').doc(firestoreId).get()).data() || {};
@@ -1051,6 +1058,7 @@ async function setTrackingId(firestoreId) {
     const batch = db.batch();
     batch.update(db.collection('pedidos').doc(firestoreId), {
       trackingId: tid,
+      trackingUrl,
       costoEnvioReal: envioRealNum,
       status: 'confirmado',
       confirmedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -1067,7 +1075,8 @@ async function setTrackingId(firestoreId) {
     }
     await batch.commit();
     if (o) {
-      o.trackingId = tid; o.costoEnvioReal = envioRealNum; o.status = 'confirmado';
+      o.trackingId = tid; o.trackingUrl = trackingUrl;
+      o.costoEnvioReal = envioRealNum; o.status = 'confirmado';
       o.costoEnvioRegistrado = true;
     }
     closeModal('orderDetailModal');
@@ -1150,35 +1159,55 @@ function showOrderDetail(firestoreId) {
                    placeholder="Ej. 4.50" value="${o.costoEnvioReal != null ? o.costoEnvioReal : ''}"
                    autocomplete="off">
           </div>
-          <label class="odetail-track-label" style="margin-top:12px">ID de rastreo</label>
+          <label class="odetail-track-label" style="margin-top:12px">Link de rastreo</label>
+          <div class="odetail-track-row">
+            <input id="trackingUrlInput" type="url" placeholder="https://rastreo.ejemplo.com/..." autocomplete="off">
+          </div>
+          <label class="odetail-track-label" style="margin-top:12px">Número de rastreo</label>
           <div class="odetail-track-row">
             <input id="trackingInput" type="text" placeholder="Ej. PICO-123456" autocomplete="off">
             <button class="odetail-confirm-btn" onclick="setTrackingId('${o.firestoreId}')">Confirmar pedido</button>
           </div>
           <p class="odetail-track-hint">El cliente pagó <b>$${(o.envioCosto || 0).toFixed(2)}</b> de envío (se suma a <b>ventas</b> de CDB).
           Al confirmar, el <b>costo real</b> del envío se registra en <b>costos</b> de CDB en este momento.
-          La ganancia neta del envío = lo cobrado − el costo real. El pedido pasa a <b>Confirmado</b> y el cliente verá el ID de rastreo.</p>
+          La ganancia neta del envío = lo cobrado − el costo real. El pedido pasa a <b>Confirmado</b> y el cliente verá el <b>número</b>; al tocarlo abrirá el <b>link</b>.</p>
         </div>`;
       }
     } else if (o.status === 'confirmado') {
       const envioRealTxt = (typeof o.costoEnvioReal === 'number')
         ? `<div class="odetail-track-hint" style="margin-top:0;margin-bottom:8px">Costo real del envío: <b>$${o.costoEnvioReal.toFixed(2)}</b> (cliente pagó $${(o.envioCosto||0).toFixed(2)})</div>`
         : '';
+      const tidEsc = (typeof _pdEsc === 'function' ? _pdEsc(o.trackingId || '—') : (o.trackingId || '—'));
+      const tUrl = (typeof normalizeTrackingUrl === 'function') ? normalizeTrackingUrl(o.trackingUrl) : (o.trackingUrl || '');
+      const tidHtml = tUrl
+        ? `<a class="tracking-id-link" href="${(typeof _pdEsc === 'function' ? _pdEsc(tUrl) : tUrl)}" target="_blank" rel="noopener noreferrer">${tidEsc}</a>`
+        : `<span>${tidEsc}</span>`;
+      const urlHint = tUrl
+        ? `<div class="odetail-track-hint" style="margin-top:0;margin-bottom:8px">Link: <a href="${(typeof _pdEsc === 'function' ? _pdEsc(tUrl) : tUrl)}" target="_blank" rel="noopener noreferrer" style="color:var(--b600);word-break:break-all">${(typeof _pdEsc === 'function' ? _pdEsc(tUrl) : tUrl)}</a></div>`
+        : '';
       accionBlock = `
         <div class="odetail-track-box confirmed">
           <div class="odetail-track-label">ID de rastreo asignado</div>
           <div class="odetail-track-id">
-            <span>${o.trackingId || '—'}</span>
-            <button class="copy-btn" title="Copiar" onclick="copyToClipboard('${(o.trackingId||'').replace(/'/g,"\\'")}', this)"></button>
+            ${tidHtml}
+            <button class="copy-btn" title="Copiar número" onclick="copyToClipboard('${(o.trackingId||'').replace(/'/g,"\\'")}', this)"></button>
           </div>
+          ${urlHint}
           ${envioRealTxt}
           <button class="odetail-deliver-btn" onclick="adminMarkDelivered('${o.firestoreId}')">Marcar como entregado</button>
         </div>`;
     } else if (o.status === 'delivered' || o.status === 'sold') {
+      const tidEscD = (typeof _pdEsc === 'function' ? _pdEsc(o.trackingId || '') : (o.trackingId || ''));
+      const tUrlD = (typeof normalizeTrackingUrl === 'function') ? normalizeTrackingUrl(o.trackingUrl) : (o.trackingUrl || '');
+      const tidHtmlD = o.trackingId
+        ? (tUrlD
+          ? `<div class="odetail-track-id"><a class="tracking-id-link" href="${(typeof _pdEsc === 'function' ? _pdEsc(tUrlD) : tUrlD)}" target="_blank" rel="noopener noreferrer">${tidEscD}</a></div>`
+          : `<div class="odetail-track-id"><span>${tidEscD}</span></div>`)
+        : '';
       accionBlock = `
         <div class="odetail-track-box confirmed">
           <div class="odetail-track-label">Entregado</div>
-          ${o.trackingId ? `<div class="odetail-track-id"><span>${o.trackingId}</span></div>` : ''}
+          ${tidHtmlD}
         </div>`;
     }
 

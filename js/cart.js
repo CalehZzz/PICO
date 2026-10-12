@@ -1105,7 +1105,8 @@ async function placeOrder() {
       statsRecorded: false,      // estadísticas de venta registradas (tarjeta: al pagar / efectivo: al entregar)
       ingresoEnvioRegistrado: false, // envío cobrado ya sumado a ventas/ingresos (tarjeta: al pagar / efectivo: al entregar)
       costoEnvioRegistrado:   false, // envío real ya sumado a costos (al confirmar/asignar guía)
-      trackingId:  null,         // lo asigna el admin; al asignarlo el pedido pasa a 'confirmado'
+      trackingId:  null,         // número; lo asigna el admin junto con trackingUrl
+      trackingUrl: null,         // link al que lleva el número en la vista del cliente
       confirmedAt: null,
       status:      'pending',
       // El stock se descuenta SIEMPRE al crear el pedido (transacción de arriba).

@@ -24,11 +24,35 @@ function orderEntregaMeta(o) {
   if (o.grade || o.section) return `<span>${o.grade || ''} – ${o.section || ''}</span>`;
   return '<span>Retiro en sucursal</span>';
 }
+// Normaliza URL de rastreo (solo http/https). Vacío si no es válida.
+function normalizeTrackingUrl(raw) {
+  let url = String(raw || '').trim();
+  if (!url) return '';
+  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return '';
+    return u.href;
+  } catch (_) {
+    return '';
+  }
+}
+function _trackEsc(str) {
+  if (typeof _pdEsc === 'function') return _pdEsc(str);
+  if (typeof escHtml === 'function') return escHtml(str);
+  return String(str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
 // Bloque del ID de rastreo (solo domicilio, cuando ya está asignado).
+// El cliente ve el número; si hay link, al tocarlo abre el trackingUrl.
 function orderTrackingBlock(o) {
   if (o.tipoEntrega !== 'domicilio' || !o.trackingId) return '';
-  return `<div style="margin-top:9px;padding:8px 12px;background:var(--b50);border:1.5px solid var(--b200);border-radius:9px;font-size:.8rem;color:var(--g700)">
-      <b>ID de rastreo:</b> <span style="color:var(--b600);font-weight:700;letter-spacing:.03em">${o.trackingId}</span>
+  const idEsc = _trackEsc(o.trackingId);
+  const url = normalizeTrackingUrl(o.trackingUrl);
+  const idHtml = url
+    ? `<a class="tracking-id-link" href="${_trackEsc(url)}" target="_blank" rel="noopener noreferrer">${idEsc}</a>`
+    : `<span class="tracking-id-text">${idEsc}</span>`;
+  return `<div class="order-tracking-block">
+      <b>ID de rastreo:</b> ${idHtml}
     </div>`;
 }
 // Línea de envío dentro del desglose (solo domicilio).
