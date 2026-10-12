@@ -966,13 +966,17 @@ async function adminCancelOrder(firestoreId, code) {
   }
 }
 
+const COPY_BTN_ICON =
+  '<svg class="copy-btn-ico" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+const COPY_BTN_OK =
+  '<svg class="copy-btn-ico" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
+
 function copyToClipboard(text, btn) {
   const done = () => {
     if (btn) {
-      const prev = btn.innerHTML;
-      btn.innerHTML = '✓';
+      btn.innerHTML = COPY_BTN_OK;
       btn.classList.add('copied');
-      setTimeout(() => { btn.innerHTML = prev; btn.classList.remove('copied'); }, 1200);
+      setTimeout(() => { btn.innerHTML = COPY_BTN_ICON; btn.classList.remove('copied'); }, 1200);
     }
     showToast('Copiado al portapapeles');
   };
@@ -1009,7 +1013,7 @@ function copyFieldRow(label, value) {
         <div class="copy-row-label">${label}</div>
         <div class="copy-row-value">${value}</div>
       </div>
-      <button class="copy-btn" title="Copiar" onclick="copyToClipboard('${safe}', this)"></button>
+      <button class="copy-btn" title="Copiar" aria-label="Copiar" onclick="copyToClipboard('${safe}', this)">${COPY_BTN_ICON}</button>
     </div>`;
 }
 
@@ -1190,7 +1194,7 @@ function showOrderDetail(firestoreId) {
           <div class="odetail-track-label">ID de rastreo asignado</div>
           <div class="odetail-track-id">
             ${tidHtml}
-            <button class="copy-btn" title="Copiar número" onclick="copyToClipboard('${(o.trackingId||'').replace(/'/g,"\\'")}', this)"></button>
+            <button class="copy-btn" title="Copiar número" aria-label="Copiar número" onclick="copyToClipboard('${(o.trackingId||'').replace(/'/g,"\\'")}', this)">${COPY_BTN_ICON}</button>
           </div>
           ${urlHint}
           ${envioRealTxt}
