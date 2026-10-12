@@ -222,9 +222,11 @@ function sucursalInternalLabel(suc) {
 }
 
 // El usuario elige "Retiro en sucursal": revela el sub-selector de institución.
+// TEMPORAL: retiro en sucursal redirige de una a domicilio (no borrar lógica).
 function gateShowPickup() {
-  const panel = document.getElementById('gatePickupPanel');
-  if (panel) panel.style.display = 'block';
+  // const panel = document.getElementById('gatePickupPanel');
+  // if (panel) panel.style.display = 'block';
+  gateChooseDomicilio();
 }
 // Cambia el sub-selector: muestra el campo de texto solo si es "Otros".
 function gatePickupSelectChange(v) {
