@@ -1522,6 +1522,20 @@ tr:hover td{background:rgba(0,113,227,.04)}
 .odetail-deliver-btn:hover{transform:translateY(-2px);box-shadow:0 10px 26px rgba(52,199,89,.44)}
 .odetail-deliver-btn:active{transform:translateY(0) scale(.99)}
 
+/* ─── Mapa de pin (checkout domicilio) ─── */
+.ship-map-lead{font-size:.8rem;color:var(--g500);line-height:1.45;margin:0 0 10px}
+.ship-places-host{margin-bottom:10px}
+.ship-places-autocomplete,.ship-places-host gmp-place-autocomplete{width:100%;display:block}
+.ship-map-places-fallback{font-size:.78rem;color:var(--g400);margin:0 0 8px}
+.ship-map-actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.ship-map-wrap{border-radius:14px;overflow:hidden;border:1.5px solid rgba(17,24,39,.1);background:var(--g100)}
+.ship-map{width:100%;height:240px}
+.ship-map-status{font-size:.78rem;color:var(--amber);font-weight:600;margin:8px 0 0;line-height:1.4}
+.ship-map-status.ok{color:var(--green)}
+/* Dropdown Places por encima del modal de checkout */
+.pac-container{z-index:10000 !important}
+gmp-place-autocomplete{z-index:5;position:relative}
+
 /* ─── TÉRMINOS Y CONDICIONES (modal) ─── */
 .terms-body{font-size:.86rem;color:var(--g700);line-height:1.6;max-height:60vh;overflow-y:auto}
 .terms-body h4{font-size:.92rem;font-weight:800;color:var(--g900);margin:16px 0 6px;letter-spacing:-.01em}

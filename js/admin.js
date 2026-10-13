@@ -1123,6 +1123,14 @@ function showOrderDetail(firestoreId) {
                      : o.paymentStatus === 'efectivo'? 'Contra entrega'
                      : (o.paymentStatus || '—');
 
+    const pinLat = (e.lat != null) ? e.lat : null;
+    const pinLng = (e.lng != null) ? e.lng : null;
+    const mapsUrl = e.mapsUrl
+      || ((pinLat != null && pinLng != null)
+        ? ((typeof shippingMapsLink === 'function')
+          ? shippingMapsLink(pinLat, pinLng)
+          : ('https://www.google.com/maps?q=' + pinLat + ',' + pinLng))
+        : '');
     const copyRows = [
       copyFieldRow('Nombre completo', e.nombre || o.name),
       copyFieldRow('Teléfono', e.telefono),
@@ -1131,7 +1139,9 @@ function showOrderDetail(firestoreId) {
       copyFieldRow('Municipio', e.municipio),
       copyFieldRow('Dirección', e.direccion),
       copyFieldRow('Punto de referencia', e.referencia),
-      copyFieldRow('Indicaciones', e.indicaciones)
+      copyFieldRow('Indicaciones', e.indicaciones),
+      (pinLat != null && pinLng != null) ? copyFieldRow('Coordenadas', pinLat + ', ' + pinLng) : '',
+      mapsUrl ? copyFieldRow('Ver en Google Maps', mapsUrl) : ''
     ].join('');
 
     // Acción según el estado del pedido
