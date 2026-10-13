@@ -1492,8 +1492,9 @@ tr:hover td{background:rgba(0,113,227,.04)}
 .copy-row-label{font-size:.68rem;font-weight:800;color:var(--g400);text-transform:uppercase;letter-spacing:.05em}
 .copy-row-value{font-size:.86rem;font-weight:600;color:var(--g900);word-break:break-word;margin-top:2px}
 .copy-btn{flex-shrink:0;width:37px;height:37px;border-radius:12px;border:1px solid rgba(0,113,227,.16);
-  background:rgba(0,113,227,.06);color:var(--b600);cursor:pointer;font-size:.95rem;line-height:1;
-  display:flex;align-items:center;justify-content:center;transition:background .18s var(--ease),transform .18s var(--ease)}
+  background:rgba(0,113,227,.06);color:var(--b600);cursor:pointer;padding:0;
+  display:inline-flex;align-items:center;justify-content:center;transition:background .18s var(--ease),transform .18s var(--ease),color .18s var(--ease),border-color .18s var(--ease)}
+.copy-btn-ico{display:block;flex-shrink:0}
 .copy-btn:hover{background:rgba(0,113,227,.14)}
 .copy-btn:active{transform:scale(.9)}
 .copy-btn.copied{background:rgba(52,199,89,.16);border-color:rgba(52,199,89,.4);color:#1a8c3c}
