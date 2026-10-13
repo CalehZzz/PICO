@@ -126,6 +126,146 @@ async function ensurePedidoFactura(orderId, orderData) {
   return { already, facturaId, facturaNum: numFactura };
 }
 
+const ORDER_NOTIFY_EMAIL = 'picosvsupport@gmail.com';
+
+/** Aviso al equipo: solo una vez por pedido (idempotente con mailNotifySent). */
+async function ensureOrderNotifyEmail(orderId, orderData) {
+  const o = orderData || {};
+  if (o.mailNotifySent === true) return { already: true };
+  const orderRef = db.collection('pedidos').doc(orderId);
+  // Etiqueta interna de entrega
+  let sucLabel = 'Retiro en sucursal';
+  if (o.tipoEntrega === 'domicilio') sucLabel = 'Envío a domicilio';
+  else if (o.sucursal === 'cdb') sucLabel = 'Colegio Don Bosco';
+  else if (o.sucursal === 'udb') sucLabel = 'Universidad Don Bosco';
+  else if (o.sucursal === 'exsal') sucLabel = 'EXSAL';
+
+  const finalTotal = o.totalConDescuento != null ? o.totalConDescuento : (o.total || 0);
+  const items = Array.isArray(o.items) ? o.items : [];
+  const rows = items.map(i => {
+    const name = i.colorLabel ? ((i.name || '') + ' · ' + i.colorLabel) : (i.name || '');
+    const price = Number(i.price) || 0;
+    const qty = i.qty || 0;
+    return `<tr>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee">${name}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:center">${qty}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">$${price.toFixed(2)}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">$${(qty * price).toFixed(2)}</td>
+    </tr>`;
+  }).join('');
+
+  const e = o.envio || {};
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#0f172a">
+      <h2 style="margin:0 0 4px">Pedido pagado · ${o.code || orderId}</h2>
+      <p style="margin:0 0 16px;color:#64748b">${new Date().toLocaleString('es-SV')} · pago con tarjeta confirmado</p>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
+        <tr><td style="padding:4px 0;color:#64748b">Cliente</td><td style="padding:4px 0;font-weight:600">${o.name || ''}</td></tr>
+        <tr><td style="padding:4px 0;color:#64748b">Entrega</td><td style="padding:4px 0;font-weight:600">${sucLabel}</td></tr>
+        ${o.visitaInstitucion ? `<tr><td style="padding:4px 0;color:#64748b">Nos visita desde</td><td style="padding:4px 0;font-weight:700;color:#0071e3">${o.visitaInstitucion}</td></tr>` : ''}
+        ${o.tipoEntrega === 'domicilio' ? `
+        <tr><td style="padding:4px 0;color:#64748b">Dirección</td><td style="padding:4px 0;font-weight:600">${e.direccion || ''}</td></tr>
+        <tr><td style="padding:4px 0;color:#64748b">Teléfono</td><td style="padding:4px 0;font-weight:600">${e.telefono || ''}</td></tr>` : ''}
+        <tr><td style="padding:4px 0;color:#64748b">Método de pago</td><td style="padding:4px 0;font-weight:600">Tarjeta (pagado)</td></tr>
+        ${o.email ? `<tr><td style="padding:4px 0;color:#64748b">Correo cliente</td><td style="padding:4px 0;font-weight:600">${o.email}</td></tr>` : ''}
+      </table>
+      <table style="width:100%;border-collapse:collapse;font-size:14px">
+        <tr style="background:#f1f5f9">
+          <th style="padding:8px 10px;text-align:left">Producto</th>
+          <th style="padding:8px 10px;text-align:center">Cant.</th>
+          <th style="padding:8px 10px;text-align:right">Precio</th>
+          <th style="padding:8px 10px;text-align:right">Subtotal</th>
+        </tr>
+        ${rows}
+        ${o.tipoEntrega === 'domicilio' && o.envioCosto ? `
+        <tr><td colspan="3" style="padding:6px 10px;text-align:right">Envío a domicilio</td>
+            <td style="padding:6px 10px;text-align:right">$${Number(o.envioCosto).toFixed(2)}</td></tr>` : ''}
+        <tr><td colspan="3" style="padding:10px;text-align:right;font-weight:700;font-size:16px;border-top:2px solid #0f172a">TOTAL</td>
+            <td style="padding:10px;text-align:right;font-weight:700;font-size:16px;border-top:2px solid #0f172a">$${(typeof o.totalConEnvio === 'number' ? o.totalConEnvio : finalTotal).toFixed(2)}</td></tr>
+      </table>
+      <p style="margin-top:16px;color:#94a3b8;font-size:12px">ID del pedido: ${orderId}</p>
+    </div>`;
+
+  await db.collection('mail').add({
+    to: ORDER_NOTIFY_EMAIL,
+    message: {
+      subject: `Pedido pagado ${o.code || ''} — ${o.name || ''} (${sucLabel})`,
+      html,
+      text: `Pedido pagado ${o.code || orderId} — ${o.name || ''}`
+    }
+  });
+  await orderRef.update({
+    mailNotifySent: true,
+    mailNotifyPendientePago: false
+  }).catch(() => {});
+  return { ok: true };
+}
+
+/** Correo de factura al cliente (idempotente con facturaClienteMailSent). */
+async function ensureFacturaClienteEmail(orderId, orderData, facturaNum) {
+  const o = orderData || {};
+  if (o.facturaClienteMailSent === true) return { already: true };
+  if (!o.email || !facturaNum) return { skipped: true };
+  const orderRef = db.collection('pedidos').doc(orderId);
+  const discPct = o.discountPct || 0;
+  const discFactor = discPct ? ((100 - discPct) / 100) : 1;
+  const creditsUsed = Math.max(0, Number(o.creditsUsed) || 0);
+  const items = (o.items || []).map(it => {
+    const sub = round2((it.price || 0) * (it.qty || 0));
+    return {
+      productName: it.colorLabel ? ((it.name || '') + ' · ' + it.colorLabel) : (it.name || ''),
+      qty: it.qty,
+      total: round2(sub * discFactor)
+    };
+  });
+  const subtotal = round2(typeof o.total === 'number' ? o.total : 0);
+  const totalProductos = typeof o.totalConDescuento === 'number' ? round2(o.totalConDescuento) : subtotal;
+  const totalTrasCreditos = round2(Math.max(0, totalProductos - creditsUsed));
+  const envioCosto = (o.tipoEntrega === 'domicilio' && typeof o.envioCosto === 'number') ? round2(o.envioCosto) : 0;
+  const total = round2(totalTrasCreditos + envioCosto);
+  const fecha = new Date().toLocaleDateString('es');
+  const filas = items.map(i => `<tr>
+      <td style="padding:7px 0;border-bottom:1px solid #eef5fb">${i.productName}</td>
+      <td style="padding:7px 0;border-bottom:1px solid #eef5fb;text-align:center">${i.qty}</td>
+      <td style="padding:7px 0;border-bottom:1px solid #eef5fb;text-align:right">$${i.total.toFixed(2)}</td>
+    </tr>`).join('');
+
+  await db.collection('mail').add({
+    to: o.email,
+    message: {
+      subject: `Factura ${facturaNum} — PICO Electrónica`,
+      html: `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:auto;color:#0f3f63">
+  <div style="background:#4aa8e8;color:#fff;padding:18px 20px;border-radius:10px 10px 0 0">
+    <div style="font-size:20px;font-weight:700">PICO Electrónica</div>
+    <div style="font-size:13px;opacity:.92">Factura ${facturaNum}</div>
+  </div>
+  <div style="border:1px solid #e2eef7;border-top:none;border-radius:0 0 10px 10px;padding:18px 20px">
+    <p style="margin:0 0 4px">¡Gracias por tu compra, <b>${o.name || ''}</b>!</p>
+    <p style="margin:0 0 14px;color:#4a89b0;font-size:13px">Pedido <b>${o.code || ''}</b> &middot; ${fecha}</p>
+    <table style="width:100%;border-collapse:collapse;font-size:14px">
+      <thead><tr style="color:#4a89b0;font-size:12px">
+        <th style="padding:6px 0;border-bottom:2px solid #e2eef7;text-align:left">Producto</th>
+        <th style="padding:6px 0;border-bottom:2px solid #e2eef7;text-align:center">Cant.</th>
+        <th style="padding:6px 0;border-bottom:2px solid #e2eef7;text-align:right">Total</th>
+      </tr></thead>
+      <tbody>${filas}</tbody>
+    </table>
+    ${envioCosto ? `<p style="margin:6px 0 0;text-align:right;color:#4a89b0;font-size:13px">Envío a domicilio: $${envioCosto.toFixed(2)}</p>` : ''}
+    ${creditsUsed ? `<p style="margin:6px 0 0;text-align:right;color:#0d9488;font-size:13px">Créditos PICO: -$${creditsUsed.toFixed(2)}</p>` : ''}
+    <p style="margin:8px 0 0;text-align:right;font-size:17px;font-weight:700">TOTAL: $${total.toFixed(2)}</p>
+    <p style="margin:18px 0 0;color:#94a3b8;font-size:12px">Este es un correo automático, por favor no respondas a esta dirección.</p>
+  </div>
+</div>`,
+      text: `Factura ${facturaNum} — Pedido ${o.code || ''} — Total $${total.toFixed(2)}`
+    }
+  });
+  await orderRef.update({
+    facturaClienteMailSent: true,
+    facturaPendientePago: false
+  }).catch(() => {});
+  return { ok: true };
+}
+
 // ════════════════════════════════════════════════════════════════
 //  Autenticación OAuth 2.0 (Client Credentials) con caché en memoria
 // ════════════════════════════════════════════════════════════════
@@ -317,13 +457,22 @@ async function recordCardPaymentStats(orderId, wompiTxId) {
     });
   });
 
+  // Factura + correos diferidos (tarjeta): se crean/envían SOLO al confirmar el pago.
+  // Idempotente. No altera la lógica de stats (ya registrada arriba).
   try {
     const fresh = await orderRef.get();
     if (fresh.exists) {
-      await ensurePedidoFactura(orderId, fresh.data());
+      const data = fresh.data() || {};
+      const fac = await ensurePedidoFactura(orderId, data);
+      const afterFac = (await orderRef.get()).data() || data;
+      const num = (fac && fac.facturaNum) || afterFac.facturaNum || null;
+      try { await ensureOrderNotifyEmail(orderId, afterFac); }
+      catch (e) { console.warn('ensureOrderNotifyEmail falló para', orderId, e && e.message); }
+      try { await ensureFacturaClienteEmail(orderId, afterFac, num); }
+      catch (e) { console.warn('ensureFacturaClienteEmail falló para', orderId, e && e.message); }
     }
   } catch (e) {
-    console.warn('ensurePedidoFactura falló para', orderId, e && e.message);
+    console.warn('ensurePedidoFactura/correos falló para', orderId, e && e.message);
   }
 
   console.log('Estadísticas registradas para pedido', orderId);
