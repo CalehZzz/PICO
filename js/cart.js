@@ -155,7 +155,8 @@ function sendOrderEmail(orderId, d) {
         <tr><td style="padding:4px 0;color:#64748b">Teléfono</td><td style="padding:4px 0;font-weight:600">${d.envio.telefono || ''}</td></tr>
         ${d.envio.telefono2 ? `<tr><td style="padding:4px 0;color:#64748b">Tel. adicional</td><td style="padding:4px 0;font-weight:600">${d.envio.telefono2}</td></tr>` : ''}
         ${d.envio.referencia ? `<tr><td style="padding:4px 0;color:#64748b">Referencia</td><td style="padding:4px 0;font-weight:600">${d.envio.referencia}</td></tr>` : ''}
-        ${d.envio.indicaciones ? `<tr><td style="padding:4px 0;color:#64748b">Indicaciones</td><td style="padding:4px 0;font-weight:600">${d.envio.indicaciones}</td></tr>` : ''}` : ''}
+        ${d.envio.indicaciones ? `<tr><td style="padding:4px 0;color:#64748b">Indicaciones</td><td style="padding:4px 0;font-weight:600">${d.envio.indicaciones}</td></tr>` : ''}
+        ${(d.envio.lat != null && d.envio.lng != null) ? `<tr><td style="padding:4px 0;color:#64748b">Pin mapa</td><td style="padding:4px 0;font-weight:600">${d.envio.lat}, ${d.envio.lng}${d.envio.mapsUrl ? ` · <a href="${d.envio.mapsUrl}" target="_blank" rel="noopener">Ver en Maps</a>` : ''}</td></tr>` : ''}` : ''}
         ${d.metodoPago ? `<tr><td style="padding:4px 0;color:#64748b">Método de pago</td><td style="padding:4px 0;font-weight:600">${d.metodoPago === 'tarjeta' ? 'Tarjeta' : 'Efectivo'}</td></tr>` : ''}
         ${d.email ? `<tr><td style="padding:4px 0;color:#64748b">Correo cliente</td><td style="padding:4px 0;font-weight:600">${d.email}</td></tr>` : ''}
       </table>
@@ -841,6 +842,10 @@ function toggleDeliveryFields(sucursal) {
     if (saved.shipAddress)    document.getElementById('shipAddress').value    = saved.shipAddress;
     if (saved.shipRef)        document.getElementById('shipRef').value        = saved.shipRef;
     if (saved.shipNotes)      document.getElementById('shipNotes').value      = saved.shipNotes;
+    if (typeof initShippingMap === 'function') {
+      // Esperar a que el modal sea visible para que el mapa calcule bien el tamaño
+      setTimeout(() => initShippingMap(saved), 60);
+    }
   }
   if (tieneEntrega) selectPayment(selectedPayment); // re-aplicar estado visual del método de pago
 }
@@ -938,7 +943,18 @@ async function placeOrder() {
       showToast('Completa todos los datos de envío obligatorios');
       return;
     }
-    envio = { nombre: name, telefono, telefono2, departamento, municipio, direccion, referencia, indicaciones };
+    const pin = (typeof getShippingPin === 'function') ? getShippingPin() : null;
+    if (!pin) {
+      showToast('Marcá tu ubicación exacta en el mapa (obligatorio)');
+      const mapWrap = document.getElementById('shipMapWrap');
+      if (mapWrap) mapWrap.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    envio = {
+      nombre: name, telefono, telefono2, departamento, municipio, direccion, referencia, indicaciones,
+      lat: pin.lat, lng: pin.lng,
+      mapsUrl: (typeof shippingMapsLink === 'function') ? shippingMapsLink(pin.lat, pin.lng) : ('https://www.google.com/maps?q=' + pin.lat + ',' + pin.lng)
+    };
     // Con Enlace de Pago la tarjeta se ingresa EN WOMPI, no aquí. No recogemos datos de tarjeta.
     // Guardar los datos de envío en el perfil para futuros pedidos
     try {
@@ -948,12 +964,14 @@ async function placeOrder() {
       prof.shipDepartment = departamento; prof.shipCity = municipio;
       prof.shipAddress = direccion;    prof.shipRef = referencia;
       prof.shipNotes = indicaciones;
+      prof.shipLat = pin.lat;          prof.shipLng = pin.lng;
       localStorage.setItem(key, JSON.stringify(prof));
       // Guardar también en la nube (cross-device)
       if (typeof saveProfileToCloud === 'function') saveProfileToCloud({
         shipPhone: telefono, shipPhone2: telefono2,
         shipDepartment: departamento, shipCity: municipio,
-        shipAddress: direccion, shipRef: referencia, shipNotes: indicaciones
+        shipAddress: direccion, shipRef: referencia, shipNotes: indicaciones,
+        shipLat: pin.lat, shipLng: pin.lng
       });
     } catch (_) {}
   }
