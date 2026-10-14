@@ -13,6 +13,9 @@ const adminPaging = {
   done:   { page: 0, cursors: [], docs: [], atEnd: false, loading: false }
 };
 
+const ADMIN_RATINGS_PAGE_SIZE = 5;
+const adminRatingsPaging = { page: 0, cursors: [], docs: [], atEnd: false, loading: false };
+
 function startAdminListener() {
   // Ya no usamos un listener global que lea todos los pedidos.
   // La carga es paginada y bajo demanda (5 en 5) al abrir el panel.
@@ -78,6 +81,7 @@ function refreshAdminAfterChange() {
   if (document.body.dataset.page !== 'adminPanel') return;
   loadAdminSection('active');
   loadAdminSection('done');
+  loadAdminRatings();
 }
 
 function renderAdminPanel() {
@@ -88,8 +92,97 @@ function renderAdminPanel() {
   // Reiniciar a la primera página de cada sección y cargar
   adminPaging.active = { page: 0, cursors: [], docs: [], atEnd: false, loading: false };
   adminPaging.done   = { page: 0, cursors: [], docs: [], atEnd: false, loading: false };
+  adminRatingsPaging.page = 0;
+  adminRatingsPaging.cursors = [];
+  adminRatingsPaging.atEnd = false;
   loadAdminSection('active');
   loadAdminSection('done');
+  loadAdminRatings();
+}
+
+// ═══════════════════════════════════════════════════
+//  CALIFICACIONES (domicilio)
+// ═══════════════════════════════════════════════════
+function adminRatingsQuery() {
+  // Solo docs con ratedAt (clientes que ya calificaron producto + envío).
+  return db.collection('pedidos').orderBy('ratedAt', 'desc');
+}
+
+async function loadAdminRatings() {
+  const st = adminRatingsPaging;
+  if (st.loading) return;
+  const tb = document.getElementById('adminRatingsBody');
+  if (!tb) return;
+  st.loading = true;
+  tb.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--g300)">Cargando...</td></tr>`;
+  try {
+    let q = adminRatingsQuery().limit(ADMIN_RATINGS_PAGE_SIZE);
+    if (st.page > 0 && st.cursors[st.page - 1]) {
+      q = q.startAfter(st.cursors[st.page - 1]);
+    }
+    const snap = await q.get();
+    st.docs = snap.docs.map(d => ({ firestoreId: d.id, ...d.data() }));
+    if (snap.docs.length) st.cursors[st.page] = snap.docs[snap.docs.length - 1];
+    st.atEnd = snap.docs.length < ADMIN_RATINGS_PAGE_SIZE;
+    renderAdminRatings();
+  } catch (err) {
+    console.error('loadAdminRatings:', err);
+    tb.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--red)">Error al cargar calificaciones. ${err.message || ''}</td></tr>`;
+  } finally {
+    st.loading = false;
+  }
+}
+
+function adminRatingsPage(dir) {
+  const st = adminRatingsPaging;
+  if (dir > 0) {
+    if (st.atEnd) return;
+    st.page++;
+  } else {
+    if (st.page === 0) return;
+    st.page--;
+  }
+  loadAdminRatings();
+}
+
+function renderAdminRatings() {
+  const st = adminRatingsPaging;
+  const tb = document.getElementById('adminRatingsBody');
+  const pager = document.getElementById('adminRatingsPager');
+  if (!tb) return;
+  if (!st.docs.length) {
+    tb.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--g300)">Aún no hay calificaciones</td></tr>`;
+  } else {
+    const stars = (n) => {
+      const v = Math.max(0, Math.min(5, Number(n) || 0));
+      return `<span class="admin-rating-stars" title="${v}/5">${'★'.repeat(v)}${'☆'.repeat(5 - v)}</span> <span style="color:var(--g500);font-size:.75rem">${v}/5</span>`;
+    };
+    tb.innerHTML = st.docs.map(o => {
+      const p = o.rating?.product;
+      const s = o.rating?.shipping;
+      return `<tr>
+        <td><b style="color:var(--b600)">${o.code || '—'}</b></td>
+        <td>${o.name || '—'}</td>
+        <td>${stars(p)}</td>
+        <td>${stars(s)}</td>
+        <td style="font-size:.75rem;white-space:nowrap;color:var(--g500)">${o.ratedAt ? fmtDate(o.ratedAt) : (o.deliveredAt ? fmtDate(o.deliveredAt) : '—')}</td>
+        <td>
+          <button onclick="showOrderDetail('${o.firestoreId}')" style="background:var(--b50);color:var(--b600);border:1.5px solid var(--b200);border-radius:7px;padding:3px 9px;font-size:.72rem;font-weight:600;cursor:pointer;white-space:nowrap">
+            Ver
+          </button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+  if (pager) {
+    pager.classList.remove('hidden');
+    const info = document.getElementById('ratingsPageInfo');
+    const prev = document.getElementById('ratingsPrevBtn');
+    const next = document.getElementById('ratingsNextBtn');
+    if (info) info.textContent = `Página ${st.page + 1}`;
+    if (prev) prev.disabled = st.page === 0;
+    if (next) next.disabled = st.atEnd;
+  }
 }
 
 // ═══════════════════════════════════════════════════
@@ -1218,10 +1311,14 @@ function showOrderDetail(firestoreId) {
           ? `<div class="odetail-track-id"><a class="tracking-id-link" href="${(typeof _pdEsc === 'function' ? _pdEsc(tUrlD) : tUrlD)}" target="_blank" rel="noopener noreferrer">${tidEscD}</a></div>`
           : `<div class="odetail-track-id"><span>${tidEscD}</span></div>`)
         : '';
+      const ratingHtml = (o.rating && (o.rating.product || o.rating.shipping))
+        ? `<div class="odetail-track-hint" style="margin-top:10px;margin-bottom:0">Calificación del cliente · Producto <b>${o.rating.product || '—'}/5</b> · Envío <b>${o.rating.shipping || '—'}/5</b></div>`
+        : `<div class="odetail-track-hint" style="margin-top:10px;margin-bottom:0">Sin calificación del cliente todavía.</div>`;
       accionBlock = `
         <div class="odetail-track-box confirmed">
           <div class="odetail-track-label">Entregado</div>
           ${tidHtmlD}
+          ${ratingHtml}
         </div>`;
     }
 

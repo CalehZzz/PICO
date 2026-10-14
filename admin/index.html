@@ -82,6 +82,36 @@
       </div>
     </div>
 
+    <!-- ── CALIFICACIONES DE ENVÍOS A DOMICILIO ── -->
+    <div class="atable-wrap" style="margin-bottom:24px">
+      <div class="atable-hd" style="align-items:flex-start;flex-direction:column;gap:6px">
+        <h3>Calificaciones (domicilio)</h3>
+        <p style="font-size:.8rem;color:var(--g400);margin:0">Opiniones de clientes sobre el producto y el envío en pedidos a domicilio entregados.</p>
+      </div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Código</th>
+              <th>Cliente</th>
+              <th>Producto</th>
+              <th>Envío</th>
+              <th>Fecha</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="adminRatingsBody">
+            <tr><td colspan="6" style="text-align:center;padding:24px;color:var(--g300)">Cargando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div id="adminRatingsPager" class="hidden" style="display:flex;align-items:center;justify-content:center;gap:14px;padding:16px 0">
+        <button id="ratingsPrevBtn" class="page-arrow" onclick="adminRatingsPage(-1)" aria-label="Página anterior">‹</button>
+        <span id="ratingsPageInfo" style="font-size:.85rem;font-weight:700;color:var(--g700);min-width:80px;text-align:center"></span>
+        <button id="ratingsNextBtn" class="page-arrow" onclick="adminRatingsPage(1)" aria-label="Página siguiente">›</button>
+      </div>
+    </div>
+
     <!-- ── PEDIDOS ACTIVOS (PENDIENTES) ── -->
     <div class="atable-wrap" style="margin-bottom:24px">
       <div class="atable-hd">
