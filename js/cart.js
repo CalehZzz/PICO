@@ -1153,8 +1153,28 @@ async function placeOrder() {
       consumirDescuentoTrasPedido(docRef.id).catch(e => console.warn('consumirDescuento:', e));
     }
 
-    // Aviso por correo al dueño (no bloquea el pedido si algo falla)
-    sendOrderEmail(docRef.id, {
+    // ── Factura + correo de aviso ──────────────────────────────────────────
+    // Regla compartida con inventario:
+    //   • Contra entrega (efectivo) → factura + correo al CREAR el pedido
+    //   • Tarjeta con saldo a pagar → diferir hasta confirmar pago Wompi
+    //   • Cubierto 100% con créditos → tratar como pagado (al crear)
+    // Las estadísticas de venta NO se tocan aquí (efectivo: al entregar;
+    // tarjeta: al pagar en Cloud Functions). Cancelar sigue anulando factura.
+    let deferUntilPaid = (metodoPago === 'tarjeta');
+    if (metodoPago === 'efectivo') deferUntilPaid = false;
+    if (deferUntilPaid) {
+      try {
+        const freshPay = await db.collection('pedidos').doc(docRef.id).get();
+        const fd = freshPay.exists ? (freshPay.data() || {}) : {};
+        if (fd.creditsFullyPaid === true || fd.paymentStatus === 'credits') {
+          deferUntilPaid = false;
+        } else if (typeof fd.totalConEnvio === 'number' && fd.totalConEnvio <= 0) {
+          deferUntilPaid = false;
+        }
+      } catch (_) {}
+    }
+
+    const mailPayload = {
       code, name, grade, section, items,
       total: +rawTotal.toFixed(2),
       totalConDescuento: discFields.totalConDescuento,
@@ -1170,25 +1190,44 @@ async function placeOrder() {
       creditsUsed: creditsUsedFinal || null,
       metodoPago,
       email: currentUser?.email || null
-    }).catch(e => console.warn('No se pudo encolar el correo de aviso:', e));
+    };
 
-    // Factura: ESPERAR antes de redirigir a Wompi (domicilio/tarjeta). Antes era fire-and-forget
-    // y al navegar se abortaba la escritura → no se creaban facturas de envío a domicilio.
-    try {
-      await crearYEnviarFacturaPedido(docRef.id, {
-        code, name, items,
-        total: +rawTotal.toFixed(2),
-        totalConDescuento: discFields.totalConDescuento,
-        discountName: discFields.discountName,
-        discountPct:  discFields.discountPct,
-        sucursal,
-        tipoEntrega: esDomicilio ? 'domicilio' : 'pickup',
-        envioCosto: shipCost,
-        creditsUsed: creditsUsedFinal || 0,
-        email: currentUser?.email || null
-      });
-    } catch (e) {
-      console.warn('No se pudo crear/enviar la factura del pedido:', e);
+    if (deferUntilPaid) {
+      try {
+        await docRef.update({
+          facturaPendientePago: true,
+          mailNotifyPendientePago: true,
+          mailNotifySent: false,
+          facturaClienteMailSent: false
+        });
+      } catch (e) { console.warn('No se pudo marcar factura/correo pendientes de pago:', e); }
+    } else {
+      // Aviso por correo al dueño (no bloquea el pedido si algo falla)
+      sendOrderEmail(docRef.id, mailPayload)
+        .then(() => docRef.update({ mailNotifySent: true, mailNotifyPendientePago: false }).catch(() => {}))
+        .catch(e => console.warn('No se pudo encolar el correo de aviso:', e));
+
+      // Factura al instante (efectivo / créditos 100%). Esperar antes de seguir.
+      try {
+        await crearYEnviarFacturaPedido(docRef.id, {
+          code, name, items,
+          total: +rawTotal.toFixed(2),
+          totalConDescuento: discFields.totalConDescuento,
+          discountName: discFields.discountName,
+          discountPct:  discFields.discountPct,
+          sucursal,
+          tipoEntrega: esDomicilio ? 'domicilio' : 'pickup',
+          envioCosto: shipCost,
+          creditsUsed: creditsUsedFinal || 0,
+          email: currentUser?.email || null
+        });
+        await docRef.update({
+          facturaPendientePago: false,
+          facturaClienteMailSent: true
+        }).catch(() => {});
+      } catch (e) {
+        console.warn('No se pudo crear/enviar la factura del pedido:', e);
+      }
     }
 
     // El stock ya se verificó y descontó en la transacción de arriba (antes de crear el pedido).
