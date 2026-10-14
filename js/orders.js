@@ -61,6 +61,116 @@ function orderEnvioLine(o) {
   return `<div class="odetail-subtotal"><span>Envío</span><span>$${(o.envioCosto).toFixed(2)}</span></div>`;
 }
 
+// ── Calificación de pedidos a domicilio (producto + envío, 1–5) ──
+let _rateDraft = { orderId: null, code: '', product: 0, shipping: 0 };
+
+function orderHasRating(o) {
+  return !!(o && o.rating && (o.rating.product || o.rating.shipping || o.ratedAt));
+}
+
+function orderCanRate(o) {
+  if (!o || o.tipoEntrega !== 'domicilio') return false;
+  if (o.status !== 'delivered' && o.status !== 'sold') return false;
+  if (orderHasRating(o)) return false;
+  if (currentUser && o.userId && currentUser.uid !== o.userId) return false;
+  return true;
+}
+
+function orderRatingStarsText(n) {
+  const v = Math.max(0, Math.min(5, Number(n) || 0));
+  return '★'.repeat(v) + '☆'.repeat(5 - v);
+}
+
+function orderRatingBlock(o) {
+  if (!orderHasRating(o)) return '';
+  const p = o.rating?.product || 0;
+  const s = o.rating?.shipping || 0;
+  return `<div class="order-rating-done">Tu calificación · Producto <b>${orderRatingStarsText(p)}</b> (${p}/5) · Envío <b>${orderRatingStarsText(s)}</b> (${s}/5)</div>`;
+}
+
+function orderRateActionHtml(o) {
+  if (!orderCanRate(o)) return orderRatingBlock(o);
+  const id = _trackEsc(o.firestoreId || '');
+  const code = _trackEsc(o.code || '');
+  return `<div style="margin-top:12px;text-align:right">
+      <button type="button" class="btn-rate-order" onclick="openRateOrderModal('${id}','${code}')">Calificar pedido</button>
+    </div>`;
+}
+
+function _paintRateStars(containerId, value, kind) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = [1, 2, 3, 4, 5].map(n =>
+    `<button type="button" class="rate-star${n <= value ? ' is-on' : ''}" aria-label="${n} de 5"
+      aria-checked="${n === value ? 'true' : 'false'}" role="radio"
+      onclick="setRateDraft('${kind}',${n})">${n}</button>`
+  ).join('');
+}
+
+function setRateDraft(kind, value) {
+  if (kind === 'product') _rateDraft.product = value;
+  else if (kind === 'shipping') _rateDraft.shipping = value;
+  _paintRateStars('rateProductStars', _rateDraft.product, 'product');
+  _paintRateStars('rateShippingStars', _rateDraft.shipping, 'shipping');
+  const err = document.getElementById('rateOrderErr');
+  if (err) err.hidden = true;
+}
+
+function openRateOrderModal(orderId, code) {
+  if (!currentUser) { showToast('Inicia sesión para calificar'); return; }
+  _rateDraft = { orderId, code: code || '', product: 0, shipping: 0 };
+  const title = document.getElementById('rateOrderTitle');
+  if (title) title.textContent = code ? `Calificar ${code}` : 'Calificar pedido';
+  const err = document.getElementById('rateOrderErr');
+  if (err) err.hidden = true;
+  const btn = document.getElementById('rateOrderSubmitBtn');
+  if (btn) { btn.disabled = false; btn.textContent = 'Enviar'; }
+  _paintRateStars('rateProductStars', 0, 'product');
+  _paintRateStars('rateShippingStars', 0, 'shipping');
+  openModal('rateOrderModal');
+}
+
+async function submitOrderRating() {
+  const { orderId, product, shipping } = _rateDraft;
+  const err = document.getElementById('rateOrderErr');
+  if (!orderId || !currentUser) {
+    showToast('Inicia sesión para calificar');
+    return;
+  }
+  if (!(product >= 1 && product <= 5) || !(shipping >= 1 && shipping <= 5)) {
+    if (err) err.hidden = false;
+    return;
+  }
+  const btn = document.getElementById('rateOrderSubmitBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Enviando...'; }
+  try {
+    const ref = db.collection('pedidos').doc(orderId);
+    const snap = await ref.get();
+    if (!snap.exists) throw new Error('Pedido no encontrado');
+    const o = snap.data() || {};
+    if (o.userId && o.userId !== currentUser.uid) throw new Error('Solo el dueño del pedido puede calificar');
+    if (o.tipoEntrega !== 'domicilio') throw new Error('Solo se califican envíos a domicilio');
+    if (o.status !== 'delivered' && o.status !== 'sold') throw new Error('El pedido aún no está entregado');
+    if (o.rating && (o.rating.product || o.rating.shipping)) throw new Error('Este pedido ya fue calificado');
+    await ref.update({
+      rating: { product, shipping },
+      ratedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      ratedBy: currentUser.uid
+    });
+    closeModal('rateOrderModal');
+    showToast('¡Gracias por tu calificación!');
+    if (typeof myOrdersPaging !== 'undefined') {
+      myOrdersPaging.page = 0; myOrdersPaging.cursors = []; myOrdersPaging.atEnd = false;
+    }
+    if (typeof renderMyOrders === 'function') renderMyOrders();
+    if (typeof refreshAdminAfterChange === 'function') refreshAdminAfterChange();
+    if (typeof loadAdminRatings === 'function') loadAdminRatings();
+  } catch (e) {
+    showToast(e.message || 'No se pudo guardar la calificación');
+    if (btn) { btn.disabled = false; btn.textContent = 'Enviar'; }
+  }
+}
+
 // ═══════════════════════════════════════════════════
 //  MY ORDERS (Firestore)
 // ═══════════════════════════════════════════════════
@@ -227,6 +337,7 @@ function _renderMyOrdersList(el, myOrders) {
           ✕ Cancelar pedido
         </button>
       </div>` : ''}
+      ${orderRateActionHtml(o)}
       <div style="margin-top:10px;text-align:right">
         <button onclick="showOrderQR('${o.firestoreId}','${o.code}')"
           style="padding:5px 12px;border-radius:7px;border:1.5px solid var(--b200);background:var(--b50);color:var(--b600);font-family:var(--font);font-size:.73rem;font-weight:600;cursor:pointer">
@@ -368,6 +479,7 @@ async function trackOrder() {
             ✕ Cancelar pedido
           </button>
         </div>` : ''}
+        ${orderRateActionHtml(o)}
       </div>`;
   } catch (err) {
     el.innerHTML = '<p style="color:var(--red);font-size:.85rem">Error al buscar el pedido.</p>';
