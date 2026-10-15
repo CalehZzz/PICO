@@ -167,6 +167,8 @@ async function fixStockTotal() {
 //    'domicilio' → Envío a domicilio
 //    'cdb'       → Retiro en sucursal · Colegio Don Bosco
 //    'udb'       → Retiro en sucursal · Universidad Don Bosco
+//  En el sub-selector de retiro también hay "Envío a domicilio" (para quien no
+//  pertenece a CDB/UDB y no debe escribir "ninguna institución" en Otros).
 //  "Otros" (escribir institución) → se atiende como 'domicilio' y se guarda la
 //  institución para avisar por correo al equipo. Inventario ÚNICO: la entrega
 //  NO cambia el stock, por eso ya no se vacía el carrito al cambiarla.
@@ -222,11 +224,9 @@ function sucursalInternalLabel(suc) {
 }
 
 // El usuario elige "Retiro en sucursal": revela el sub-selector de institución.
-// TEMPORAL: retiro en sucursal redirige de una a domicilio (no borrar lógica).
 function gateShowPickup() {
-  // const panel = document.getElementById('gatePickupPanel');
-  // if (panel) panel.style.display = 'block';
-  gateChooseDomicilio();
+  const panel = document.getElementById('gatePickupPanel');
+  if (panel) panel.style.display = 'block';
 }
 // Cambia el sub-selector: muestra el campo de texto solo si es "Otros".
 function gatePickupSelectChange(v) {
@@ -239,7 +239,7 @@ function gateChooseDomicilio() {
   syncOtrosToProfile('');
   chooseGateSucursal('domicilio');
 }
-// Confirma el retiro elegido (Colegio Don Bosco / Universidad Don Bosco / Otros).
+// Confirma la opción del sub-selector (CDB / UDB / Envío a domicilio / Otros).
 function gateConfirmPickup() {
   const sel = document.getElementById('gatePickupSelect');
   const v   = sel ? sel.value : '';
@@ -256,7 +256,7 @@ function gateConfirmPickup() {
     showOtrosWelcome(inst);
     return;
   }
-  // Colegio Don Bosco ('cdb') o Universidad Don Bosco ('udb'): retiro en sucursal.
+  // 'domicilio' (opción del listado), 'cdb' o 'udb'.
   try { localStorage.removeItem(OTROS_KEY); } catch (_) {}
   syncOtrosToProfile('');
   chooseGateSucursal(v);
