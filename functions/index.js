@@ -42,6 +42,36 @@ function getShippingCostServer(subtotal) {
 
 function round2(n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
 
+const PIN_SOLDER_UNIT = 0.25;
+
+/** Estado de pines copiado del producto. Sin tienePines no hay casilla ni cobro. */
+function linePinState(item, productData, qty) {
+  const tienePines = !!(productData && productData.tienePines === true);
+  const pinesSoldados = !!(productData && productData.pinesSoldados === true);
+  const soldarPines = tienePines && !pinesSoldados && !!(item && item.soldarPines === true);
+  const q = Math.max(0, parseInt(qty, 10) || 0);
+  return {
+    tienePines,
+    pinesSoldados,
+    soldarPines,
+    extraPines: soldarPines ? round2(PIN_SOLDER_UNIT * q) : 0
+  };
+}
+
+function pinNoteText(item) {
+  if (!item || item.tienePines !== true) return '';
+  if (item.pinesSoldados === true) return 'Ya viene con pines soldados';
+  if (item.soldarPines === true) return 'Soldar pines (+$0.25 c/u)';
+  return '';
+}
+
+/** Productos con descuento de pedido + extra. Sin descuento, total + extraPines. */
+function orderChargeBeforeShip(o) {
+  const extra = Math.max(0, Number(o && o.extraPines) || 0);
+  if (o && typeof o.totalConDescuento === 'number') return round2(o.totalConDescuento);
+  return round2((Number(o && o.total) || 0) + extra);
+}
+
 function creditsUsoBloqueado(c) {
   if (!c) return true;
   if (c.congelado === true || c.bloqueado === true) return true;
@@ -70,8 +100,10 @@ async function ensurePedidoFactura(orderId, orderData) {
 
   const items = (o.items || []).map(it => {
     const sub = round2((it.price || 0) * (it.qty || 0));
+    const pinNote = pinNoteText(it);
+    const baseName = it.colorLabel ? ((it.name || '') + ' · ' + it.colorLabel) : (it.name || '');
     return {
-      productName: it.colorLabel ? ((it.name || '') + ' · ' + it.colorLabel) : (it.name || ''),
+      productName: pinNote ? (baseName + ' · ' + pinNote) : baseName,
       qty: it.qty,
       precioUnit: round2(it.price || 0),
       subtotal: sub,
@@ -80,12 +112,18 @@ async function ensurePedidoFactura(orderId, orderData) {
       descNombre: o.discountName || '',
       colorId: it.colorId || null,
       colorLabel: it.colorLabel || null,
-      color: it.color || null
+      color: it.color || null,
+      tienePines: it.tienePines === true,
+      pinesSoldados: it.pinesSoldados === true,
+      soldarPines: it.tienePines === true && it.pinesSoldados !== true && it.soldarPines === true,
+      extraPines: it.tienePines === true && it.pinesSoldados !== true && it.soldarPines === true
+        ? round2(Number(it.extraPines) || 0) : 0
     };
   });
   const unidades = items.reduce((s, it) => s + (it.qty || 0), 0);
   const subtotal = round2(typeof o.total === 'number' ? o.total : 0);
-  const totalProductos = typeof o.totalConDescuento === 'number' ? round2(o.totalConDescuento) : subtotal;
+  const extraPines = round2(Math.max(0, Number(o.extraPines) || 0));
+  const totalProductos = orderChargeBeforeShip(o);
   const totalTrasCreditos = round2(Math.max(0, totalProductos - creditsUsed));
   const esDom = o.tipoEntrega === 'domicilio';
   const envioCosto = esDom && typeof o.envioCosto === 'number' ? round2(o.envioCosto) : 0;
@@ -114,7 +152,7 @@ async function ensurePedidoFactura(orderId, orderData) {
       cliente: o.name || '', clienteEmail: o.email || '',
       seller: 'tienda-online',
       date: fecha, timestamp: ts, mes,
-      subtotal, totalProductos, creditsUsed, envioCosto, total, unidades, items,
+      subtotal, totalProductos, extraPines, creditsUsed, envioCosto, total, unidades, items,
       tipoEntrega: o.tipoEntrega || 'pickup',
       fromOrder: orderId, origen: 'tienda',
       anulada: false
@@ -140,14 +178,16 @@ async function ensureOrderNotifyEmail(orderId, orderData) {
   else if (o.sucursal === 'udb') sucLabel = 'Universidad Don Bosco';
   else if (o.sucursal === 'exsal') sucLabel = 'EXSAL';
 
-  const finalTotal = o.totalConDescuento != null ? o.totalConDescuento : (o.total || 0);
+  const extraPinesMail = round2(Math.max(0, Number(o.extraPines) || 0));
+  const productsPlusExtra = orderChargeBeforeShip(o);
   const items = Array.isArray(o.items) ? o.items : [];
   const rows = items.map(i => {
     const name = i.colorLabel ? ((i.name || '') + ' · ' + i.colorLabel) : (i.name || '');
+    const pinNote = pinNoteText(i);
     const price = Number(i.price) || 0;
     const qty = i.qty || 0;
     return `<tr>
-      <td style="padding:6px 10px;border-bottom:1px solid #eee">${name}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee">${name}${pinNote ? `<div style="color:#64748b;font-size:12px;margin-top:2px">${pinNote}</div>` : ''}</td>
       <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:center">${qty}</td>
       <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">$${price.toFixed(2)}</td>
       <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">$${(qty * price).toFixed(2)}</td>
@@ -177,11 +217,14 @@ async function ensureOrderNotifyEmail(orderId, orderData) {
           <th style="padding:8px 10px;text-align:right">Subtotal</th>
         </tr>
         ${rows}
+        ${extraPinesMail > 0 ? `
+        <tr><td colspan="3" style="padding:6px 10px;text-align:right">Soldar pines (+$0.25 c/u)</td>
+            <td style="padding:6px 10px;text-align:right">$${extraPinesMail.toFixed(2)}</td></tr>` : ''}
         ${o.tipoEntrega === 'domicilio' && o.envioCosto ? `
         <tr><td colspan="3" style="padding:6px 10px;text-align:right">Envío a domicilio</td>
             <td style="padding:6px 10px;text-align:right">$${Number(o.envioCosto).toFixed(2)}</td></tr>` : ''}
         <tr><td colspan="3" style="padding:10px;text-align:right;font-weight:700;font-size:16px;border-top:2px solid #0f172a">TOTAL</td>
-            <td style="padding:10px;text-align:right;font-weight:700;font-size:16px;border-top:2px solid #0f172a">$${(typeof o.totalConEnvio === 'number' ? o.totalConEnvio : finalTotal).toFixed(2)}</td></tr>
+            <td style="padding:10px;text-align:right;font-weight:700;font-size:16px;border-top:2px solid #0f172a">$${(typeof o.totalConEnvio === 'number' ? o.totalConEnvio : productsPlusExtra).toFixed(2)}</td></tr>
       </table>
       <p style="margin-top:16px;color:#94a3b8;font-size:12px">ID del pedido: ${orderId}</p>
     </div>`;
@@ -210,16 +253,19 @@ async function ensureFacturaClienteEmail(orderId, orderData, facturaNum) {
   const discPct = o.discountPct || 0;
   const discFactor = discPct ? ((100 - discPct) / 100) : 1;
   const creditsUsed = Math.max(0, Number(o.creditsUsed) || 0);
+  const extraPines = round2(Math.max(0, Number(o.extraPines) || 0));
   const items = (o.items || []).map(it => {
     const sub = round2((it.price || 0) * (it.qty || 0));
+    const pinNote = pinNoteText(it);
+    const baseName = it.colorLabel ? ((it.name || '') + ' · ' + it.colorLabel) : (it.name || '');
     return {
-      productName: it.colorLabel ? ((it.name || '') + ' · ' + it.colorLabel) : (it.name || ''),
+      productName: pinNote ? (baseName + ' · ' + pinNote) : baseName,
       qty: it.qty,
       total: round2(sub * discFactor)
     };
   });
   const subtotal = round2(typeof o.total === 'number' ? o.total : 0);
-  const totalProductos = typeof o.totalConDescuento === 'number' ? round2(o.totalConDescuento) : subtotal;
+  const totalProductos = orderChargeBeforeShip(o);
   const totalTrasCreditos = round2(Math.max(0, totalProductos - creditsUsed));
   const envioCosto = (o.tipoEntrega === 'domicilio' && typeof o.envioCosto === 'number') ? round2(o.envioCosto) : 0;
   const total = round2(totalTrasCreditos + envioCosto);
@@ -250,6 +296,7 @@ async function ensureFacturaClienteEmail(orderId, orderData, facturaNum) {
       </tr></thead>
       <tbody>${filas}</tbody>
     </table>
+    ${extraPines > 0 ? `<p style="margin:6px 0 0;text-align:right;color:#4a89b0;font-size:13px">Soldar pines (+$0.25 c/u): $${extraPines.toFixed(2)}</p>` : ''}
     ${envioCosto ? `<p style="margin:6px 0 0;text-align:right;color:#4a89b0;font-size:13px">Envío a domicilio: $${envioCosto.toFixed(2)}</p>` : ''}
     ${creditsUsed ? `<p style="margin:6px 0 0;text-align:right;color:#0d9488;font-size:13px">Créditos PICO: -$${creditsUsed.toFixed(2)}</p>` : ''}
     <p style="margin:8px 0 0;text-align:right;font-size:17px;font-weight:700">TOTAL: $${total.toFixed(2)}</p>
@@ -384,9 +431,10 @@ async function recordCardPaymentStats(orderId, wompiTxId) {
       });
     }
 
+    const extraPins = round2(Math.max(0, Number(o.extraPines) || 0));
     const totalEfectivo = typeof o.totalConDescuento === 'number'
-      ? o.totalConDescuento
-      : round2(priceTotal * discFactor);
+      ? round2(o.totalConDescuento)
+      : round2(priceTotal * discFactor + extraPins);
 
     const creditsUsed = Math.max(0, Number(o.creditsUsed) || 0);
     const baseCobro = typeof o.totalConEnvio === 'number'
@@ -408,7 +456,7 @@ async function recordCardPaymentStats(orderId, wompiTxId) {
       costProductos: round2(productCost),
       comisionWompi: comisionWompi,
       costTotal: round2(productCost + comisionWompi),
-      total: round2(totalVentasEfectivo),
+      total: round2(totalEfectivo),
       seller: 'wompi',
       sucursal: ventaSucursal,
       date: now.toLocaleDateString('es'),
@@ -422,7 +470,7 @@ async function recordCardPaymentStats(orderId, wompiTxId) {
 
     const creditsCosto = Math.max(0, Number(o.creditsCosto) || 0);
     const statPayload = {
-      'ventas':            admin.firestore.FieldValue.increment(round2(totalVentasEfectivo + envioCobrado)),
+      'ventas':            admin.firestore.FieldValue.increment(round2(totalEfectivo + envioCobrado)),
       'unidades vendidas': admin.firestore.FieldValue.increment(totalUnidades),
       'numero de ventas':  admin.firestore.FieldValue.increment(1),
       'ingresosPedidos':   admin.firestore.FieldValue.increment(round2(totalEfectivo + envioCobrado)),
@@ -525,18 +573,34 @@ exports.crearEnlaceWompi = functions
       items.map(it => db.collection('productos').doc(String(it.id)).get())
     );
     let subtotal = 0;
+    let extraPines = 0;
+    const patchedItems = [];
     for (let k = 0; k < items.length; k++) {
       const psnap = prodSnaps[k];
       if (!psnap.exists) {
         throw new functions.https.HttpsError('failed-precondition', 'Un producto del pedido ya no existe.');
       }
-      const price = Number(psnap.data().price);
+      const pdata = psnap.data() || {};
+      const price = Number(pdata.price);
       const qty = Math.max(1, parseInt(items[k].qty, 10) || 0);
       if (!(price >= 0)) {
         throw new functions.https.HttpsError('failed-precondition', 'Precio de producto inválido.');
       }
       subtotal += price * qty;
+      const pin = linePinState(items[k], pdata, qty);
+      extraPines += pin.extraPines;
+      const prev = (items[k] && typeof items[k] === 'object') ? items[k] : {};
+      patchedItems.push(Object.assign({}, prev, {
+        price: round2(price),
+        qty,
+        tienePines: pin.tienePines,
+        pinesSoldados: pin.pinesSoldados,
+        soldarPines: pin.soldarPines,
+        extraPines: pin.extraPines
+      }));
     }
+    subtotal = round2(subtotal);
+    extraPines = round2(extraPines);
 
     // Descuento: releer el % real (asignado / código / tarjeta de sellos). No confiar en el pedido.
     let pct = 0;
@@ -599,36 +663,41 @@ exports.crearEnlaceWompi = functions
         }
       } catch (_) {}
     }
-    // Créditos no se combinan con descuentos de carrito
+    // Créditos no se combinan con descuentos de carrito.
+    // El extra de pines no se descuenta: se suma después del descuento de producto/pedido.
     const creditsUsed = Math.max(0, Number(o.creditsUsed) || 0);
     if (creditsUsed > 0) pct = 0;
-    const conDescuento = pct ? subtotal * (1 - pct / 100) : subtotal;
-    const afterCredits = Math.max(0, conDescuento - creditsUsed);
-    // Envío por tramos (igual que el cliente). Pickup = 0.
+    const productsAfter = round2(pct ? subtotal * (1 - pct / 100) : subtotal);
+    const chargeBeforeCredits = round2(productsAfter + extraPines);
+    const afterCredits = Math.max(0, chargeBeforeCredits - creditsUsed);
+    // Envío por tramos sobre productos (sin el extra). Pickup = 0.
     const envioCosto = (o.tipoEntrega === 'domicilio')
-      ? getShippingCostServer(round2(conDescuento))
+      ? getShippingCostServer(productsAfter)
       : 0;
     const monto = round2(afterCredits + envioCosto);
+    const totalConDescuento = pct ? round2(productsAfter + extraPines) : null;
+
+    // El extra de pines y el price (sin extra) se reescriben desde el producto.
+    // Sin descuento de pedido no se guarda totalConDescuento.
+    if (typeof o.totalConEnvio !== 'number' || Math.abs(o.totalConEnvio - monto) > 0.01) {
+      console.warn('Monto del pedido', orderId, 'corregido de', o.totalConEnvio, 'a', monto);
+    }
+    await orderRef.update({
+      items: patchedItems,
+      total: subtotal,
+      extraPines: extraPines,
+      totalConDescuento: totalConDescuento,
+      discountPct: pct || null,
+      discountName: resolvedName,
+      envioCosto: envioCosto,
+      totalConEnvio: monto,
+      payableAfterCredits: round2(afterCredits),
+      montoVerificadoServidor: true
+    }).catch(e => console.warn('No se pudo sanar el monto:', e));
 
     // Cubierto 100% con créditos (y sin envío): no hay cobro Wompi
     if (monto <= 0) {
       return { ok: true, url: null, fullyCoveredByCredits: true, amount: 0 };
-    }
-
-    // Si el monto guardado no coincide con el recalculado, "sanamos" el pedido con el
-    // valor autoritativo para que el webhook (que compara contra totalConEnvio) cuadre.
-    if (typeof o.totalConEnvio !== 'number' || Math.abs(o.totalConEnvio - monto) > 0.01) {
-      console.warn('Monto del pedido', orderId, 'corregido de', o.totalConEnvio, 'a', monto);
-      await orderRef.update({
-        total: round2(subtotal),
-        totalConDescuento: pct ? round2(conDescuento) : (creditsUsed > 0 ? round2(conDescuento) : null),
-        discountPct: pct || null,
-        discountName: resolvedName,
-        envioCosto: envioCosto,
-        totalConEnvio: monto,
-        payableAfterCredits: round2(afterCredits),
-        montoVerificadoServidor: true
-      }).catch(e => console.warn('No se pudo sanar el monto:', e));
     }
 
     const base = (data && data.origin) ? data.origin.toString() : 'https://picosv.com';
@@ -1036,9 +1105,10 @@ exports.anadirSelloPorPedido = functions.https.onCall(async (data, context) => {
       return { ok: false, reason: 'no-email' };
     }
 
-    const totalProd = typeof o.totalConDescuento === 'number'
-      ? o.totalConDescuento
-      : (typeof o.total === 'number' ? o.total : 0);
+    const extraStamp = Math.max(0, Number(o.extraPines) || 0);
+    const totalProd = round2(Math.max(0, typeof o.totalConDescuento === 'number'
+      ? (o.totalConDescuento - extraStamp)
+      : (typeof o.total === 'number' ? o.total : 0)));
     if (!(totalProd >= STAMP_MIN)) {
       tx.update(orderRef, { stampApplied: true, stampSkipReason: 'below-min' });
       return { ok: false, reason: 'below-min' };
@@ -1240,8 +1310,7 @@ exports.aplicarCreditosAPedido = functions.https.onCall(async (data, context) =>
         return null;
       }
     }
-    const productTotal = typeof o.totalConDescuento === 'number' ? o.totalConDescuento
-      : (typeof o.total === 'number' ? o.total : 0);
+    const productTotal = orderChargeBeforeShip(o);
     const use = round2(Math.min(saldo, requested, productTotal));
     if (!(use > 0)) {
       failCode = 'failed-precondition';

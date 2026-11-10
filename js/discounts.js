@@ -145,7 +145,9 @@ function renderCheckoutPromo() {
     : `<p class="cart-discount-note">Solo un descuento a la vez (asignado, código o tarjeta de sellos). No se combina con ofertas de producto ni con créditos.</p>`;
 
   const disabledAttr = (hasProdDisc || usingCredits) ? 'disabled' : '';
-  const productSubtotal = (typeof getCartTotal === 'function') ? getCartTotal() : getCartRawTotal();
+  const productSubtotal = (typeof getCartChargeBeforeShip === 'function')
+    ? getCartChargeBeforeShip()
+    : ((typeof getCartTotal === 'function') ? getCartTotal() : getCartRawTotal());
   const creditsHtml = (typeof renderCreditsCartBlock === 'function')
     ? renderCreditsCartBlock(productSubtotal)
     : '';

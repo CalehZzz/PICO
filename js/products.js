@@ -135,7 +135,11 @@ function applyRawProducts(rawProducts, opts) {
       imageScale: normalizeImageScale(d.imageScale),
       stock: s, cat, e,
       groupId, groupKind, groupName, variantLabel, variantColor, variantEnabled,
-      groupColors
+      groupColors,
+      // Solo importa si tienePines. Ausente o false = el producto no lleva pines.
+      tienePines: d.tienePines === true,
+      // Solo importa cuando tienePines === true. true = ya vienen soldados.
+      pinesSoldados: d.pinesSoldados === true
     };
     products.push(p);
     stockMap[d.id] = s;
@@ -208,7 +212,8 @@ function _productsDataSig(rawProducts) {
     const stock = typeof d.stockCdb === 'number' ? d.stockCdb
       : (typeof d.stock === 'number' ? d.stock : 0);
     return d.id + ':' + (d.price || 0) + ':' + stock + ':' + scale + ':' +
-      (d.imageUrl || '') + ':' + (d.name || '') + ':' + (d.descuentoPct || 0);
+      (d.imageUrl || '') + ':' + (d.name || '') + ':' + (d.descuentoPct || 0) + ':' +
+      (d.tienePines === true ? 1 : 0) + ':' + (d.pinesSoldados === true ? 1 : 0);
   });
   parts.sort();
   return rawProducts.length + '@' + maxTs + '#' + parts.join('|');
