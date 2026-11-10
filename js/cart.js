@@ -114,12 +114,16 @@ function cartStockNeedsByProduct() {
   return need;
 }
 
-// Soldar pines: $0.25 por unidad, aparte del price. No entra en descuentos.
+// Soldar pines: $0.25 por unidad, aparte del price. Solo si tienePines.
+// No entra en descuentos.
 const PIN_SOLDER_UNIT = 0.25;
 let cartSolder = {};
 
+function productTienePines(p) {
+  return !!(p && p.tienePines === true);
+}
 function productPinesYaSoldados(p) {
-  return !!(p && p.pinesSoldados === true);
+  return productTienePines(p) && !!(p && p.pinesSoldados === true);
 }
 function saveCartSolder() {
   try { localStorage.setItem('pico_cart_solder', JSON.stringify(cartSolder || {})); } catch (_) {}
@@ -131,9 +135,9 @@ function loadCartSolder() {
     if (!cartSolder || typeof cartSolder !== 'object') cartSolder = {};
   } catch (_) { cartSolder = {}; }
 }
-/** true solo si el cliente marcó la casilla y el producto no viene ya soldado. */
+/** true solo si tiene pines, no vienen soldados, y el cliente marcó la casilla. */
 function cartLineSoldarPines(key, p) {
-  if (productPinesYaSoldados(p)) return false;
+  if (!productTienePines(p) || productPinesYaSoldados(p)) return false;
   return !!(cartSolder && cartSolder[key]);
 }
 function extraPinesForQty(qty, soldar) {
@@ -173,7 +177,7 @@ function getCartChargeBeforeShip() {
 function setLineSoldarPines(key, checked) {
   const { productId } = parseCartKey(key);
   const p = (products || []).find(x => x.id === productId);
-  if (productPinesYaSoldados(p) || !checked) delete cartSolder[key];
+  if (!productTienePines(p) || productPinesYaSoldados(p) || !checked) delete cartSolder[key];
   else cartSolder[key] = true;
   saveCartSolder();
   if (typeof updateCartUI === 'function') updateCartUI();
@@ -182,9 +186,9 @@ function setLineSoldarPines(key, checked) {
     refreshCheckoutSummary();
   }
 }
-/** Casilla en ficha / carrito / checkout, o el texto si ya viene soldado. */
+/** Casilla / texto solo si tienePines. Sin pines: nada. */
 function renderPinesChoiceHtml(cartKey, p) {
-  if (!p) return '';
+  if (!productTienePines(p)) return '';
   if (productPinesYaSoldados(p)) {
     return `<div class="pines-note pines-note-ready">Ya viene con pines soldados</div>`;
   }
@@ -193,7 +197,7 @@ function renderPinesChoiceHtml(cartKey, p) {
   return `<label class="pines-check"><input type="checkbox"${checked} onchange="setLineSoldarPines('${kAttr}', this.checked)"><span>Soldar pines (+$0.25 por unidad)</span></label>`;
 }
 function orderItemPinesNote(item) {
-  if (!item) return '';
+  if (!item || item.tienePines !== true) return '';
   if (item.pinesSoldados === true) return 'Ya viene con pines soldados';
   if (item.soldarPines === true) return 'Soldar pines (+$0.25 c/u)';
   return '';
@@ -374,9 +378,11 @@ async function crearYEnviarFacturaPedido(orderId, d) {
       colorId: it.colorId || null,
       colorLabel: it.colorLabel || null,
       color: it.color || null,
+      tienePines: it.tienePines === true,
       pinesSoldados: it.pinesSoldados === true,
-      soldarPines: it.soldarPines === true && it.pinesSoldados !== true,
-      extraPines: it.soldarPines === true && it.pinesSoldados !== true ? +(Number(it.extraPines) || 0).toFixed(2) : 0
+      soldarPines: it.tienePines === true && it.pinesSoldados !== true && it.soldarPines === true,
+      extraPines: it.tienePines === true && it.pinesSoldados !== true && it.soldarPines === true
+        ? +(Number(it.extraPines) || 0).toFixed(2) : 0
     };
   });
   const unidades = items.reduce((s, it) => s + (it.qty || 0), 0);
@@ -1197,7 +1203,7 @@ async function placeOrder() {
     const prodPct = (typeof getProductDiscountPct === 'function') ? getProductDiscountPct(p) : 0;
     const unit = (typeof getProductSalePrice === 'function') ? getProductSalePrice(p) : p.price;
     const color = colorId ? findCartColor(productId, colorId) : null;
-    const yaSoldados = productPinesYaSoldados(p);
+    const tienePines = productTienePines(p);
     const soldar = cartLineSoldarPines(key, p);
     const line = {
       id: productId,
@@ -1207,7 +1213,8 @@ async function placeOrder() {
       listPrice: p.price,
       productDiscPct: prodPct > 0 ? prodPct : null,
       cost: p.cost,
-      pinesSoldados: yaSoldados,
+      tienePines: tienePines,
+      pinesSoldados: !!(p && p.pinesSoldados === true),
       soldarPines: soldar,
       extraPines: extraPinesForQty(cart[key], soldar)
     };
@@ -1276,7 +1283,10 @@ async function placeOrder() {
         const snap = snaps[k];
         const need = needById[ids[k]] || 0;
         const data = snap.exists ? snap.data() : null;
-        freshPins[ids[k]] = !!(data && data.pinesSoldados === true);
+        freshPins[ids[k]] = {
+          tienePines: !!(data && data.tienePines === true),
+          pinesSoldados: !!(data && data.pinesSoldados === true)
+        };
         const have = data && typeof data[stockField] === 'number' ? data[stockField] : 0;
         if (!snap.exists || have < need) {
           const nombre = (data && data.name) ? data.name : 'un producto';
@@ -1292,11 +1302,15 @@ async function placeOrder() {
       }
     });
 
-    // Copia de pinesSoldados al momento del pedido. Si ya viene soldado, el extra es 0.
+    // Copia de tienePines / pinesSoldados al momento del pedido.
+    // Solo se cobra soldar si tiene pines, no vienen soldados y el cliente marcó.
     let extraPines = 0;
     items.forEach(line => {
-      const ya = freshPins[line.id] === true;
-      const soldar = line.soldarPines === true && !ya;
+      const snap = freshPins[line.id] || {};
+      const tiene = snap.tienePines === true;
+      const ya = snap.pinesSoldados === true;
+      const soldar = tiene && !ya && line.soldarPines === true;
+      line.tienePines = tiene;
       line.pinesSoldados = ya;
       line.soldarPines = soldar;
       line.extraPines = extraPinesForQty(line.qty, soldar);

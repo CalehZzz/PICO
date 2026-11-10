@@ -136,7 +136,9 @@ function applyRawProducts(rawProducts, opts) {
       stock: s, cat, e,
       groupId, groupKind, groupName, variantLabel, variantColor, variantEnabled,
       groupColors,
-      // true solo si el inventario lo marcó. Ausente o false = el cliente puede pedir soldar.
+      // Solo importa si tienePines. Ausente o false = el producto no lleva pines.
+      tienePines: d.tienePines === true,
+      // Solo importa cuando tienePines === true. true = ya vienen soldados.
       pinesSoldados: d.pinesSoldados === true
     };
     products.push(p);
@@ -211,7 +213,7 @@ function _productsDataSig(rawProducts) {
       : (typeof d.stock === 'number' ? d.stock : 0);
     return d.id + ':' + (d.price || 0) + ':' + stock + ':' + scale + ':' +
       (d.imageUrl || '') + ':' + (d.name || '') + ':' + (d.descuentoPct || 0) + ':' +
-      (d.pinesSoldados === true ? 1 : 0);
+      (d.tienePines === true ? 1 : 0) + ':' + (d.pinesSoldados === true ? 1 : 0);
   });
   parts.sort();
   return rawProducts.length + '@' + maxTs + '#' + parts.join('|');

@@ -44,12 +44,14 @@ function round2(n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
 
 const PIN_SOLDER_UNIT = 0.25;
 
-/** Estado de pines copiado del producto. Si ya viene soldado, no hay extra. */
+/** Estado de pines copiado del producto. Sin tienePines no hay casilla ni cobro. */
 function linePinState(item, productData, qty) {
+  const tienePines = !!(productData && productData.tienePines === true);
   const pinesSoldados = !!(productData && productData.pinesSoldados === true);
-  const soldarPines = !!(item && item.soldarPines === true) && !pinesSoldados;
+  const soldarPines = tienePines && !pinesSoldados && !!(item && item.soldarPines === true);
   const q = Math.max(0, parseInt(qty, 10) || 0);
   return {
+    tienePines,
     pinesSoldados,
     soldarPines,
     extraPines: soldarPines ? round2(PIN_SOLDER_UNIT * q) : 0
@@ -57,8 +59,9 @@ function linePinState(item, productData, qty) {
 }
 
 function pinNoteText(item) {
-  if (item && item.pinesSoldados === true) return 'Ya viene con pines soldados';
-  if (item && item.soldarPines === true) return 'Soldar pines (+$0.25 c/u)';
+  if (!item || item.tienePines !== true) return '';
+  if (item.pinesSoldados === true) return 'Ya viene con pines soldados';
+  if (item.soldarPines === true) return 'Soldar pines (+$0.25 c/u)';
   return '';
 }
 
@@ -110,9 +113,11 @@ async function ensurePedidoFactura(orderId, orderData) {
       colorId: it.colorId || null,
       colorLabel: it.colorLabel || null,
       color: it.color || null,
+      tienePines: it.tienePines === true,
       pinesSoldados: it.pinesSoldados === true,
-      soldarPines: it.soldarPines === true && it.pinesSoldados !== true,
-      extraPines: it.soldarPines === true && it.pinesSoldados !== true ? round2(Number(it.extraPines) || 0) : 0
+      soldarPines: it.tienePines === true && it.pinesSoldados !== true && it.soldarPines === true,
+      extraPines: it.tienePines === true && it.pinesSoldados !== true && it.soldarPines === true
+        ? round2(Number(it.extraPines) || 0) : 0
     };
   });
   const unidades = items.reduce((s, it) => s + (it.qty || 0), 0);
@@ -588,6 +593,7 @@ exports.crearEnlaceWompi = functions
       patchedItems.push(Object.assign({}, prev, {
         price: round2(price),
         qty,
+        tienePines: pin.tienePines,
         pinesSoldados: pin.pinesSoldados,
         soldarPines: pin.soldarPines,
         extraPines: pin.extraPines

@@ -742,7 +742,10 @@ function _fillProductDetailModal(p, g, opts) {
     variantNote +
     variantPicker +
     _pricePairHtml(oldP, pct, false) +
-    `<div class="pd-pines">${(typeof renderPinesChoiceHtml === 'function') ? renderPinesChoiceHtml(lineKey, p) : ''}</div>` +
+    (() => {
+      const pinesHtml = (typeof renderPinesChoiceHtml === 'function') ? renderPinesChoiceHtml(lineKey, p) : '';
+      return pinesHtml ? `<div class="pd-pines">${pinesHtml}</div>` : '';
+    })() +
     descHeader +
     `<div id="pdDescArea">${descHtml}</div>`;
 
