@@ -114,6 +114,145 @@ function cartStockNeedsByProduct() {
   return need;
 }
 
+// Soldar pines: $0.25 por unidad, aparte del price. No entra en descuentos.
+const PIN_SOLDER_UNIT = 0.25;
+let cartSolder = {};
+
+function productPinesYaSoldados(p) {
+  return !!(p && p.pinesSoldados === true);
+}
+function saveCartSolder() {
+  try { localStorage.setItem('pico_cart_solder', JSON.stringify(cartSolder || {})); } catch (_) {}
+}
+function loadCartSolder() {
+  try {
+    const s = localStorage.getItem('pico_cart_solder');
+    cartSolder = s ? (JSON.parse(s) || {}) : {};
+    if (!cartSolder || typeof cartSolder !== 'object') cartSolder = {};
+  } catch (_) { cartSolder = {}; }
+}
+/** true solo si el cliente marcó la casilla y el producto no viene ya soldado. */
+function cartLineSoldarPines(key, p) {
+  if (productPinesYaSoldados(p)) return false;
+  return !!(cartSolder && cartSolder[key]);
+}
+function extraPinesForQty(qty, soldar) {
+  const q = Math.max(0, Number(qty) || 0);
+  if (!soldar || q <= 0) return 0;
+  return +(PIN_SOLDER_UNIT * q).toFixed(2);
+}
+function getCartExtraPines() {
+  let sum = 0;
+  Object.keys(cart || {}).forEach(key => {
+    const { productId } = parseCartKey(key);
+    const p = (products || []).find(x => x.id === productId);
+    if (!p) return;
+    sum += extraPinesForQty(cart[key] || 0, cartLineSoldarPines(key, p));
+  });
+  return +sum.toFixed(2);
+}
+/** % de descuento de pedido (código / asignado / sellos). 0 si hay oferta de producto o créditos. */
+function getCartOrderDiscountPct() {
+  const usingCredits = (typeof creditsToUse !== 'undefined' && creditsToUse > 0);
+  if (usingCredits) return 0;
+  if (typeof cartHasProductDiscount === 'function' && cartHasProductDiscount()) return 0;
+  if (selectedDiscount && selectedDiscount.porcentaje > 0) return selectedDiscount.porcentaje;
+  return 0;
+}
+/** Suma de (price × qty) ya con oferta de producto, sin descuento de pedido y sin extra. */
+function getCartProductsNet() {
+  const raw = (typeof getCartRawTotal === 'function') ? getCartRawTotal() : 0;
+  const pct = getCartOrderDiscountPct();
+  if (pct > 0) return +(raw * (1 - pct / 100)).toFixed(2);
+  return +Number(raw).toFixed(2);
+}
+/** Productos con descuento de pedido + extra de pines (sin envío, sin créditos). */
+function getCartChargeBeforeShip() {
+  return +(getCartProductsNet() + getCartExtraPines()).toFixed(2);
+}
+function setLineSoldarPines(key, checked) {
+  const { productId } = parseCartKey(key);
+  const p = (products || []).find(x => x.id === productId);
+  if (productPinesYaSoldados(p) || !checked) delete cartSolder[key];
+  else cartSolder[key] = true;
+  saveCartSolder();
+  if (typeof updateCartUI === 'function') updateCartUI();
+  const checkout = document.getElementById('checkoutModal');
+  if (checkout && checkout.classList.contains('open') && typeof refreshCheckoutSummary === 'function') {
+    refreshCheckoutSummary();
+  }
+}
+/** Casilla en ficha / carrito / checkout, o el texto si ya viene soldado. */
+function renderPinesChoiceHtml(cartKey, p) {
+  if (!p) return '';
+  if (productPinesYaSoldados(p)) {
+    return `<div class="pines-note pines-note-ready">Ya viene con pines soldados</div>`;
+  }
+  const kAttr = _cartKeyAttr(cartKey);
+  const checked = cartLineSoldarPines(cartKey, p) ? ' checked' : '';
+  return `<label class="pines-check"><input type="checkbox"${checked} onchange="setLineSoldarPines('${kAttr}', this.checked)"><span>Soldar pines (+$0.25 por unidad)</span></label>`;
+}
+function orderItemPinesNote(item) {
+  if (!item) return '';
+  if (item.pinesSoldados === true) return 'Ya viene con pines soldados';
+  if (item.soldarPines === true) return 'Soldar pines (+$0.25 c/u)';
+  return '';
+}
+function orderItemPinesHtml(item) {
+  const note = orderItemPinesNote(item);
+  if (!note) return '';
+  const cls = item.pinesSoldados === true ? 'pines-note pines-note-ready' : 'pines-note';
+  return `<div class="${cls}">${note}</div>`;
+}
+function orderProductsPlusExtra(o) {
+  const extra = Math.max(0, Number(o && o.extraPines) || 0);
+  if (o && typeof o.totalConDescuento === 'number') return o.totalConDescuento;
+  return (Number(o && o.total) || 0) + extra;
+}
+function fillSuccessOrderSummary(items, info) {
+  const el = document.getElementById('successOrderSummary');
+  if (!el) return;
+  const esc = (typeof _pdEsc === 'function') ? _pdEsc : (s => String(s == null ? '' : s));
+  const rows = (items || []).map(i => {
+    const name = (typeof orderItemDisplayName === 'function') ? orderItemDisplayName(i) : (i.name || '');
+    const lineTotal = (Number(i.price) || 0) * (Number(i.qty) || 0);
+    return `<div class="odetail-item">
+      <div>
+        <div class="odetail-item-name">${esc(name)}</div>
+        <div class="odetail-item-sub">$${(Number(i.price) || 0).toFixed(2)} × ${i.qty || 0}</div>
+        ${orderItemPinesHtml(i)}
+      </div>
+      <div class="odetail-item-price">$${lineTotal.toFixed(2)}</div>
+    </div>`;
+  }).join('');
+  const extra = Math.max(0, Number(info && info.extraPines) || 0);
+  const extraRow = extra > 0
+    ? `<div class="odetail-subtotal"><span>Soldar pines (+$0.25 c/u)</span><span>$${extra.toFixed(2)}</span></div>`
+    : '';
+  const discAmt = Math.max(0, Number(info && info.discountAmt) || 0);
+  const discRow = discAmt > 0
+    ? `<div class="odetail-subtotal" style="color:var(--green)"><span>Descuento${info.discountPct ? (' ' + info.discountPct + '%') : ''}</span><span>−$${discAmt.toFixed(2)}</span></div>`
+    : '';
+  const credits = Math.max(0, Number(info && info.credits) || 0);
+  const creditsRow = credits > 0
+    ? `<div class="odetail-subtotal" style="color:#0d9488"><span>Créditos PICO</span><span>−$${credits.toFixed(2)}</span></div>`
+    : '';
+  const ship = Math.max(0, Number(info && info.shipCost) || 0);
+  const shipRow = info && info.esDomicilio
+    ? `<div class="odetail-subtotal"><span>Envío a domicilio</span><span>${ship === 0 ? 'GRATIS' : ('$' + ship.toFixed(2))}</span></div>`
+    : '';
+  const display = Number(info && info.displayTotal) || 0;
+  el.innerHTML = `<div class="success-order-summary">
+      <div class="osumtitle">Resumen del pedido</div>
+      ${rows}
+      ${discRow}
+      ${extraRow}
+      ${creditsRow}
+      ${shipRow}
+      <div class="odetail-subtotal" style="font-weight:700;color:var(--b600)"><span>Total</span><span>$${display.toFixed(2)}</span></div>
+    </div>`;
+}
+
 // ── Aviso por correo de cada pedido (vía extensión Trigger Email) ──
 function sendOrderEmail(orderId, d) {
   const NOTIFY_EMAIL = 'picosvsupport@gmail.com'; // ← correo donde quieres recibir el aviso
@@ -122,21 +261,32 @@ function sendOrderEmail(orderId, d) {
     ? sucursalInternalLabel(d.sucursal)
     : (d.sucursal === 'cdb' ? 'Colegio Don Bosco' : d.sucursal === 'udb' ? 'Universidad Don Bosco' : 'Retiro en sucursal');
   const sucLabel = d.tipoEntrega === 'domicilio' ? 'Envío a domicilio' : _sucInternal;
-  const finalTotal = d.totalConDescuento != null ? d.totalConDescuento : d.total;
+  const extraPinesMail = Math.max(0, Number(d.extraPines) || 0);
+  const hasDiscMail = typeof d.totalConDescuento === 'number';
+  const productsPlusExtra = hasDiscMail ? d.totalConDescuento : ((Number(d.total) || 0) + extraPinesMail);
+  const discountAmtMail = hasDiscMail
+    ? +((Number(d.total) || 0) * (Number(d.discountPct) || 0) / 100).toFixed(2)
+    : 0;
 
-  const rows = d.items.map(i => `
+  const rows = d.items.map(i => {
+    const pinNote = orderItemPinesNote(i);
+    return `
     <tr>
-      <td style="padding:6px 10px;border-bottom:1px solid #eee">${orderItemDisplayName(i)}${i.color ? ` <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${i.color};border:1px solid rgba(0,0,0,.15);vertical-align:middle;margin-left:4px"></span>` : ''}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee">${orderItemDisplayName(i)}${i.color ? ` <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${i.color};border:1px solid rgba(0,0,0,.15);vertical-align:middle;margin-left:4px"></span>` : ''}${pinNote ? `<div style="color:#64748b;font-size:12px;margin-top:2px">${pinNote}</div>` : ''}</td>
       <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:center">${i.qty}</td>
       <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">$${i.price.toFixed(2)}</td>
       <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">$${(i.qty * i.price).toFixed(2)}</td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 
-  const descuento = d.totalConDescuento != null ? `
+  const descuento = hasDiscMail ? `
     <tr><td colspan="3" style="padding:6px 10px;text-align:right">Subtotal</td>
         <td style="padding:6px 10px;text-align:right">$${d.total.toFixed(2)}</td></tr>
     <tr><td colspan="3" style="padding:6px 10px;text-align:right;color:#16a34a">Descuento (${d.discountName || ''} ${d.discountPct || 0}%)</td>
-        <td style="padding:6px 10px;text-align:right;color:#16a34a">−$${(d.total - finalTotal).toFixed(2)}</td></tr>` : '';
+        <td style="padding:6px 10px;text-align:right;color:#16a34a">−$${discountAmtMail.toFixed(2)}</td></tr>` : '';
+  const extraRowMail = extraPinesMail > 0 ? `
+    <tr><td colspan="3" style="padding:6px 10px;text-align:right">Soldar pines (+$0.25 c/u)</td>
+        <td style="padding:6px 10px;text-align:right">$${extraPinesMail.toFixed(2)}</td></tr>` : '';
 
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#0f172a">
@@ -169,11 +319,12 @@ function sendOrderEmail(orderId, d) {
         </tr>
         ${rows}
         ${descuento}
+        ${extraRowMail}
         ${d.tipoEntrega === 'domicilio' && d.envioCosto ? `
         <tr><td colspan="3" style="padding:6px 10px;text-align:right">Envío a domicilio</td>
             <td style="padding:6px 10px;text-align:right">$${(d.envioCosto).toFixed(2)}</td></tr>` : ''}
         <tr><td colspan="3" style="padding:10px;text-align:right;font-weight:700;font-size:16px;border-top:2px solid #0f172a">TOTAL</td>
-            <td style="padding:10px;text-align:right;font-weight:700;font-size:16px;border-top:2px solid #0f172a">$${(d.tipoEntrega === 'domicilio' && d.totalConEnvio != null ? d.totalConEnvio : finalTotal).toFixed(2)}</td></tr>
+            <td style="padding:10px;text-align:right;font-weight:700;font-size:16px;border-top:2px solid #0f172a">$${(d.tipoEntrega === 'domicilio' && d.totalConEnvio != null ? d.totalConEnvio : productsPlusExtra).toFixed(2)}</td></tr>
       </table>
       <p style="margin-top:16px;color:#94a3b8;font-size:12px">ID del pedido: ${orderId}</p>
     </div>`;
@@ -212,8 +363,9 @@ async function crearYEnviarFacturaPedido(orderId, d) {
 
   const items = (d.items || []).map(it => {
     const sub = +((it.price || 0) * (it.qty || 0)).toFixed(2);
+    const pinNote = orderItemPinesNote(it);
     return {
-      productName: orderItemDisplayName(it),
+      productName: orderItemDisplayName(it) + (pinNote ? (' · ' + pinNote) : ''),
       qty: it.qty,
       precioUnit: +(it.price || 0).toFixed(2),
       subtotal: sub,
@@ -221,13 +373,19 @@ async function crearYEnviarFacturaPedido(orderId, d) {
       descPct: discPct, descNombre: d.discountName || '',
       colorId: it.colorId || null,
       colorLabel: it.colorLabel || null,
-      color: it.color || null
+      color: it.color || null,
+      pinesSoldados: it.pinesSoldados === true,
+      soldarPines: it.soldarPines === true && it.pinesSoldados !== true,
+      extraPines: it.soldarPines === true && it.pinesSoldados !== true ? +(Number(it.extraPines) || 0).toFixed(2) : 0
     };
   });
   const unidades = items.reduce((s, it) => s + (it.qty || 0), 0);
   const subtotal = +(d.total).toFixed(2);
-  // Total de productos (con descuento si aplica), SIN envío.
-  const totalProductos = (typeof d.totalConDescuento === 'number') ? +d.totalConDescuento.toFixed(2) : subtotal;
+  const extraPines = +Math.max(0, Number(d.extraPines) || 0).toFixed(2);
+  // Con descuento de pedido, totalConDescuento ya incluye el extra. Si no, se suma aparte.
+  const totalProductos = (typeof d.totalConDescuento === 'number')
+    ? +d.totalConDescuento.toFixed(2)
+    : +(subtotal + extraPines).toFixed(2);
   // Créditos restan del total de productos (1 crédito = $1).
   const totalTrasCreditos = +Math.max(0, totalProductos - creditsUsed).toFixed(2);
   // Envío cobrado (solo domicilio): se SUMA al total de la factura, igual que lo paga el cliente.
@@ -260,7 +418,7 @@ async function crearYEnviarFacturaPedido(orderId, d) {
       cliente: d.name || '', clienteEmail: d.email || '',
       seller: 'tienda-online',
       date: fecha, timestamp: ts, mes,
-      subtotal, totalProductos, creditsUsed, envioCosto, total, unidades, items,
+      subtotal, totalProductos, extraPines, creditsUsed, envioCosto, total, unidades, items,
       tipoEntrega: d.tipoEntrega || 'pickup',
       fromOrder: orderId, origen: 'tienda',
       anulada: false   // Las facturas NUNCA se borran; al cancelar el pedido se marcan como anuladas.
@@ -280,8 +438,12 @@ async function crearYEnviarFacturaPedido(orderId, d) {
         <td style="padding:7px 0;border-bottom:1px solid #eef5fb;text-align:center">${i.qty}</td>
         <td style="padding:7px 0;border-bottom:1px solid #eef5fb;text-align:right">$${i.total.toFixed(2)}</td>
       </tr>`).join('');
-    const descRow = subtotal !== totalProductos
-      ? `<p style="margin:10px 0 0;text-align:right;color:#4a89b0;font-size:13px">Subtotal: $${subtotal.toFixed(2)} &middot; Descuento: -$${(subtotal-totalProductos).toFixed(2)}</p>`
+    const descAmt = discPct ? +((subtotal * discPct / 100)).toFixed(2) : 0;
+    const descRow = descAmt > 0.001
+      ? `<p style="margin:10px 0 0;text-align:right;color:#4a89b0;font-size:13px">Subtotal: $${subtotal.toFixed(2)} &middot; Descuento: -$${descAmt.toFixed(2)}</p>`
+      : '';
+    const pinesRowMail = extraPines > 0
+      ? `<p style="margin:6px 0 0;text-align:right;color:#4a89b0;font-size:13px">Soldar pines (+$0.25 c/u): $${extraPines.toFixed(2)}</p>`
       : '';
     const creditsRowMail = creditsUsed
       ? `<p style="margin:6px 0 0;text-align:right;color:#0d9488;font-size:13px">Créditos PICO: -$${creditsUsed.toFixed(2)}</p>`
@@ -311,6 +473,7 @@ async function crearYEnviarFacturaPedido(orderId, d) {
       <tbody>${filas}</tbody>
     </table>
     ${descRow}
+    ${pinesRowMail}
     ${creditsRowMail}
     ${envioRowMail}
     <p style="margin:8px 0 0;text-align:right;font-size:17px;font-weight:700">TOTAL: $${total.toFixed(2)}</p>
@@ -333,6 +496,7 @@ function loadCart() {
     const s = localStorage.getItem('pico_cart');
     if (s) cart = JSON.parse(s);
   } catch(_) {}
+  loadCartSolder();
 }
 
 function addToCart(id, colorId) {
@@ -472,7 +636,7 @@ function removeFromCart(key) {
 
 function updateCartUI() {
   const rawTotal = getCartRawTotal();
-  const total    = getCartTotal();
+  const productsNet = getCartProductsNet();
   const count = Object.values(cart).reduce((s, n) => s + n, 0);
 
   const badge = document.getElementById('cartBadge');
@@ -483,12 +647,11 @@ function updateCartUI() {
   const totalEl = document.getElementById('cartTotal');
   const listTotal = (typeof getCartListTotal === 'function') ? getCartListTotal() : rawTotal;
   // En el carrito NO mostramos créditos: solo descuento de productos/códigos ya reflejado en total.
-  // El payable con créditos se ve en checkout.
-  const cartDisplayTotal = total;
-  if (listTotal > cartDisplayTotal + 0.001) {
-    totalEl.innerHTML = `<span style="text-decoration:line-through;color:var(--g400);font-size:.88rem;font-weight:500">$${listTotal.toFixed(2)}</span> <span style="color:var(--b600)">$${cartDisplayTotal.toFixed(2)}</span>`;
+  // El extra de pines va en su propia línea, después del descuento.
+  if (listTotal > productsNet + 0.001) {
+    totalEl.innerHTML = `<span style="text-decoration:line-through;color:var(--g400);font-size:.88rem;font-weight:500">$${listTotal.toFixed(2)}</span> <span style="color:var(--b600)">$${productsNet.toFixed(2)}</span>`;
   } else {
-    totalEl.textContent = '$' + cartDisplayTotal.toFixed(2);
+    totalEl.textContent = '$' + productsNet.toFixed(2);
   }
   // Quitar nota de créditos del carrito (viven solo en checkout)
   const credNote = document.getElementById('cartCreditsNote');
@@ -496,6 +659,7 @@ function updateCartUI() {
 
   // Barra de progreso de envío + recomendaciones (solo entrega a domicilio)
   renderShippingProgress();
+  renderCartPinesLine();
   // Línea explícita del envío que se paga AHORA + total con envío (solo domicilio)
   renderCartShippingLine();
 
@@ -530,6 +694,7 @@ function updateCartUI() {
         <div class="citem-name">${p.name}${prodPct > 0 ? ` <span style="color:#e57373;font-size:.72rem;font-weight:800">−${prodPct}%</span>` : ''}</div>
         ${colorHtml}
         ${priceHtml}
+        ${renderPinesChoiceHtml(key, p)}
       </div>
       <div class="cqty">
         <button class="cqbtn" onclick="changeQty('${kAttr}', -1)">−</button>
@@ -553,7 +718,7 @@ function renderShippingProgress() {
   if (!el) return;
 
   const esDomicilio = selectedSucursal === 'domicilio';
-  const subtotal    = getCartTotal(); // total de productos con descuento → define el tramo
+  const subtotal    = getCartProductsNet(); // productos con descuento, sin extra de pines
   if (!esDomicilio || subtotal <= 0) { el.innerHTML = ''; el.style.display = 'none'; return; }
   el.style.display = 'block';
 
@@ -650,15 +815,38 @@ function shipRecAdd(id) {
 // Línea clara del envío que se paga AHORA + total con envío (solo domicilio).
 // Aparece en el pie del carrito, debajo del subtotal, para que no haya dudas
 // de cuánto se cobra de envío en este momento.
+function renderCartPinesLine() {
+  const el = document.getElementById('cartPinesLine');
+  if (!el) return;
+  const extra = getCartExtraPines();
+  const productsNet = getCartProductsNet();
+  const esDomicilio = selectedSucursal === 'domicilio';
+  if (!(extra > 0)) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  const total = +(productsNet + extra).toFixed(2);
+  el.style.display = 'block';
+  const totalRow = esDomicilio ? '' : `
+    <div class="cship-line cship-total-line">
+      <span class="cship-line-lbl">Total</span>
+      <span class="cship-line-val total">$${total.toFixed(2)}</span>
+    </div>`;
+  el.innerHTML = `
+    <div class="cship-line">
+      <span class="cship-line-lbl">Soldar pines (+$0.25 c/u)</span>
+      <span class="cship-line-val">$${extra.toFixed(2)}</span>
+    </div>
+    ${totalRow}`;
+}
+
 function renderCartShippingLine() {
   const el = document.getElementById('cartShippingLine');
   if (!el) return;
   const esDomicilio = selectedSucursal === 'domicilio';
-  const subtotal    = getCartTotal();
-  if (!esDomicilio || subtotal <= 0) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  const subtotal    = getCartProductsNet();
+  const extra       = getCartExtraPines();
+  if (!esDomicilio || (subtotal <= 0 && extra <= 0)) { el.style.display = 'none'; el.innerHTML = ''; return; }
 
   const envio         = getShippingCost(subtotal);
-  const totalConEnvio = +(subtotal + envio).toFixed(2);
+  const totalConEnvio = +(subtotal + extra + envio).toFixed(2);
   const esGratis      = envio === 0;
 
   el.style.display = 'block';
@@ -706,6 +894,7 @@ function refreshCheckoutSummary() {
       <div>
         <div class="odetail-item-name">${p.e} ${p.name}${colorBadge}</div>
         <div class="odetail-item-sub">$${unitSale.toFixed(2)} × ${cart[key]}</div>
+        ${renderPinesChoiceHtml(key, p)}
       </div>
       <div class="odetail-item-price">$${(unitSale * cart[key]).toFixed(2)}</div>
     </div>`;
@@ -713,18 +902,28 @@ function refreshCheckoutSummary() {
 
   const listTotal   = (typeof getCartListTotal === 'function') ? getCartListTotal() : getCartRawTotal();
   const rawTotal    = getCartRawTotal();
-  const finalTotal  = getCartTotal();
+  const productsNet = getCartProductsNet();
+  const extraPines  = getCartExtraPines();
+  const chargeBase  = +(productsNet + extraPines).toFixed(2);
   const esDomicilio = (getSavedProfile().sucursal || selectedSucursal) === 'domicilio';
   const creditsAmt  = (!selectedDiscount && typeof getCreditsAppliedAmount === 'function')
-    ? getCreditsAppliedAmount(finalTotal) : 0;
-  const payableProducts = +Math.max(0, finalTotal - creditsAmt).toFixed(2);
-  const envioCosto  = esDomicilio ? getShippingCost(finalTotal) : 0;
+    ? getCreditsAppliedAmount(chargeBase) : 0;
+  const payableProducts = +Math.max(0, chargeBase - creditsAmt).toFixed(2);
+  const envioCosto  = esDomicilio ? getShippingCost(productsNet) : 0;
   const grandTotal  = +(payableProducts + envioCosto).toFixed(2);
+  const discPct = getCartOrderDiscountPct();
+  const discountAmt = discPct > 0 ? +(rawTotal * discPct / 100).toFixed(2) : 0;
 
   const discountRow = selectedDiscount
     ? `<div class="odetail-subtotal" style="color:var(--green)">
          <span>Descuento (${selectedDiscount.nombre} −${selectedDiscount.porcentaje}%)</span>
-         <span>−$${(rawTotal - finalTotal).toFixed(2)}</span>
+         <span>−$${discountAmt.toFixed(2)}</span>
+       </div>`
+    : '';
+  const pinesRow = extraPines > 0
+    ? `<div class="odetail-subtotal">
+         <span>Soldar pines (+$0.25 c/u)</span>
+         <span>$${extraPines.toFixed(2)}</span>
        </div>`
     : '';
   const creditsRow = creditsAmt > 0
@@ -733,11 +932,11 @@ function refreshCheckoutSummary() {
          <span>−$${creditsAmt.toFixed(2)}</span>
        </div>`
     : '';
-  const subtotalRow = (selectedDiscount || creditsAmt > 0 || esDomicilio || listTotal > rawTotal + 0.001)
+  const subtotalRow = (selectedDiscount || creditsAmt > 0 || esDomicilio || extraPines > 0 || listTotal > rawTotal + 0.001)
     ? `<div class="odetail-subtotal"><span>Subtotal productos</span><span>$${rawTotal.toFixed(2)}</span></div>`
     : '';
   const subDescRow = (selectedDiscount && esDomicilio)
-    ? `<div class="odetail-subtotal"><span>Subtotal con descuento</span><span>$${finalTotal.toFixed(2)}</span></div>`
+    ? `<div class="odetail-subtotal"><span>Subtotal con descuento</span><span>$${productsNet.toFixed(2)}</span></div>`
     : '';
   const envioRow = esDomicilio
     ? `<div class="odetail-subtotal"><span>Envío a domicilio</span><span>${envioCosto === 0 ? 'GRATIS' : '$' + envioCosto.toFixed(2)}</span></div>`
@@ -749,6 +948,7 @@ function refreshCheckoutSummary() {
       ${subtotalRow}
       ${discountRow}
       ${subDescRow}
+      ${pinesRow}
       ${creditsRow}
       ${envioRow}
       <div class="odetail-subtotal" style="font-weight:700;color:var(--b600)">
@@ -997,6 +1197,8 @@ async function placeOrder() {
     const prodPct = (typeof getProductDiscountPct === 'function') ? getProductDiscountPct(p) : 0;
     const unit = (typeof getProductSalePrice === 'function') ? getProductSalePrice(p) : p.price;
     const color = colorId ? findCartColor(productId, colorId) : null;
+    const yaSoldados = productPinesYaSoldados(p);
+    const soldar = cartLineSoldarPines(key, p);
     const line = {
       id: productId,
       name: p.name,
@@ -1004,7 +1206,10 @@ async function placeOrder() {
       price: unit,
       listPrice: p.price,
       productDiscPct: prodPct > 0 ? prodPct : null,
-      cost: p.cost
+      cost: p.cost,
+      pinesSoldados: yaSoldados,
+      soldarPines: soldar,
+      extraPines: extraPinesForQty(cart[key], soldar)
     };
     // Color pedido (stock compartido del raíz): lo ve el admin en el detalle.
     if (color) {
@@ -1033,8 +1238,7 @@ async function placeOrder() {
         discountPct: selectedDiscount ? selectedDiscount.porcentaje : null,
         discountCode: null, discountCodeId: null, stampCardCode: null, discountSource: null
       };
-  if (selectedDiscount) discFields.totalConDescuento = finalTotal;
-  else discFields.totalConDescuento = null;
+  discFields.totalConDescuento = null;
 
   // Revalidar código/sellos justo antes de crear el pedido (evita canjes inválidos)
   try {
@@ -1055,18 +1259,13 @@ async function placeOrder() {
     return;
   }
 
-  // Costo de envío por tramos (según el subtotal de productos, antes de créditos). Solo a domicilio.
-  const shipCost = esDomicilio ? getShippingCost(finalTotal) : 0;
-  const creditsAmt = (!selectedDiscount && typeof getCreditsAppliedAmount === 'function')
-    ? getCreditsAppliedAmount(finalTotal) : 0;
-  const payableProducts = +Math.max(0, finalTotal - creditsAmt).toFixed(2);
-
   try {
     // Inventario ÚNICO: todo descuenta de 'stockCdb' (solo el legado 'exsal' usa stockExsal).
     const stockField = (sucursal === 'exsal') ? 'stockExsal' : 'stockCdb';
 
     // ── Verificar que haya stock suficiente y descontarlo de forma ATÓMICA, justo antes de crear el pedido ──
     // (aplica a TODO tipo de pedido: tarjeta, efectivo, sucursal o domicilio). Si no alcanza, no se crea el pedido.
+    const freshPins = {};
     await db.runTransaction(async (tx) => {
       // Una sola resta por producto raíz (varios colores → stock compartido).
       const needById = cartStockNeedsByProduct();
@@ -1077,6 +1276,7 @@ async function placeOrder() {
         const snap = snaps[k];
         const need = needById[ids[k]] || 0;
         const data = snap.exists ? snap.data() : null;
+        freshPins[ids[k]] = !!(data && data.pinesSoldados === true);
         const have = data && typeof data[stockField] === 'number' ? data[stockField] : 0;
         if (!snap.exists || have < need) {
           const nombre = (data && data.name) ? data.name : 'un producto';
@@ -1092,9 +1292,34 @@ async function placeOrder() {
       }
     });
 
+    // Copia de pinesSoldados al momento del pedido. Si ya viene soldado, el extra es 0.
+    let extraPines = 0;
+    items.forEach(line => {
+      const ya = freshPins[line.id] === true;
+      const soldar = line.soldarPines === true && !ya;
+      line.pinesSoldados = ya;
+      line.soldarPines = soldar;
+      line.extraPines = extraPinesForQty(line.qty, soldar);
+      extraPines += line.extraPines;
+    });
+    extraPines = +extraPines.toFixed(2);
+    const orderPct = selectedDiscount ? (selectedDiscount.porcentaje || 0) : 0;
+    const productsNet = orderPct > 0
+      ? +(rawTotal * (1 - orderPct / 100)).toFixed(2)
+      : +rawTotal.toFixed(2);
+    if (selectedDiscount) discFields.totalConDescuento = +(productsNet + extraPines).toFixed(2);
+    else discFields.totalConDescuento = null;
+    const shipCost = esDomicilio ? getShippingCost(productsNet) : 0;
+    const chargeBase = +(productsNet + extraPines).toFixed(2);
+    const creditsAmt = (!selectedDiscount && typeof getCreditsAppliedAmount === 'function')
+      ? getCreditsAppliedAmount(chargeBase) : 0;
+    const payableProducts = +Math.max(0, chargeBase - creditsAmt).toFixed(2);
+    const totalConEnvio = +(payableProducts + shipCost).toFixed(2);
+
     const docRef = await db.collection('pedidos').add({
       code, name, grade, section, items,
       total:               +rawTotal.toFixed(2),
+      extraPines:          extraPines,
       totalConDescuento:   discFields.totalConDescuento,
       discountId:          discFields.discountId,
       discountName:        discFields.discountName,
@@ -1177,6 +1402,7 @@ async function placeOrder() {
     const mailPayload = {
       code, name, grade, section, items,
       total: +rawTotal.toFixed(2),
+      extraPines,
       totalConDescuento: discFields.totalConDescuento,
       discountName: discFields.discountName,
       discountPct:  discFields.discountPct,
@@ -1212,6 +1438,7 @@ async function placeOrder() {
         await crearYEnviarFacturaPedido(docRef.id, {
           code, name, items,
           total: +rawTotal.toFixed(2),
+          extraPines,
           totalConDescuento: discFields.totalConDescuento,
           discountName: discFields.discountName,
           discountPct:  discFields.discountPct,
@@ -1247,9 +1474,10 @@ async function placeOrder() {
     });
 
     cart = {};
+    cartSolder = {};
     myOrdersPaging.page = 0; myOrdersPaging.cursors = []; myOrdersPaging.atEnd = false; // refrescar al crear pedido
     selectedDiscount = null; // Bug 1 fix: resetear descuento seleccionado al completar pedido
-    try { localStorage.removeItem('pico_cart'); } catch(_) {}
+    try { localStorage.removeItem('pico_cart'); localStorage.removeItem('pico_cart_solder'); } catch(_) {}
     if (typeof renderCartDiscountSelector === 'function') renderCartDiscountSelector();
     updateCartUI();
     renderProducts();
@@ -1258,6 +1486,15 @@ async function placeOrder() {
     document.getElementById('studentSection').value = '';
     { const _up = document.getElementById('uniPhone'); if (_up) _up.value = ''; }
     document.getElementById('generatedCode').textContent = code;
+    fillSuccessOrderSummary(items, {
+      extraPines,
+      shipCost,
+      esDomicilio,
+      credits: creditsAmt,
+      discountAmt: discFields.discountPct ? +(rawTotal * discFields.discountPct / 100).toFixed(2) : 0,
+      discountPct: discFields.discountPct || 0,
+      displayTotal: totalConEnvio
+    });
 
     // ─── GENERAR QR (con el diseño publicado en GeneraQR; cae a QR clásico si falla) ───
     const qrContainer = document.getElementById('qr-pedido');

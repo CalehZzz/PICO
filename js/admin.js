@@ -545,7 +545,7 @@ function renderAdminRows(bodyId, data) {
           Ver (${(o.items||[]).length})
         </button>
       </td>
-      <td style="font-weight:700;color:var(--b600)">$${(typeof o.totalConDescuento === 'number' ? o.totalConDescuento : (o.total || 0)).toFixed(2)}</td>
+      <td style="font-weight:700;color:var(--b600)">$${((typeof orderProductsPlusExtra === 'function') ? orderProductsPlusExtra(o) : (typeof o.totalConDescuento === 'number' ? o.totalConDescuento : (o.total || 0))).toFixed(2)}</td>
       <td style="font-size:.75rem;white-space:nowrap;color:var(--g500)">${fmtDate(o.createdAt)}</td>
       <td style="font-size:.75rem;white-space:nowrap;color:var(--g500)">${o.deliveredAt ? fmtDate(o.deliveredAt) : '<span style="color:var(--g300)">—</span>'}</td>
       <td>
@@ -636,7 +636,10 @@ async function revertDelivery(firestoreId, data) {
     totalVentasEfectivo += +(unitPrice * qty * discFactor).toFixed(2);
     costTotal += unitCost * qty;
   }
-  const totalEfectivo = typeof data.totalConDescuento === 'number' ? data.totalConDescuento : totalVentasEfectivo;
+  const extraPinsRev = +Math.max(0, Number(data.extraPines) || 0).toFixed(2);
+  const totalEfectivo = typeof data.totalConDescuento === 'number'
+    ? +Number(data.totalConDescuento).toFixed(2)
+    : +(totalVentasEfectivo + extraPinsRev).toFixed(2);
 
   const batch = db.batch();
 
@@ -680,7 +683,7 @@ async function revertDelivery(firestoreId, data) {
 
     if (!statsAtPayment) {
       // 'ventas' incluye productos + envío cobrado (lo que entró al entregar en efectivo)
-      statUpdate['ventas']            = firebase.firestore.FieldValue.increment(-(+((totalVentasEfectivo + revIngresoEnvio)).toFixed(2)));
+      statUpdate['ventas']            = firebase.firestore.FieldValue.increment(-(+((totalEfectivo + revIngresoEnvio)).toFixed(2)));
       statUpdate['unidades vendidas'] = firebase.firestore.FieldValue.increment(-totalUnidades);
       statUpdate['numero de ventas']  = firebase.firestore.FieldValue.increment(-1);
     }
@@ -816,6 +819,14 @@ async function changeStatus(firestoreId, val) {
         // ¿Las estadísticas de venta ya se registraron al confirmar el pago con tarjeta?
         const alreadyCounted = freshData.statsRecorded === true;
 
+        // Total efectivo: con descuento de pedido, totalConDescuento ya incluye el extra de pines.
+        // Sin descuento, el extra se suma aparte y no se escribe totalConDescuento.
+        const extraPins = +Math.max(0, Number(freshData.extraPines) || 0).toFixed(2);
+        const storedDisc = typeof freshData.totalConDescuento === 'number';
+        const totalEfectivo = storedDisc
+          ? +Number(freshData.totalConDescuento).toFixed(2)
+          : +((priceTotal * discFactor) + extraPins).toFixed(2);
+
         // Un solo documento de venta con todos los productos del pedido (lógica nueva).
         // Solo se crea si NO se creó ya al pagar (tarjeta). Vinculado a su factura y al pedido.
         if (!alreadyCounted) stockBatch.set(db.collection('ventas').doc(), {
@@ -823,7 +834,7 @@ async function changeStatus(firestoreId, val) {
           items: ventaItems,
           qty: totalUnidades,
           costTotal: +costTotal.toFixed(2),
-          total: +totalVentasEfectivo.toFixed(2),
+          total: +totalEfectivo.toFixed(2),
           seller: sellerEmail,
           sucursal: ventaSucursal,
           date: new Date().toLocaleDateString('es'),
@@ -834,11 +845,6 @@ async function changeStatus(firestoreId, val) {
           facturaNum: freshData.facturaNum || null,
           ...(freshData.discountPct ? { descuentoAplicado: { nombre: freshData.discountName, porcentaje: freshData.discountPct } } : {})
         });
-
-        // Total efectivo: respetar totalConDescuento guardado; si no existe, calcular desde precios del pedido
-        const totalEfectivo = typeof freshData.totalConDescuento === 'number'
-          ? freshData.totalConDescuento
-          : +(priceTotal * discFactor).toFixed(2);
 
         // ── Envío (solo domicilio) · modelo MEZCLADO con CDB ──
         //   • El envío cobrado al cliente entra a INGRESOS y a 'ventas'.
@@ -862,7 +868,7 @@ async function changeStatus(firestoreId, val) {
           stockDeducted: true,
           saleRecorded: true,
           costTotal: +costTotal.toFixed(2),
-          totalConDescuento: +totalEfectivo.toFixed(2),
+          ...(storedDisc ? { totalConDescuento: totalEfectivo } : {}),
           envioCobrado: +envioCobrado.toFixed(2),
           envioReal: +envioReal.toFixed(2),
           margenEnvio: +(envioCobrado - envioReal).toFixed(2),   // positivo = ganamos en el envío
@@ -895,7 +901,7 @@ async function changeStatus(firestoreId, val) {
           'costosPedidos':     firebase.firestore.FieldValue.increment(+(((alreadyCounted ? 0 : costTotal)) + addCostoEnvio + comisionWompi).toFixed(2))
         };
         if (!alreadyCounted) {
-          statPayload['ventas']            = firebase.firestore.FieldValue.increment(+(totalVentasEfectivo + addIngresoEnvio).toFixed(2));
+          statPayload['ventas']            = firebase.firestore.FieldValue.increment(+(totalEfectivo + addIngresoEnvio).toFixed(2));
           statPayload['unidades vendidas'] = firebase.firestore.FieldValue.increment(totalUnidades);
           statPayload['numero de ventas']  = firebase.firestore.FieldValue.increment(1);
           const credUsed = Number(freshData.creditsUsed) || 0;
@@ -984,14 +990,16 @@ async function adminCancelOrder(firestoreId, code) {
           totalUnidades += qty;
           totalVentasEfectivo += +(unitPrice * qty * discFactor).toFixed(2);
         }
+        const extraPinsCancel = +Math.max(0, Number(order.extraPines) || 0).toFixed(2);
         const totalEfectivo = typeof order.totalConDescuento === 'number'
-          ? order.totalConDescuento : +(priceTotal * discFactor).toFixed(2);
+          ? order.totalConDescuento
+          : +((priceTotal * discFactor) + extraPinsCancel).toFixed(2);
         const comision = typeof order.comisionWompi === 'number' ? order.comisionWompi : 0;
         // Envío cobrado que se sumó a ventas/ingresos al pagar (tarjeta).
         const envioCobrado = (order.ingresoEnvioRegistrado === true)
           ? (typeof order.envioCosto === 'number' ? order.envioCosto : 0) : 0;
 
-        statUpdate['ventas']            = firebase.firestore.FieldValue.increment(-(+((totalVentasEfectivo + envioCobrado)).toFixed(2)));
+        statUpdate['ventas']            = firebase.firestore.FieldValue.increment(-(+((totalEfectivo + envioCobrado)).toFixed(2)));
         statUpdate['unidades vendidas'] = firebase.firestore.FieldValue.increment(-totalUnidades);
         statUpdate['numero de ventas']  = firebase.firestore.FieldValue.increment(-1);
         statUpdate['ingresosPedidos']   = firebase.firestore.FieldValue.increment(-(+((totalEfectivo + envioCobrado)).toFixed(2)));
@@ -1201,6 +1209,7 @@ function showOrderDetail(firestoreId) {
       <div>
         <div class="odetail-item-name">${_pdEsc(i.name || '')}${(typeof orderItemColorBadgeHtml === 'function') ? orderItemColorBadgeHtml(i) : ''}</div>
         <div class="odetail-item-sub">$${(i.price||0).toFixed(2)} × ${i.qty}</div>
+        ${(typeof orderItemPinesHtml === 'function') ? orderItemPinesHtml(i) : ''}
       </div>
       <div class="odetail-item-price">$${((i.price||0) * i.qty).toFixed(2)}</div>
     </div>`).join('');
@@ -1334,7 +1343,17 @@ function showOrderDetail(firestoreId) {
       </div>`;
   }
 
-  const subtotalProductos = (typeof o.totalConDescuento === 'number' ? o.totalConDescuento : (o.total || 0));
+  const extraPines = Math.max(0, Number(o.extraPines) || 0);
+  const subtotalProductos = (typeof orderProductsPlusExtra === 'function')
+    ? orderProductsPlusExtra(o)
+    : (typeof o.totalConDescuento === 'number' ? o.totalConDescuento : ((o.total || 0) + extraPines));
+  const pinesRow = extraPines > 0
+    ? `<div class="odetail-subtotal"><span>Soldar pines (+$0.25 c/u)</span><span>$${extraPines.toFixed(2)}</span></div>`
+    : '';
+  const discPctAdmin = Number(o.discountPct) || 0;
+  const discountRowAdmin = discPctAdmin > 0
+    ? `<div class="odetail-subtotal" style="color:var(--green)"><span>Descuento (${_pdEsc(o.discountName || '')} ${discPctAdmin}%)</span><span>−$${(((Number(o.total) || 0) * discPctAdmin) / 100).toFixed(2)}</span></div>`
+    : '';
   const envioRow = isDomicilio
     ? `<div class="odetail-subtotal"><span>Envío a domicilio</span><span>$${(o.envioCosto || 0).toFixed(2)}</span></div>
        <div class="odetail-subtotal" style="font-weight:700;border-top:2px solid var(--g200);padding-top:8px">
@@ -1390,8 +1409,14 @@ function showOrderDetail(firestoreId) {
     <div class="odetail-list">${items}</div>
     <div class="odetail-subtotal">
       <span>Subtotal productos</span>
-      <span>$${subtotalProductos.toFixed(2)}</span>
+      <span>$${((typeof o.total === 'number') ? o.total : 0).toFixed(2)}</span>
     </div>
+    ${discountRowAdmin}
+    ${pinesRow}
+    ${(extraPines > 0 || discPctAdmin > 0) ? `<div class="odetail-subtotal" style="font-weight:700">
+      <span>Total productos</span>
+      <span>$${subtotalProductos.toFixed(2)}</span>
+    </div>` : ''}
     ${envioRow}
     ${comisionRow}`;
   openModal('orderDetailModal');

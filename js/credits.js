@@ -127,7 +127,9 @@ function setCreditsToUse(val) {
     const box = document.querySelector('.cart-credits-box');
     if (box) {
       let appliedEl = box.querySelector('.cart-credits-applied');
-      const productTotal = (typeof getCartTotal === 'function') ? getCartTotal() : 0;
+      const productTotal = (typeof getCartChargeBeforeShip === 'function')
+        ? getCartChargeBeforeShip()
+        : ((typeof getCartTotal === 'function') ? getCartTotal() : 0);
       const applied = getCreditsAppliedAmount(productTotal);
       if (applied > 0) {
         if (!appliedEl) {
@@ -148,10 +150,12 @@ function setCreditsToUse(val) {
 
 function toggleUseAllCredits() {
   const raw = (typeof getCartRawTotal === 'function') ? getCartRawTotal() : 0;
-  // Subtotal sin descuento de carrito si vamos a usar créditos
-  const productTotal = (typeof getCartListTotal === 'function' && !PRODUCT_DISCOUNTS_LIVE)
-    ? (typeof getCartRawTotal === 'function' ? getCartRawTotal() : raw)
-    : raw;
+  // Tope: productos (sin descuento de carrito) + extra de pines. El extra no se descuenta.
+  const productTotal = (typeof getCartChargeBeforeShip === 'function')
+    ? getCartChargeBeforeShip()
+    : ((typeof getCartListTotal === 'function' && !PRODUCT_DISCOUNTS_LIVE)
+      ? (typeof getCartRawTotal === 'function' ? getCartRawTotal() : raw)
+      : raw);
   const avail = creditsSaldoDisponible(userCredits);
   if (creditsToUse > 0) setCreditsToUse(0);
   else setCreditsToUse(Math.min(avail, productTotal));

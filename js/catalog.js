@@ -727,6 +727,10 @@ function _fillProductDetailModal(p, g, opts) {
     ? `<div class="pd-selected-variant">Seleccionado: <strong>${_pdEsc(selectedLabel)}</strong></div>`
     : '';
 
+  // Carrito: con groupColors, una línea por color (stock compartido del raíz).
+  const modalColorId = embeddedColors ? _pdSelectedColorId : null;
+  const lineKey = (typeof makeCartKey === 'function') ? makeCartKey(p.id, modalColorId) : p.id;
+
   body.innerHTML =
     `<div class="pd-img">${imgHtml}${_discountTagHtml(pct, 'lg')}</div>` +
     imgScaleCtrl +
@@ -738,12 +742,10 @@ function _fillProductDetailModal(p, g, opts) {
     variantNote +
     variantPicker +
     _pricePairHtml(oldP, pct, false) +
+    `<div class="pd-pines">${(typeof renderPinesChoiceHtml === 'function') ? renderPinesChoiceHtml(lineKey, p) : ''}</div>` +
     descHeader +
     `<div id="pdDescArea">${descHtml}</div>`;
 
-  // Carrito: con groupColors, una línea por color (stock compartido del raíz).
-  const modalColorId = embeddedColors ? _pdSelectedColorId : null;
-  const lineKey = (typeof makeCartKey === 'function') ? makeCartKey(p.id, modalColorId) : p.id;
   const lineMax = (typeof cartLineMax === 'function') ? cartLineMax(p.id, lineKey) : (stockMap[p.id] || 0);
   const modalNoStock = noStock || (lineMax < 1 && !cart[lineKey]);
   foot.innerHTML =

@@ -6,7 +6,10 @@
 // Total a mostrar: para domicilio incluye el envío; en lo demás, el de productos.
 function orderDisplayTotal(o) {
   if (o && o.tipoEntrega === 'domicilio' && typeof o.totalConEnvio === 'number') return o.totalConEnvio;
-  return (typeof o.totalConDescuento === 'number') ? o.totalConDescuento : (o.total || 0);
+  if (typeof orderProductsPlusExtra === 'function') return orderProductsPlusExtra(o);
+  const extra = Math.max(0, Number(o && o.extraPines) || 0);
+  if (o && typeof o.totalConDescuento === 'number') return o.totalConDescuento;
+  return (Number(o && o.total) || 0) + extra;
 }
 // Badge de estado (incluye el estado 'confirmado' del envío a domicilio).
 function orderStatusBadge(o) {
@@ -314,9 +317,11 @@ function _renderMyOrdersList(el, myOrders) {
               <div>
                 <div class="odetail-item-name">${(typeof _pdEsc === 'function') ? _pdEsc(i.name || '') : (i.name || '')}${(typeof orderItemColorBadgeHtml === 'function') ? orderItemColorBadgeHtml(i) : ''}</div>
                 <div class="odetail-item-sub">$${(i.price||0).toFixed(2)} × ${i.qty}</div>
+                ${(typeof orderItemPinesHtml === 'function') ? orderItemPinesHtml(i) : ''}
               </div>
               <div class="odetail-item-price">$${((i.price||0)*i.qty).toFixed(2)}</div>
             </div>`).join('')}
+          ${(Number(o.extraPines) > 0) ? `<div class="odetail-subtotal"><span>Soldar pines (+$0.25 c/u)</span><span>$${Number(o.extraPines).toFixed(2)}</span></div>` : ''}
           ${orderEnvioLine(o)}
           <div class="odetail-subtotal">
             <span>Total</span>
@@ -463,9 +468,11 @@ async function trackOrder() {
                 <div>
                   <div class="odetail-item-name">${(typeof _pdEsc === 'function') ? _pdEsc(i.name || '') : (i.name || '')}${(typeof orderItemColorBadgeHtml === 'function') ? orderItemColorBadgeHtml(i) : ''}</div>
                   <div class="odetail-item-sub">$${(i.price||0).toFixed(2)} × ${i.qty}</div>
+                  ${(typeof orderItemPinesHtml === 'function') ? orderItemPinesHtml(i) : ''}
                 </div>
                 <div class="odetail-item-price">$${((i.price||0)*i.qty).toFixed(2)}</div>
               </div>`).join('')}
+            ${(Number(o.extraPines) > 0) ? `<div class="odetail-subtotal"><span>Soldar pines (+$0.25 c/u)</span><span>$${Number(o.extraPines).toFixed(2)}</span></div>` : ''}
             ${orderEnvioLine(o)}
             <div class="odetail-subtotal">
               <span>Total</span>

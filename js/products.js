@@ -135,7 +135,9 @@ function applyRawProducts(rawProducts, opts) {
       imageScale: normalizeImageScale(d.imageScale),
       stock: s, cat, e,
       groupId, groupKind, groupName, variantLabel, variantColor, variantEnabled,
-      groupColors
+      groupColors,
+      // true solo si el inventario lo marcó. Ausente o false = el cliente puede pedir soldar.
+      pinesSoldados: d.pinesSoldados === true
     };
     products.push(p);
     stockMap[d.id] = s;
@@ -208,7 +210,8 @@ function _productsDataSig(rawProducts) {
     const stock = typeof d.stockCdb === 'number' ? d.stockCdb
       : (typeof d.stock === 'number' ? d.stock : 0);
     return d.id + ':' + (d.price || 0) + ':' + stock + ':' + scale + ':' +
-      (d.imageUrl || '') + ':' + (d.name || '') + ':' + (d.descuentoPct || 0);
+      (d.imageUrl || '') + ':' + (d.name || '') + ':' + (d.descuentoPct || 0) + ':' +
+      (d.pinesSoldados === true ? 1 : 0);
   });
   parts.sort();
   return rawProducts.length + '@' + maxTs + '#' + parts.join('|');
