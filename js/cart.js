@@ -258,8 +258,15 @@ function fillSuccessOrderSummary(items, info) {
 }
 
 // ── Aviso por correo de cada pedido (vía extensión Trigger Email) ──
-function sendOrderEmail(orderId, d) {
+function mailMoney(n) {
+  const x = Number(n);
+  return (isFinite(x) ? x : 0).toFixed(2);
+}
+function sendOrderEmail(orderId, d, opts) {
   const NOTIFY_EMAIL = 'picosvsupport@gmail.com'; // ← correo donde quieres recibir el aviso
+  try {
+  d = d || {};
+  const force = !!(opts && opts.force);
   // Etiqueta INTERNA (para el equipo): sí nombra la institución del retiro.
   const _sucInternal = (typeof sucursalInternalLabel === 'function')
     ? sucursalInternalLabel(d.sucursal)
@@ -271,26 +278,29 @@ function sendOrderEmail(orderId, d) {
   const discountAmtMail = hasDiscMail
     ? +((Number(d.total) || 0) * (Number(d.discountPct) || 0) / 100).toFixed(2)
     : 0;
+  const telRetiro = d.telefonoRetiro || d.cdbTelefono || d.uniTelefono || '';
 
-  const rows = d.items.map(i => {
+  const rows = (d.items || []).map(i => {
     const pinNote = orderItemPinesNote(i);
+    const price = Number(i.price) || 0;
+    const qty = Number(i.qty) || 0;
     return `
     <tr>
       <td style="padding:6px 10px;border-bottom:1px solid #eee">${orderItemDisplayName(i)}${i.color ? ` <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${i.color};border:1px solid rgba(0,0,0,.15);vertical-align:middle;margin-left:4px"></span>` : ''}${pinNote ? `<div style="color:#64748b;font-size:12px;margin-top:2px">${pinNote}</div>` : ''}</td>
-      <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:center">${i.qty}</td>
-      <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">$${i.price.toFixed(2)}</td>
-      <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">$${(i.qty * i.price).toFixed(2)}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:center">${qty}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">$${mailMoney(price)}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">$${mailMoney(qty * price)}</td>
     </tr>`;
   }).join('');
 
   const descuento = hasDiscMail ? `
     <tr><td colspan="3" style="padding:6px 10px;text-align:right">Subtotal</td>
-        <td style="padding:6px 10px;text-align:right">$${d.total.toFixed(2)}</td></tr>
+        <td style="padding:6px 10px;text-align:right">$${mailMoney(d.total)}</td></tr>
     <tr><td colspan="3" style="padding:6px 10px;text-align:right;color:#16a34a">Descuento (${d.discountName || ''} ${d.discountPct || 0}%)</td>
-        <td style="padding:6px 10px;text-align:right;color:#16a34a">−$${discountAmtMail.toFixed(2)}</td></tr>` : '';
+        <td style="padding:6px 10px;text-align:right;color:#16a34a">−$${mailMoney(discountAmtMail)}</td></tr>` : '';
   const extraRowMail = extraPinesMail > 0 ? `
     <tr><td colspan="3" style="padding:6px 10px;text-align:right">Soldar pines (+$0.25 c/u)</td>
-        <td style="padding:6px 10px;text-align:right">$${extraPinesMail.toFixed(2)}</td></tr>` : '';
+        <td style="padding:6px 10px;text-align:right">$${mailMoney(extraPinesMail)}</td></tr>` : '';
 
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#0f172a">
@@ -299,7 +309,7 @@ function sendOrderEmail(orderId, d) {
       <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
         <tr><td style="padding:4px 0;color:#64748b">Cliente</td><td style="padding:4px 0;font-weight:600">${d.name}</td></tr>
         ${d.tipoEntrega === 'domicilio' ? '' : `<tr><td style="padding:4px 0;color:#64748b">Grado / Sección</td><td style="padding:4px 0;font-weight:600">${d.grade} - ${d.section}</td></tr>`}
-        ${d.tipoEntrega !== 'domicilio' && d.telefonoRetiro ? `<tr><td style="padding:4px 0;color:#64748b">Teléfono</td><td style="padding:4px 0;font-weight:600">${d.telefonoRetiro}</td></tr>` : ''}
+        ${d.tipoEntrega !== 'domicilio' && telRetiro ? `<tr><td style="padding:4px 0;color:#64748b">Teléfono</td><td style="padding:4px 0;font-weight:600">${telRetiro}</td></tr>` : ''}
         <tr><td style="padding:4px 0;color:#64748b">Entrega</td><td style="padding:4px 0;font-weight:600">${sucLabel}</td></tr>
         ${d.visitaInstitucion ? `<tr><td style="padding:4px 0;color:#64748b">Nos visita desde</td><td style="padding:4px 0;font-weight:700;color:#0071e3">${d.visitaInstitucion}</td></tr>` : ''}
         ${d.tipoEntrega === 'domicilio' && d.envio ? `
@@ -326,21 +336,79 @@ function sendOrderEmail(orderId, d) {
         ${extraRowMail}
         ${d.tipoEntrega === 'domicilio' && d.envioCosto ? `
         <tr><td colspan="3" style="padding:6px 10px;text-align:right">Envío a domicilio</td>
-            <td style="padding:6px 10px;text-align:right">$${(d.envioCosto).toFixed(2)}</td></tr>` : ''}
+            <td style="padding:6px 10px;text-align:right">$${mailMoney(d.envioCosto)}</td></tr>` : ''}
         <tr><td colspan="3" style="padding:10px;text-align:right;font-weight:700;font-size:16px;border-top:2px solid #0f172a">TOTAL</td>
-            <td style="padding:10px;text-align:right;font-weight:700;font-size:16px;border-top:2px solid #0f172a">$${(d.tipoEntrega === 'domicilio' && d.totalConEnvio != null ? d.totalConEnvio : productsPlusExtra).toFixed(2)}</td></tr>
+            <td style="padding:10px;text-align:right;font-weight:700;font-size:16px;border-top:2px solid #0f172a">$${mailMoney(d.tipoEntrega === 'domicilio' && d.totalConEnvio != null ? d.totalConEnvio : productsPlusExtra)}</td></tr>
       </table>
       <p style="margin-top:16px;color:#94a3b8;font-size:12px">ID del pedido: ${orderId}</p>
     </div>`;
 
-  return db.collection('mail').add({
+  const prefix = force ? 'Reenvío · ' : '';
+  const payload = {
     to: NOTIFY_EMAIL,
     message: {
-      subject: `Nuevo pedido ${d.code} — ${d.name} (${sucLabel})${d.visitaInstitucion ? ' · visita: ' + d.visitaInstitucion : ''}`,
+      subject: `${prefix}Nuevo pedido ${d.code} — ${d.name} (${sucLabel})${d.visitaInstitucion ? ' · visita: ' + d.visitaInstitucion : ''}`,
       html,
-      text: `Nuevo pedido ${d.code} — ${d.name}${d.visitaInstitucion ? ' · visita: ' + d.visitaInstitucion : ''}`
+      text: `${prefix}Nuevo pedido ${d.code} — ${d.name}${d.visitaInstitucion ? ' · visita: ' + d.visitaInstitucion : ''}`
     }
+  };
+  // Reenvío manual: doc nuevo, para que Trigger Email lo procese otra vez.
+  if (force) return db.collection('mail').add(payload);
+  // Mismo id que Cloud Functions: si el servidor ya lo encoló, no se duplica.
+  const ref = db.collection('mail').doc('order-notify-' + orderId);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (snap.exists) return;
+    tx.set(ref, payload);
+  }).catch(async (e) => {
+    const code = String((e && (e.code || e.message)) || '');
+    if (code.indexOf('permission') === -1 && code.indexOf('PERMISSION') === -1) throw e;
+    return db.collection('mail').add(payload);
   });
+  } catch (e) {
+    return Promise.reject(e);
+  }
+}
+
+/** Si el pago ya quedó y el aviso no se encoló, lo manda el navegador. */
+async function retryOrderNotifyFromReturn(orderId) {
+  if (!orderId) return;
+  for (let i = 0; i < 8; i++) {
+    await new Promise(r => setTimeout(r, i === 0 ? 3000 : 2000));
+    let snap;
+    try { snap = await db.collection('pedidos').doc(orderId).get(); }
+    catch (_) { return; }
+    if (!snap.exists) return;
+    const o = snap.data() || {};
+    if (o.mailNotifySent === true) return;
+    const ready = o.metodoPago !== 'tarjeta'
+      || o.paymentStatus === 'paid'
+      || o.paymentStatus === 'credits'
+      || o.creditsFullyPaid === true
+      || (typeof o.totalConEnvio === 'number' && o.totalConEnvio <= 0);
+    if (!ready || i < 3) continue;
+    try {
+      await sendOrderEmail(orderId, o);
+      await snap.ref.update({ mailNotifySent: true, mailNotifyPendientePago: false }).catch(() => {});
+    } catch (e) {
+      console.warn('No se pudo encolar el aviso al volver del pago:', e);
+    }
+    return;
+  }
+}
+
+async function resendOrderNotify(orderId) {
+  if (!orderId) return;
+  try {
+    const snap = await db.collection('pedidos').doc(orderId).get();
+    if (!snap.exists) { showToast('Pedido no encontrado'); return; }
+    await sendOrderEmail(orderId, snap.data() || {}, { force: true });
+    await snap.ref.update({ mailNotifySent: true, mailNotifyPendientePago: false }).catch(() => {});
+    showToast('Aviso reenviado a picosvsupport@gmail.com');
+  } catch (e) {
+    console.warn('resendOrderNotify:', e);
+    showToast('No se pudo reenviar el aviso: ' + ((e && e.message) || 'error'));
+  }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1442,10 +1510,12 @@ async function placeOrder() {
         });
       } catch (e) { console.warn('No se pudo marcar factura/correo pendientes de pago:', e); }
     } else {
-      // Aviso por correo al dueño (no bloquea el pedido si algo falla)
-      sendOrderEmail(docRef.id, mailPayload)
-        .then(() => docRef.update({ mailNotifySent: true, mailNotifyPendientePago: false }).catch(() => {}))
-        .catch(e => console.warn('No se pudo encolar el correo de aviso:', e));
+      try {
+        await sendOrderEmail(docRef.id, mailPayload);
+        await docRef.update({ mailNotifySent: true, mailNotifyPendientePago: false }).catch(() => {});
+      } catch (e) {
+        console.warn('No se pudo encolar el correo de aviso:', e);
+      }
 
       // Factura al instante (efectivo / créditos 100%). Esperar antes de seguir.
       try {

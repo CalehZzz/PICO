@@ -166,17 +166,57 @@ async function ensurePedidoFactura(orderId, orderData) {
 
 const ORDER_NOTIFY_EMAIL = 'picosvsupport@gmail.com';
 
-/** Aviso al equipo: solo una vez por pedido (idempotente con mailNotifySent). */
-async function ensureOrderNotifyEmail(orderId, orderData) {
-  const o = orderData || {};
-  if (o.mailNotifySent === true) return { already: true };
+function isAlreadyExists(err) {
+  if (!err) return false;
+  const code = err.code;
+  if (code === 6 || code === 'already-exists' || code === 'ALREADY_EXISTS') return true;
+  const msg = String(err.message || '');
+  return msg.indexOf('ALREADY_EXISTS') !== -1 || msg.indexOf('already exists') !== -1;
+}
+
+/** Efectivo y créditos avisan al crear. Tarjeta: solo cuando el pago ya quedó. */
+function orderShouldNotify(o) {
+  if (!o || o.status === 'cancelled') return false;
+  if (o.metodoPago === 'tarjeta') {
+    if (o.paymentStatus === 'paid' || o.paymentStatus === 'credits' || o.creditsFullyPaid === true) return true;
+    if (typeof o.totalConEnvio === 'number' && o.totalConEnvio <= 0) return true;
+    return false;
+  }
+  return true;
+}
+
+/** El navegador también encola efectivo/créditos. La función espera para no duplicar. */
+function clientAlsoNotifies(o) {
+  if (!o || o.metodoPago !== 'tarjeta') return true;
+  if (o.paymentStatus === 'credits' || o.creditsFullyPaid === true) return true;
+  if (typeof o.totalConEnvio === 'number' && o.totalConEnvio <= 0 && o.paymentStatus !== 'paid') return true;
+  return false;
+}
+
+/**
+ * Aviso al equipo, una vez por pedido.
+ * El doc mail/order-notify-{id} hace que un reintento no mande otro correo.
+ */
+async function ensureOrderNotifyEmail(orderId) {
   const orderRef = db.collection('pedidos').doc(orderId);
-  // Etiqueta interna de entrega
+  const snap = await orderRef.get();
+  if (!snap.exists) return { missing: true };
+  const o = snap.data() || {};
+  if (o.mailNotifySent === true) return { already: true };
+  if (!orderShouldNotify(o)) return { skipped: true };
+
   let sucLabel = 'Retiro en sucursal';
   if (o.tipoEntrega === 'domicilio') sucLabel = 'Envío a domicilio';
   else if (o.sucursal === 'cdb') sucLabel = 'Colegio Don Bosco';
   else if (o.sucursal === 'udb') sucLabel = 'Universidad Don Bosco';
   else if (o.sucursal === 'exsal') sucLabel = 'EXSAL';
+
+  const cardPaid = o.metodoPago === 'tarjeta' && o.paymentStatus === 'paid';
+  const creditsPaid = o.paymentStatus === 'credits' || o.creditsFullyPaid === true;
+  const pagoLabel = cardPaid ? 'Tarjeta (pagado)'
+    : (creditsPaid ? 'Créditos PICO' : (o.metodoPago === 'efectivo' ? 'Efectivo' : (o.metodoPago || '')));
+  const headline = cardPaid ? 'Pedido pagado' : 'Nuevo pedido';
+  const subline = cardPaid ? ' · pago con tarjeta confirmado' : '';
 
   const extraPinesMail = round2(Math.max(0, Number(o.extraPines) || 0));
   const productsPlusExtra = orderChargeBeforeShip(o);
@@ -195,18 +235,26 @@ async function ensureOrderNotifyEmail(orderId, orderData) {
   }).join('');
 
   const e = o.envio || {};
+  const telRetiro = o.telefonoRetiro || o.cdbTelefono || o.uniTelefono || '';
+  const totalShown = typeof o.totalConEnvio === 'number' ? o.totalConEnvio : productsPlusExtra;
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#0f172a">
-      <h2 style="margin:0 0 4px">Pedido pagado · ${o.code || orderId}</h2>
-      <p style="margin:0 0 16px;color:#64748b">${new Date().toLocaleString('es-SV')} · pago con tarjeta confirmado</p>
+      <h2 style="margin:0 0 4px">${headline} · ${o.code || orderId}</h2>
+      <p style="margin:0 0 16px;color:#64748b">${new Date().toLocaleString('es-SV')}${subline}</p>
       <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
         <tr><td style="padding:4px 0;color:#64748b">Cliente</td><td style="padding:4px 0;font-weight:600">${o.name || ''}</td></tr>
+        ${o.tipoEntrega === 'domicilio' ? '' : `<tr><td style="padding:4px 0;color:#64748b">Grado / Sección</td><td style="padding:4px 0;font-weight:600">${o.grade || ''} - ${o.section || ''}</td></tr>`}
+        ${o.tipoEntrega !== 'domicilio' && telRetiro ? `<tr><td style="padding:4px 0;color:#64748b">Teléfono</td><td style="padding:4px 0;font-weight:600">${telRetiro}</td></tr>` : ''}
         <tr><td style="padding:4px 0;color:#64748b">Entrega</td><td style="padding:4px 0;font-weight:600">${sucLabel}</td></tr>
         ${o.visitaInstitucion ? `<tr><td style="padding:4px 0;color:#64748b">Nos visita desde</td><td style="padding:4px 0;font-weight:700;color:#0071e3">${o.visitaInstitucion}</td></tr>` : ''}
         ${o.tipoEntrega === 'domicilio' ? `
+        <tr><td style="padding:4px 0;color:#64748b">Departamento</td><td style="padding:4px 0;font-weight:600">${e.departamento || ''}</td></tr>
+        <tr><td style="padding:4px 0;color:#64748b">Municipio</td><td style="padding:4px 0;font-weight:600">${e.municipio || ''}</td></tr>
         <tr><td style="padding:4px 0;color:#64748b">Dirección</td><td style="padding:4px 0;font-weight:600">${e.direccion || ''}</td></tr>
-        <tr><td style="padding:4px 0;color:#64748b">Teléfono</td><td style="padding:4px 0;font-weight:600">${e.telefono || ''}</td></tr>` : ''}
-        <tr><td style="padding:4px 0;color:#64748b">Método de pago</td><td style="padding:4px 0;font-weight:600">Tarjeta (pagado)</td></tr>
+        <tr><td style="padding:4px 0;color:#64748b">Teléfono</td><td style="padding:4px 0;font-weight:600">${e.telefono || ''}</td></tr>
+        ${e.referencia ? `<tr><td style="padding:4px 0;color:#64748b">Referencia</td><td style="padding:4px 0;font-weight:600">${e.referencia}</td></tr>` : ''}
+        ${(e.lat != null && e.lng != null) ? `<tr><td style="padding:4px 0;color:#64748b">Pin mapa</td><td style="padding:4px 0;font-weight:600">${e.lat}, ${e.lng}</td></tr>` : ''}` : ''}
+        <tr><td style="padding:4px 0;color:#64748b">Método de pago</td><td style="padding:4px 0;font-weight:600">${pagoLabel}</td></tr>
         ${o.email ? `<tr><td style="padding:4px 0;color:#64748b">Correo cliente</td><td style="padding:4px 0;font-weight:600">${o.email}</td></tr>` : ''}
       </table>
       <table style="width:100%;border-collapse:collapse;font-size:14px">
@@ -224,19 +272,24 @@ async function ensureOrderNotifyEmail(orderId, orderData) {
         <tr><td colspan="3" style="padding:6px 10px;text-align:right">Envío a domicilio</td>
             <td style="padding:6px 10px;text-align:right">$${Number(o.envioCosto).toFixed(2)}</td></tr>` : ''}
         <tr><td colspan="3" style="padding:10px;text-align:right;font-weight:700;font-size:16px;border-top:2px solid #0f172a">TOTAL</td>
-            <td style="padding:10px;text-align:right;font-weight:700;font-size:16px;border-top:2px solid #0f172a">$${(typeof o.totalConEnvio === 'number' ? o.totalConEnvio : productsPlusExtra).toFixed(2)}</td></tr>
+            <td style="padding:10px;text-align:right;font-weight:700;font-size:16px;border-top:2px solid #0f172a">$${Number(totalShown).toFixed(2)}</td></tr>
       </table>
       <p style="margin-top:16px;color:#94a3b8;font-size:12px">ID del pedido: ${orderId}</p>
     </div>`;
 
-  await db.collection('mail').add({
-    to: ORDER_NOTIFY_EMAIL,
-    message: {
-      subject: `Pedido pagado ${o.code || ''} — ${o.name || ''} (${sucLabel})`,
-      html,
-      text: `Pedido pagado ${o.code || orderId} — ${o.name || ''}`
-    }
-  });
+  const mailRef = db.collection('mail').doc('order-notify-' + orderId);
+  try {
+    await mailRef.create({
+      to: ORDER_NOTIFY_EMAIL,
+      message: {
+        subject: `${headline} ${o.code || ''} — ${o.name || ''} (${sucLabel})`,
+        html,
+        text: `${headline} ${o.code || orderId} — ${o.name || ''} (${pagoLabel})`
+      }
+    });
+  } catch (err) {
+    if (!isAlreadyExists(err)) throw err;
+  }
   await orderRef.update({
     mailNotifySent: true,
     mailNotifyPendientePago: false
@@ -505,8 +558,11 @@ async function recordCardPaymentStats(orderId, wompiTxId) {
     });
   });
 
-  // Factura + correos diferidos (tarjeta): se crean/envían SOLO al confirmar el pago.
-  // Idempotente. No altera la lógica de stats (ya registrada arriba).
+  // El aviso al equipo va ANTES de la factura: si armar la factura falla,
+  // el correo a soporte igual se encola. Idempotente por mail/order-notify-{id}.
+  try { await ensureOrderNotifyEmail(orderId); }
+  catch (e) { console.warn('ensureOrderNotifyEmail falló para', orderId, e && e.message); }
+
   try {
     const fresh = await orderRef.get();
     if (fresh.exists) {
@@ -514,13 +570,11 @@ async function recordCardPaymentStats(orderId, wompiTxId) {
       const fac = await ensurePedidoFactura(orderId, data);
       const afterFac = (await orderRef.get()).data() || data;
       const num = (fac && fac.facturaNum) || afterFac.facturaNum || null;
-      try { await ensureOrderNotifyEmail(orderId, afterFac); }
-      catch (e) { console.warn('ensureOrderNotifyEmail falló para', orderId, e && e.message); }
       try { await ensureFacturaClienteEmail(orderId, afterFac, num); }
       catch (e) { console.warn('ensureFacturaClienteEmail falló para', orderId, e && e.message); }
     }
   } catch (e) {
-    console.warn('ensurePedidoFactura/correos falló para', orderId, e && e.message);
+    console.warn('ensurePedidoFactura/correo cliente falló para', orderId, e && e.message);
   }
 
   console.log('Estadísticas registradas para pedido', orderId);
@@ -836,7 +890,14 @@ exports.confirmWompiOnAck = functions
 
     if (after.metodoPago !== 'tarjeta') return null;
     if (after.paymentReturnAck !== true) return null;
-    if (after.paymentStatus === 'paid' || after.statsRecorded === true) return null;
+    // El pago ya quedó registrado, pero el aviso a soporte se perdió: reintentar.
+    if (after.paymentStatus === 'paid' || after.statsRecorded === true) {
+      if (after.mailNotifySent !== true) {
+        try { await ensureOrderNotifyEmail(orderId); }
+        catch (e) { console.warn('ensureOrderNotifyEmail (ack) falló para', orderId, e && e.message); }
+      }
+      return null;
+    }
     if (!after.wompiTxId) {
       console.warn('Pedido sin wompiTxId, no se puede verificar:', orderId);
       return null;
@@ -856,6 +917,40 @@ exports.confirmWompiOnAck = functions
       await recordCardPaymentStats(orderId, after.wompiTxId);
     } catch (err) {
       console.error('Error verificando/registrando pago (respaldo) del pedido', orderId, err.status || err);
+    }
+    return null;
+  });
+
+// ════════════════════════════════════════════════════════════════
+//  Respaldo del aviso a picosvsupport@gmail.com
+//  Efectivo/créditos: el navegador lo encola; si a los 12s sigue sin
+//  mailNotifySent, lo encola el servidor. Tarjeta: al pasar a pagado.
+//  No reacciona a cambios posteriores (rastreo, entrega) para no
+//  reenviar pedidos viejos que nunca tuvieron el flag.
+// ════════════════════════════════════════════════════════════════
+exports.syncOrderNotifyEmail = functions.firestore
+  .document('pedidos/{orderId}')
+  .onWrite(async (change, context) => {
+    if (!change.after.exists) return null;
+    const after = change.after.data() || {};
+    const orderId = context.params.orderId;
+    if (after.mailNotifySent === true) return null;
+    if (!orderShouldNotify(after)) return null;
+
+    const before = change.before.exists ? (change.before.data() || {}) : null;
+    const becameNotifiable = !before || !orderShouldNotify(before);
+    if (!becameNotifiable) return null;
+
+    try {
+      if (clientAlsoNotifies(after)) {
+        await new Promise(r => setTimeout(r, 12000));
+        const fresh = await db.collection('pedidos').doc(orderId).get();
+        const o = fresh.exists ? (fresh.data() || {}) : null;
+        if (!o || o.mailNotifySent === true || !orderShouldNotify(o)) return null;
+      }
+      await ensureOrderNotifyEmail(orderId);
+    } catch (e) {
+      console.error('syncOrderNotifyEmail falló para', orderId, e && e.message);
     }
     return null;
   });
