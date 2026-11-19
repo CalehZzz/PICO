@@ -1404,6 +1404,10 @@ function showOrderDetail(firestoreId) {
         : ` · ${(typeof sucursalInternalLabel === 'function') ? sucursalInternalLabel(o.sucursal) : 'Retiro'}${(o.grade || o.section) ? ` (${o.grade || ''} – ${o.section || ''})` : ''}${(o.uniTelefono || o.cdbTelefono) ? ` · ${o.uniTelefono || o.cdbTelefono}` : ''}`}<br>
       ${fmtDate(o.createdAt)}
     </div>
+    <div class="odetail-track-hint" style="margin:0 0 12px">
+      Aviso a picosvsupport: <b>${o.mailNotifySent === true ? 'encolado' : ((o.metodoPago === 'tarjeta' && o.paymentStatus !== 'paid' && o.paymentStatus !== 'credits' && !o.creditsFullyPaid) ? 'espera confirmación de la tarjeta' : 'no se encoló')}</b>
+      <button type="button" class="odetail-confirm-btn" style="width:auto;padding:6px 12px;margin-left:8px;font-size:.75rem" onclick="resendOrderNotify('${firestoreId}')">Reenviar aviso</button>
+    </div>
     ${domicilioBlock}
     ${pickupPayBlock}
     <div class="odetail-list">${items}</div>

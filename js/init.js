@@ -57,6 +57,7 @@ try {
       } else if (firebase.auth) {
         const off = firebase.auth().onAuthStateChanged(u => { if (u) { off(); doAck(); } });
       }
+      if (typeof retryOrderNotifyFromReturn === 'function') retryOrderNotifyFromReturn(order);
       // Mostrar al cliente la confirmación del pago (con su código de seguimiento)
       showPaymentConfirmed(order);
     } else if (aprobada === 'false' || pago === 'cancel') {
