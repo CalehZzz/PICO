@@ -8,25 +8,151 @@
 function stockClass(s) { return s === 0 ? 'stock-none' : s <= 5 ? 'stock-low' : 'stock-ok'; }
 function stockLabel(s) { return s === 0 ? 'Sin stock'  : s <= 5 ? `Pocas (${s})` : `${s} disp.`; }
 
-/** Texto buscable de un producto (incluye colores embebidos y etiquetas legado). */
-function _productSearchHay(p) {
+// Búsqueda local (sin API de pago): ignora tildes, junta o separa palabras
+// ("porta fusibles" = "portafusibles") y rankea el nombre muy por encima
+// de una mención suelta en la descripción.
+function _searchFold(s) {
+  return String(s == null ? '' : s)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function _searchSoften(compact) {
+  // Plural sencillo: leds ≈ led, portafusibles ≈ portafusible.
+  if (compact.length >= 4 && compact.endsWith('s') && !compact.endsWith('ss')) {
+    return compact.slice(0, -1);
+  }
+  return compact;
+}
+function _parseSearchQuery(raw) {
+  const folded = _searchFold(raw);
+  const compact = folded.replace(/ /g, '');
+  return {
+    folded: folded,
+    compact: compact,
+    soft: _searchSoften(compact),
+    tokens: folded ? folded.split(' ') : []
+  };
+}
+function _foldCached(obj, key, raw) {
+  const srcKey = '_sf' + key;
+  const valKey = '_sv' + key;
+  const text = raw == null ? '' : String(raw);
+  if (obj[srcKey] === text && obj[valKey]) return obj[valKey];
+  const folded = _searchFold(text);
+  const rec = { folded: folded, compact: folded.replace(/ /g, '') };
+  obj[srcKey] = text;
+  obj[valKey] = rec;
+  return rec;
+}
+function _hasWord(folded, token) {
+  if (!token) return false;
+  return (' ' + folded + ' ').indexOf(' ' + token + ' ') !== -1;
+}
+/** Una sola edición, incluido un par de letras cambiadas de lugar (ardunio ≈ arduino). */
+function _within1(a, b) {
+  if (a === b) return true;
+  const la = a.length;
+  const lb = b.length;
+  if (Math.abs(la - lb) > 1) return false;
+  let i = 0;
+  let j = 0;
+  let edits = 0;
+  while (i < la && j < lb) {
+    if (a.charAt(i) === b.charAt(j)) { i++; j++; continue; }
+    if (edits) return false;
+    edits = 1;
+    if (la === lb && i + 1 < la && j + 1 < lb &&
+        a.charAt(i) === b.charAt(j + 1) && a.charAt(i + 1) === b.charAt(j)) {
+      i += 2;
+      j += 2;
+      continue;
+    }
+    if (la === lb) { i++; j++; }
+    else if (la > lb) i++;
+    else j++;
+  }
+  if (i < la || j < lb) {
+    if (edits) return false;
+  }
+  return true;
+}
+function _tokenInField(field, tok, fuzzy) {
+  if (!tok) return false;
+  const soft = _searchSoften(tok);
+  if (field.folded.indexOf(tok) !== -1 || field.compact.indexOf(tok) !== -1) return true;
+  if (soft !== tok && (field.folded.indexOf(soft) !== -1 || field.compact.indexOf(soft) !== -1)) return true;
+  if (!fuzzy || tok.length < 5) return false;
+  const words = field.folded.split(' ');
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    if (w.length < 4 || w.charAt(0) !== tok.charAt(0)) continue;
+    if (_within1(tok, w) || (soft !== tok && _within1(soft, w))) return true;
+  }
+  return false;
+}
+/**
+ * 0–100 según qué tan literal es el match en un campo.
+ * allowFuzzy: solo nombre y etiquetas (un typo no debe encender toda la descripción).
+ */
+function _fieldScore(field, q, allowFuzzy) {
+  if (!q.compact || !field || !field.compact) return 0;
+  let best = 0;
+  if (field.folded === q.folded) best = 100;
+  else if (field.folded.startsWith(q.folded + ' ')) best = 96;
+  else if (field.folded.startsWith(q.folded)) best = 88;
+  else if (field.compact.indexOf(q.compact) !== -1) best = 74;
+  else if (q.soft !== q.compact && field.compact.indexOf(q.soft) !== -1) best = 70;
+  else if (q.tokens.length && q.tokens.every(function (t) { return _tokenInField(field, t, false); })) best = 58;
+  else if (allowFuzzy && q.tokens.length && q.tokens.every(function (t) { return _tokenInField(field, t, true); })) best = 42;
+  else return 0;
+  // Palabra completa dentro del texto, sin superar a un nombre que empieza por la búsqueda.
+  if (best <= 74 && q.tokens.every(function (t) {
+    return _hasWord(field.folded, t) || _hasWord(field.folded, _searchSoften(t));
+  })) best += 6;
+  return best;
+}
+function _productSearchFields(p) {
   const colorHay = (p.groupColors || [])
     .map(c => [c.label || '', c.color || ''].join(' '))
     .join(' ');
-  return [
-    p.name, p.cat, p.desc || '',
-    p.variantLabel || '', p.groupName || '', p.variantColor || '',
-    colorHay
-  ].join(' ').toLowerCase();
+  const labels = [p.variantLabel || '', p.groupName || '', p.variantColor || '', colorHay].join(' ');
+  return {
+    name: _foldCached(p, 'name', p.name || ''),
+    cat: _foldCached(p, 'cat', p.cat || ''),
+    desc: _foldCached(p, 'desc', p.desc || ''),
+    labels: _foldCached(p, 'labels', labels)
+  };
 }
-function _productMatchesSearch(p, q) {
-  if (!q) return true;
-  return _productSearchHay(p).includes(q);
+function _scoreFields(fields, q) {
+  const name = _fieldScore(fields.name, q, true);
+  const labels = _fieldScore(fields.labels, q, true);
+  const cat = _fieldScore(fields.cat, q, false);
+  const desc = _fieldScore(fields.desc, q, false);
+  if (!(name || labels || cat || desc)) return 0;
+  // Bandas que no se cruzan: el nombre siempre gana a una mención en la descripción.
+  return name * 100 + labels * 40 + cat * 12 + desc;
 }
-function _groupMatchesSearch(g, q) {
-  if (!q) return true;
-  if ((g.name || '').toLowerCase().includes(q) || (g.cat || '').toLowerCase().includes(q)) return true;
-  return (g.variants || []).some(v => _productMatchesSearch(v, q));
+function _scoreProduct(p, q) {
+  if (!p) return 0;
+  return _scoreFields(_productSearchFields(p), q);
+}
+function _scoreGroup(g, q) {
+  let best = _scoreFields({
+    name: _foldCached(g, 'name', g.name || ''),
+    cat: _foldCached(g, 'cat', g.cat || ''),
+    desc: _foldCached(g, 'desc', ''),
+    labels: _foldCached(g, 'labels', '')
+  }, q);
+  const vars = g.variants || [];
+  for (let i = 0; i < vars.length; i++) {
+    const s = _scoreProduct(vars[i], q);
+    if (s > best) best = s;
+  }
+  return best;
 }
 function _variantIsEnabled(v) {
   return v && v.variantEnabled !== false;
@@ -108,8 +234,8 @@ function _itemSortKey(item) {
  * - En búsqueda tampoco se listan variantes sueltas: solo el grupo / raíz.
  */
 function _buildCatalogItems() {
-  const q = (currentSearch || '').trim();
-  const searching = q.length > 0;
+  const parsed = _parseSearchQuery(currentSearch);
+  const searching = parsed.compact.length > 0;
   const items = [];
 
   const inCat = (cat) => currentCat === 'Todos' || cat === currentCat;
@@ -121,8 +247,13 @@ function _buildCatalogItems() {
     if (!g || !_groupEnabledVariants(g).length) return;
     if (!inCat(g.cat)) return;
     if (!groupHasOffer(g)) return;
-    if (searching && !_groupMatchesSearch(g, q)) return;
-    items.push({ type: 'group', group: g });
+    if (searching) {
+      const rel = _scoreGroup(g, parsed);
+      if (!rel) return;
+      items.push({ type: 'group', group: g, _rel: rel });
+    } else {
+      items.push({ type: 'group', group: g });
+    }
   });
 
   (products || []).forEach(p => {
@@ -130,15 +261,30 @@ function _buildCatalogItems() {
     if (p.groupId && productGroups[p.groupId]) return;
     if (!inCat(p.cat)) return;
     if (!prodHasOffer(p)) return;
-    if (searching && !_productMatchesSearch(p, q)) return;
-    items.push({ type: 'product', product: p });
+    if (searching) {
+      const rel = _scoreProduct(p, parsed);
+      if (!rel) return;
+      items.push({ type: 'product', product: p, _rel: rel });
+    } else {
+      items.push({ type: 'product', product: p });
+    }
   });
 
-  items.sort((a, b) => {
-    const ka = _itemSortKey(a), kb = _itemSortKey(b);
-    if (ka.orden !== kb.orden) return ka.orden - kb.orden;
-    return kb.pop - ka.pop || ka.name.localeCompare(kb.name, 'es');
-  });
+  if (searching) {
+    // Al buscar, la relevancia manda. El orden manual del catálogo empujaba
+    // el producto real hasta abajo aunque el nombre sí coincidiera.
+    items.sort((a, b) => {
+      if (b._rel !== a._rel) return b._rel - a._rel;
+      const ka = _itemSortKey(a), kb = _itemSortKey(b);
+      return kb.pop - ka.pop || ka.name.localeCompare(kb.name, 'es');
+    });
+  } else {
+    items.sort((a, b) => {
+      const ka = _itemSortKey(a), kb = _itemSortKey(b);
+      if (ka.orden !== kb.orden) return ka.orden - kb.orden;
+      return kb.pop - ka.pop || ka.name.localeCompare(kb.name, 'es');
+    });
+  }
   return items;
 }
 
@@ -448,7 +594,7 @@ function buildCategoryFilter() {
   const items = ['Todos', ...cats];
   menu.innerHTML = items.map(c => {
     const safe = _pdEsc(c).replace(/'/g, "\\'");
-    return `<button class="filter-item ${c === currentCat ? 'active' : ''}" type="button" role="menuitemradio" onclick="filterCat('${safe}',this)">${_pdEsc(c)}${check}</button>`;
+    return `<button class="filter-item ${c === currentCat ? 'active' : ''}" type="button" role="menuitemradio" onclick="filterCat('${safe}',this)"><span class="filter-item-label">${_pdEsc(c)}</span>${check}</button>`;
   }).join('');
   const label = document.getElementById('filterBtnLabel');
   if (label) label.textContent = (currentCat === 'Todos') ? 'Filtrar por' : currentCat;
@@ -477,6 +623,17 @@ function toggleFilterMenu(e) {
   const open = dd.classList.toggle('open');
   const btn = document.getElementById('filterBtn');
   if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (!open) return;
+  const menu = document.getElementById('filterMenu');
+  const active = menu && menu.querySelector('.filter-item.active');
+  if (!menu || !active) return;
+  // Dejar la categoría elegida a la vista sin mover el scroll de la página.
+  const top = active.offsetTop;
+  const bottom = top + active.offsetHeight;
+  if (top < menu.scrollTop) menu.scrollTop = top - 8;
+  else if (bottom > menu.scrollTop + menu.clientHeight) {
+    menu.scrollTop = bottom - menu.clientHeight + 8;
+  }
 }
 function closeFilterMenu() {
   const dd = document.getElementById('filterDropdown');
@@ -491,7 +648,8 @@ document.addEventListener('click', function (e) {
 });
 
 function filterProducts() {
-  currentSearch = document.getElementById('searchInput').value.toLowerCase();
+  const el = document.getElementById('searchInput');
+  currentSearch = el ? el.value : '';
   renderProducts();
 }
 

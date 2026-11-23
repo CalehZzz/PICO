@@ -176,15 +176,18 @@ nav{position:sticky;top:12px;z-index:200;
 .filter-menu{position:absolute;top:calc(100% + 10px);left:0;z-index:60;
   background:#fff;border:1px solid rgba(17,24,39,.08);border-radius:20px;box-shadow:var(--sh3);
   padding:8px;min-width:232px;display:flex;flex-direction:column;gap:2px;
+  /* 4 filas de 42px + padding + gaps. Lo demás se recorre. */
+  max-height:192px;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;
   opacity:0;visibility:hidden;transform:translateY(-8px) scale(.97);transform-origin:top left;
   transition:opacity .2s var(--ease),transform .28s var(--spring),visibility .2s}
 .filter-dd.open .filter-menu{opacity:1;visibility:visible;transform:translateY(0) scale(1)}
 .filter-item{display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left;
-  padding:11px 14px;border:none;border-radius:13px;background:transparent;color:var(--g700);
+  flex-shrink:0;height:42px;padding:0 14px;border:none;border-radius:13px;background:transparent;color:var(--g700);
   font-family:var(--font);font-size:.85rem;font-weight:600;cursor:pointer;transition:background .16s,color .16s}
+.filter-item-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .filter-item:hover{background:rgba(0,113,227,.08);color:var(--b600)}
 .filter-item.active{background:rgba(0,113,227,.1);color:var(--b600);font-weight:700}
-.filter-item .filter-check{opacity:0;color:var(--b600);transform:scale(.6);transition:opacity .16s,transform .2s var(--spring)}
+.filter-item .filter-check{flex-shrink:0;opacity:0;color:var(--b600);transform:scale(.6);transition:opacity .16s,transform .2s var(--spring)}
 .filter-item.active .filter-check{opacity:1;transform:scale(1)}
 
 /* ── BOTÓN DESCUENTOS (glow suave + feedback jugoso) ── */
